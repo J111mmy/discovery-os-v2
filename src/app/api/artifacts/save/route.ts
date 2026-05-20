@@ -1,0 +1,100 @@
+import { getProjectForUser } from "@/lib/auth/org";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+
+const SaveArtifactSchema = z.object({
+  artifact_id: z.string().uuid().optional().nullable(),
+  project_id: z.string().uuid(),
+  title: z.string().min(1).max(255),
+  prompt: z.string().min(1),
+  content_md: z.string().min(1),
+  type: z
+    .enum(["prd", "brief", "persona", "opportunity", "gtm", "interview_guide", "report", "other"])
+    .optional()
+    .default("other"),
+  model_used: z.string().optional().nullable(),
+  task_tier: z.enum(["cheap", "standard", "premium", "eval"]).optional().nullable(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+function wordCount(markdown: string) {
+  return markdown.trim().split(/\s+/).filter(Boolean).length;
+}
+
+export async function POST(req: NextRequest) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const parsed = SaveArtifactSchema.safeParse(await req.json());
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  }
+
+  const body = parsed.data;
+  const project = await getProjectForUser<{ id: string; org_id: string }>(
+    user.id,
+    body.project_id,
+    "id, org_id"
+  );
+
+  if (!project) {
+    return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  }
+
+  const service = createServiceClient();
+  let version = 1;
+
+  if (body.artifact_id) {
+    const { data: existing } = await service
+      .from("artifacts")
+      .select("id, org_id, project_id, version")
+      .eq("org_id", project.org_id)
+      .eq("project_id", project.id)
+      .eq("id", body.artifact_id)
+      .single();
+
+    if (!existing) {
+      return NextResponse.json({ error: "Artifact not found" }, { status: 404 });
+    }
+
+    version = existing.version + 1;
+  }
+
+  const payload = {
+    ...(body.artifact_id ? { id: body.artifact_id } : {}),
+    org_id: project.org_id,
+    project_id: project.id,
+    type: body.type,
+    title: body.title,
+    prompt: body.prompt,
+    content_md: body.content_md,
+    version,
+    word_count: wordCount(body.content_md),
+    model_used: body.model_used ?? null,
+    task_tier: body.task_tier ?? null,
+    metadata: body.metadata ?? {},
+    created_by: user.id,
+  };
+
+  const { data: artifact, error } = await service
+    .from("artifacts")
+    .upsert(payload, { onConflict: "id" })
+    .select("id, org_id, project_id, title, version, updated_at")
+    .eq("org_id", project.org_id)
+    .eq("project_id", project.id)
+    .single();
+
+  if (error || !artifact) {
+    return NextResponse.json({ error: error?.message ?? "Failed to save artifact" }, { status: 500 });
+  }
+
+  return NextResponse.json({ artifact });
+}
