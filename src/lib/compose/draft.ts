@@ -101,17 +101,14 @@ export async function composeDraft(
 ): Promise<ComposeDraftResponse> {
   const { org_id, project_id, prompt, limit = 18 } = req;
 
-  // Load project context and evidence in parallel
-  const [project, evidence] = await Promise.all([
-    getProjectContext(org_id, project_id),
-    dualQueryEvidence({
-      org_id,
-      project_id,
-      project_name: "", // will be filled after project loads — acceptable two-step
-      prompt,
-      limit,
-    }),
-  ]);
+  const project = await getProjectContext(org_id, project_id);
+  const evidence = await dualQueryEvidence({
+    org_id,
+    project_id,
+    project_name: project.name,
+    prompt,
+    limit,
+  });
 
   const persona = detectExpertPersona(prompt);
   const systemPrompt = buildSystemPrompt(persona, project, evidence.length);

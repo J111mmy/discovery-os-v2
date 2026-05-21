@@ -8,7 +8,7 @@ export interface EvidenceQueryOptions {
   project_id: string;
   q: string;
   limit?: number;
-  trust_scope?: TrustScope | "include_pending";
+  trust_scope?: TrustScope | "include_pending" | "all";
 }
 
 export interface EvidenceQueryResult {
@@ -29,6 +29,8 @@ export async function queryEvidence(
   const trustFilter =
     trust_scope === "include_pending"
       ? ["trusted", "pending"]
+      : trust_scope === "all"
+      ? ["trusted", "pending", "disputed", "excluded"]
       : [trust_scope];
 
   // pgvector cosine similarity — ALWAYS filter by org_id first
@@ -44,6 +46,9 @@ export async function queryEvidence(
 
   const records = (data ?? []) as EvidenceRecord[];
   const sourceIds = Array.from(new Set(records.map((record) => record.source_id).filter(Boolean)));
+  const segmentIds = Array.from(
+    new Set(records.map((record) => record.segment_id).filter(Boolean))
+  ) as string[];
 
   if (sourceIds.length > 0) {
     const { data: sources } = await supabase
@@ -66,6 +71,29 @@ export async function queryEvidence(
     });
   }
 
+  if (segmentIds.length > 0) {
+    const { data: segments } = await supabase
+      .from("source_segments")
+      .select("id, org_id, speaker, segment_index")
+      .eq("org_id", org_id)
+      .in("id", segmentIds);
+
+    const segmentRows = (segments ?? []) as Array<{
+      id: string;
+      speaker: string | null;
+      segment_index: number;
+    }>;
+    const segmentById = new Map(segmentRows.map((segment) => [segment.id, segment]));
+
+    records.forEach((record) => {
+      const segment = record.segment_id ? segmentById.get(record.segment_id) : null;
+      if (segment) {
+        record.segment_speaker = segment.speaker;
+        record.segment_index = segment.segment_index;
+      }
+    });
+  }
+
   return { records, query: q };
 }
 
@@ -81,8 +109,8 @@ export async function dualQueryEvidence(opts: {
   const { org_id, project_id, project_name, prompt, limit = 18 } = opts;
 
   const [semantic, broad] = await Promise.all([
-    queryEvidence({ org_id, project_id, q: prompt, limit, trust_scope: "include_pending" }),
-    queryEvidence({ org_id, project_id, q: project_name, limit: 10, trust_scope: "include_pending" }),
+    queryEvidence({ org_id, project_id, q: prompt, limit, trust_scope: "trusted" }),
+    queryEvidence({ org_id, project_id, q: project_name, limit: 10, trust_scope: "trusted" }),
   ]);
 
   const seen = new Set<string>();

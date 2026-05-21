@@ -96,13 +96,28 @@ export default async function ProjectPage({ params }: Props) {
           <div className="text-2xl font-semibold text-yellow-300">{pendingCount ?? 0}</div>
           <div className="mt-1 text-sm text-[var(--ink-muted)]">Pending review</div>
         </div>
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+        <Link
+          href={`/projects/${project.id}/documents`}
+          className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5 transition-colors hover:border-[var(--brand)]"
+        >
           <div className="text-2xl font-semibold text-[var(--ink)]">{artifactCount ?? 0}</div>
-          <div className="mt-1 text-sm text-[var(--ink-muted)]">Artifacts</div>
-        </div>
+          <div className="mt-1 text-sm text-[var(--ink-muted)]">Documents</div>
+        </Link>
       </div>
 
-      <div className="mb-8 grid gap-3 lg:grid-cols-3">
+      {!project.frame?.trim() && (
+        <Link
+          href={`/projects/${project.id}/settings`}
+          className="mb-8 block rounded-xl border border-[var(--brand)] bg-[var(--surface-1)] p-5 text-[var(--ink)] transition-colors hover:bg-[var(--surface-2)]"
+        >
+          <div className="text-sm font-semibold">Add a Project Frame to improve compose quality →</div>
+          <div className="mt-2 text-sm leading-6 text-[var(--ink-muted)]">
+            Give drafts a clearer north star, audience, and decision context.
+          </div>
+        </Link>
+      )}
+
+      <div className="mb-8 grid gap-3 lg:grid-cols-4">
         <Link
           href={`/projects/${project.id}/evidence`}
           className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5 text-[var(--ink)] transition-colors hover:border-[var(--brand)]"
@@ -110,6 +125,15 @@ export default async function ProjectPage({ params }: Props) {
           <div className="text-sm font-semibold">Review evidence</div>
           <div className="mt-2 text-sm leading-6 text-[var(--ink-muted)]">
             Search, inspect, and trust source-backed claims.
+          </div>
+        </Link>
+        <Link
+          href={`/projects/${project.id}/sources`}
+          className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5 text-[var(--ink)] transition-colors hover:border-[var(--brand)]"
+        >
+          <div className="text-sm font-semibold">Manage sources</div>
+          <div className="mt-2 text-sm leading-6 text-[var(--ink-muted)]">
+            View segments, retry ingest, and remove source material.
           </div>
         </Link>
         <Link
@@ -138,6 +162,12 @@ export default async function ProjectPage({ params }: Props) {
             <h2 className="text-sm font-semibold text-[var(--ink)]">Recent sources</h2>
             <p className="mt-1 text-xs text-[var(--ink-muted)]">Latest raw inputs added to this workspace</p>
           </div>
+          <Link
+            href={`/projects/${project.id}/sources`}
+            className="text-xs font-medium text-[var(--ink-muted)] transition-colors hover:text-[var(--brand)]"
+          >
+            View all
+          </Link>
         </div>
         {sources && sources.length > 0 && (
           <div className="divide-y divide-[var(--border)]">

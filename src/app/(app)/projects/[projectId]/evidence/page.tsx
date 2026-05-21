@@ -20,6 +20,9 @@ async function getRecentEvidence(orgId: string, projectId: string): Promise<Evid
 
   const records = (evidence ?? []) as EvidenceRecord[];
   const sourceIds = Array.from(new Set(records.map((record) => record.source_id)));
+  const segmentIds = Array.from(
+    new Set(records.map((record) => record.segment_id).filter(Boolean))
+  ) as string[];
 
   if (sourceIds.length > 0) {
     const { data: sources } = await supabase
@@ -44,6 +47,29 @@ async function getRecentEvidence(orgId: string, projectId: string): Promise<Evid
     });
   }
 
+  if (segmentIds.length > 0) {
+    const { data: segments } = await supabase
+      .from("source_segments")
+      .select("id, org_id, speaker, segment_index")
+      .eq("org_id", orgId)
+      .in("id", segmentIds);
+
+    const segmentById = new Map(
+      (segments ?? []).map((segment: { id: string; speaker: string | null; segment_index: number }) => [
+        segment.id,
+        segment,
+      ])
+    );
+
+    records.forEach((record) => {
+      const segment = record.segment_id ? segmentById.get(record.segment_id) : null;
+      if (segment) {
+        record.segment_speaker = segment.speaker;
+        record.segment_index = segment.segment_index;
+      }
+    });
+  }
+
   return records;
 }
 
@@ -63,7 +89,21 @@ export default async function EvidencePage({ params }: Props) {
 
   if (!project) notFound();
 
-  const records = await getRecentEvidence(project.org_id, project.id);
+  const [{ count: pendingCount }, { count: trustedCount }, records] = await Promise.all([
+    supabase
+      .from("evidence")
+      .select("*", { count: "exact", head: true })
+      .eq("org_id", project.org_id)
+      .eq("project_id", project.id)
+      .eq("trust_scope", "pending"),
+    supabase
+      .from("evidence")
+      .select("*", { count: "exact", head: true })
+      .eq("org_id", project.org_id)
+      .eq("project_id", project.id)
+      .eq("trust_scope", "trusted"),
+    getRecentEvidence(project.org_id, project.id),
+  ]);
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -79,7 +119,12 @@ export default async function EvidencePage({ params }: Props) {
         </div>
       </div>
 
-      <EvidenceBrowser projectId={project.id} initialRecords={records} />
+      <EvidenceBrowser
+        projectId={project.id}
+        initialRecords={records}
+        pendingCount={pendingCount ?? 0}
+        trustedCount={trustedCount ?? 0}
+      />
     </div>
   );
 }

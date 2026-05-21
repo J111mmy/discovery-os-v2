@@ -5,9 +5,37 @@ import { ComposeEditor } from "./compose-editor";
 
 interface Props {
   params: { projectId: string };
+  searchParams?: { artifactId?: string };
 }
 
-export default async function ComposePage({ params }: Props) {
+function parseMarkdownArtifact(markdown: string) {
+  const lines = markdown.split("\n");
+  const titleLine = lines.find((line) => line.startsWith("# "));
+  const title = titleLine ? titleLine.replace(/^#\s+/, "").trim() : "Untitled";
+  const sections: Array<{ heading: string; content: string }> = [];
+  let currentHeading = "";
+  let currentContent: string[] = [];
+
+  for (const line of lines) {
+    if (line.startsWith("## ")) {
+      if (currentHeading) {
+        sections.push({ heading: currentHeading, content: currentContent.join("\n").trim() });
+      }
+      currentHeading = line.replace(/^##\s+/, "").trim();
+      currentContent = [];
+    } else if (!line.startsWith("# ")) {
+      currentContent.push(line);
+    }
+  }
+
+  if (currentHeading) {
+    sections.push({ heading: currentHeading, content: currentContent.join("\n").trim() });
+  }
+
+  return { title, sections };
+}
+
+export default async function ComposePage({ params, searchParams }: Props) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -23,6 +51,33 @@ export default async function ComposePage({ params }: Props) {
 
   if (!project) notFound();
 
+  let initialDraft = null;
+
+  if (searchParams?.artifactId) {
+    const { data: artifact } = await supabase
+      .from("artifacts")
+      .select("id, org_id, project_id, type, title, prompt, content_md, model_used, task_tier, metadata")
+      .eq("org_id", project.org_id)
+      .eq("project_id", project.id)
+      .eq("id", searchParams.artifactId)
+      .single();
+
+    if (artifact) {
+      const parsed = parseMarkdownArtifact(artifact.content_md ?? "");
+      const metadata = (artifact.metadata ?? {}) as { evidence_ids?: string[] };
+      initialDraft = {
+        artifactId: artifact.id,
+        title: parsed.title || artifact.title,
+        prompt: artifact.prompt,
+        sections: parsed.sections,
+        modelUsed: artifact.model_used,
+        taskTier: artifact.task_tier,
+        artifactType: artifact.type,
+        evidenceIds: Array.isArray(metadata.evidence_ids) ? metadata.evidence_ids : [],
+      };
+    }
+  }
+
   return (
     <div className="mx-auto max-w-6xl">
       <div className="mb-8">
@@ -35,7 +90,7 @@ export default async function ComposePage({ params }: Props) {
         </p>
       </div>
 
-      <ComposeEditor projectId={project.id} />
+      <ComposeEditor projectId={project.id} initialDraft={initialDraft} />
     </div>
   );
 }

@@ -12,9 +12,13 @@ interface ProjectSidebarProps {
 const navItems = [
   { href: "", label: "Workspace" },
   { href: "evidence", label: "Evidence" },
+  { href: "sources", label: "Sources" },
   { href: "compose", label: "Compose" },
+  { href: "documents", label: "Documents" },
   { href: "ingest", label: "Add Evidence" },
 ];
+
+const secondaryNavItems = [{ href: "settings", label: "Settings" }];
 
 export function ProjectSidebar({
   projectId,
@@ -48,13 +52,33 @@ export function ProjectSidebar({
       <nav className="flex flex-1 flex-col gap-1 p-3">
         {navItems.map((item) => {
           const href = item.href ? `${basePath}/${item.href}` : basePath;
-          const isActive = pathname === href;
+          const isActive = item.href ? pathname.startsWith(href) : pathname === href;
 
           return (
             <Link
               key={item.label}
               href={href}
               className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                isActive
+                  ? "bg-[var(--brand)] text-white"
+                  : "text-[var(--ink-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"
+              }`}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
+      <nav className="border-t border-[var(--border)] p-3">
+        {secondaryNavItems.map((item) => {
+          const href = `${basePath}/${item.href}`;
+          const isActive = pathname.startsWith(href);
+
+          return (
+            <Link
+              key={item.label}
+              href={href}
+              className={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                 isActive
                   ? "bg-[var(--brand)] text-white"
                   : "text-[var(--ink-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"

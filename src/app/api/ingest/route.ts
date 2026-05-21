@@ -1,7 +1,7 @@
 // POST /api/ingest
 // Creates a source record and fires the ingest Inngest event
 import { NextRequest, NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { getProjectForUser } from "@/lib/auth/org";
 import { inngest } from "@/lib/inngest/client";
 import { z } from "zod";
@@ -43,10 +43,9 @@ export async function POST(req: NextRequest) {
   }
 
   const org_id = project.org_id;
-  const service = createServiceClient();
 
   // Create source record — raw_text stored in metadata for Phase 1
-  const { data: source, error: sourceError } = await service
+  const { data: source, error: sourceError } = await supabase
     .from("sources")
     .insert({
       org_id,
@@ -66,7 +65,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Create ingest job record
-  const { data: job } = await service
+  const { data: job } = await supabase
     .from("ingest_jobs")
     .insert({ org_id, source_id: source.id, status: "pending" })
     .select("id")

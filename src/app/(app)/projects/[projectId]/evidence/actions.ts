@@ -1,13 +1,16 @@
 "use server";
 
 import { getProjectForUser } from "@/lib/auth/org";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-export async function trustEvidenceAction(formData: FormData) {
+export async function updateEvidenceTrustAction(formData: FormData) {
   const projectId = String(formData.get("project_id") ?? "");
   const evidenceId = String(formData.get("evidence_id") ?? "");
+  const trustScope = String(formData.get("trust_scope") ?? "trusted");
+
+  if (!["trusted", "excluded"].includes(trustScope)) return;
 
   const supabase = await createClient();
   const {
@@ -25,11 +28,9 @@ export async function trustEvidenceAction(formData: FormData) {
 
   if (!project) return;
 
-  const service = createServiceClient();
-
-  let query = service
+  let query = supabase
     .from("evidence")
-    .update({ trust_scope: "trusted" })
+    .update({ trust_scope: trustScope })
     .eq("org_id", project.org_id)
     .eq("project_id", project.id);
 
@@ -42,4 +43,8 @@ export async function trustEvidenceAction(formData: FormData) {
   await query;
 
   revalidatePath(`/projects/${project.id}/evidence`);
+  revalidatePath(`/projects/${project.id}`);
+  revalidatePath(`/projects/${project.id}/compose`);
 }
+
+export const trustEvidenceAction = updateEvidenceTrustAction;

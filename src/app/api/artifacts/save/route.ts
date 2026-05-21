@@ -1,5 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -49,11 +49,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
-  const service = createServiceClient();
   let version = 1;
 
   if (body.artifact_id) {
-    const { data: existing } = await service
+    const { data: existing } = await supabase
       .from("artifacts")
       .select("id, org_id, project_id, version")
       .eq("org_id", project.org_id)
@@ -84,7 +83,7 @@ export async function POST(req: NextRequest) {
     created_by: user.id,
   };
 
-  const { data: artifact, error } = await service
+  const { data: artifact, error } = await supabase
     .from("artifacts")
     .upsert(payload, { onConflict: "id" })
     .select("id, org_id, project_id, title, version, updated_at")
@@ -95,6 +94,14 @@ export async function POST(req: NextRequest) {
   if (error || !artifact) {
     return NextResponse.json({ error: error?.message ?? "Failed to save artifact" }, { status: 500 });
   }
+
+  await supabase.from("artifact_versions").insert({
+    artifact_id: artifact.id,
+    org_id: project.org_id,
+    version,
+    content_md: body.content_md,
+    saved_by: user.id,
+  });
 
   return NextResponse.json({ artifact });
 }

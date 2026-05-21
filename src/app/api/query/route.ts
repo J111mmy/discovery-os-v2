@@ -11,7 +11,7 @@ const QuerySchema = z.object({
   q: z.string().min(1),
   limit: z.number().int().min(1).max(50).optional().default(18),
   trust_scope: z
-    .enum(["trusted", "pending", "disputed", "excluded", "include_pending"])
+    .enum(["trusted", "pending", "disputed", "excluded", "include_pending", "all"])
     .optional()
     .default("include_pending"),
 });

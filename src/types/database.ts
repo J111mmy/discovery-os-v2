@@ -28,6 +28,17 @@ export interface OrgMember {
   joined_at: string;
 }
 
+export interface OrgInvite {
+  id: string;
+  org_id: string;
+  email: string;
+  role: "admin" | "member";
+  token: string;
+  accepted_at: string | null;
+  expires_at: string;
+  created_at: string;
+}
+
 export interface Project {
   id: string;
   org_id: string;
@@ -127,6 +138,16 @@ export interface ArtifactClaimEvidence {
   created_at: string;
 }
 
+export interface ArtifactVersion {
+  id: string;
+  artifact_id: string;
+  org_id: string;
+  version: number;
+  content_md: string;
+  saved_by: string | null;
+  saved_at: string;
+}
+
 export interface IngestJob {
   id: string;
   org_id: string;
@@ -148,6 +169,8 @@ export interface IngestJob {
 export interface EvidenceRecord extends Evidence {
   source_title?: string;
   source_type?: SourceType;
+  segment_speaker?: string | null;
+  segment_index?: number | null;
 }
 
 export interface ComposeDraftRequest {

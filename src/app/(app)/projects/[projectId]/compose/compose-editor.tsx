@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { ArtifactType } from "@/types/database";
 
 interface Section {
   id: string;
@@ -10,6 +11,16 @@ interface Section {
 
 interface ComposeEditorProps {
   projectId: string;
+  initialDraft?: {
+    artifactId: string;
+    title: string;
+    prompt: string;
+    sections: Array<{ heading: string; content: string }>;
+    modelUsed: string | null;
+    taskTier: string | null;
+    artifactType: ArtifactType;
+    evidenceIds: string[];
+  } | null;
 }
 
 function markdownFromSections(title: string, sections: Section[]) {
@@ -20,14 +31,21 @@ function markdownFromSections(title: string, sections: Section[]) {
   ].join("\n\n");
 }
 
-export function ComposeEditor({ projectId }: ComposeEditorProps) {
-  const [prompt, setPrompt] = useState("");
-  const [title, setTitle] = useState("");
-  const [sections, setSections] = useState<Section[]>([]);
-  const [artifactId, setArtifactId] = useState<string | null>(null);
-  const [modelUsed, setModelUsed] = useState<string | null>(null);
-  const [taskTier, setTaskTier] = useState<string | null>(null);
-  const [evidenceIds, setEvidenceIds] = useState<string[]>([]);
+export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorProps) {
+  const [prompt, setPrompt] = useState(initialDraft?.prompt ?? "");
+  const [title, setTitle] = useState(initialDraft?.title ?? "");
+  const [sections, setSections] = useState<Section[]>(
+    initialDraft?.sections.map((section, index) => ({
+      id: `${initialDraft.artifactId}-${index}`,
+      heading: section.heading,
+      content: section.content,
+    })) ?? []
+  );
+  const [artifactId, setArtifactId] = useState<string | null>(initialDraft?.artifactId ?? null);
+  const [modelUsed, setModelUsed] = useState<string | null>(initialDraft?.modelUsed ?? null);
+  const [taskTier, setTaskTier] = useState<string | null>(initialDraft?.taskTier ?? null);
+  const [artifactType, setArtifactType] = useState<ArtifactType>(initialDraft?.artifactType ?? "other");
+  const [evidenceIds, setEvidenceIds] = useState<string[]>(initialDraft?.evidenceIds ?? []);
   const [isDrafting, setIsDrafting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -60,6 +78,7 @@ export function ComposeEditor({ projectId }: ComposeEditorProps) {
     setArtifactId(payload.artifact_id ?? null);
     setModelUsed(payload.model_used ?? null);
     setTaskTier(payload.task_tier ?? null);
+    setArtifactType("other");
     setEvidenceIds(payload.evidence_ids ?? []);
     setSections(
       (payload.sections ?? []).map((section: { heading: string; content: string }, index: number) => ({
@@ -85,7 +104,7 @@ export function ComposeEditor({ projectId }: ComposeEditorProps) {
         title: title || "Untitled",
         prompt,
         content_md: contentMd,
-        type: "other",
+        type: artifactType,
         model_used: modelUsed,
         task_tier: taskTier,
         metadata: { evidence_ids: evidenceIds },
@@ -192,15 +211,39 @@ export function ComposeEditor({ projectId }: ComposeEditorProps) {
       {sections.length > 0 && (
         <div className="space-y-4">
           <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
-            <label className="mb-2 block text-sm font-medium text-[var(--ink)]" htmlFor="title">
-              Title
-            </label>
-            <input
-              id="title"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors focus:border-[var(--brand)]"
-            />
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_180px]">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-[var(--ink)]" htmlFor="title">
+                  Title
+                </label>
+                <input
+                  id="title"
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors focus:border-[var(--brand)]"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-[var(--ink)]" htmlFor="artifact-type">
+                  Type
+                </label>
+                <select
+                  id="artifact-type"
+                  value={artifactType}
+                  onChange={(event) => setArtifactType(event.target.value as ArtifactType)}
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors focus:border-[var(--brand)]"
+                >
+                  <option value="brief">Brief</option>
+                  <option value="prd">PRD</option>
+                  <option value="persona">Persona</option>
+                  <option value="opportunity">Opportunity</option>
+                  <option value="gtm">GTM</option>
+                  <option value="interview_guide">Interview guide</option>
+                  <option value="report">Report</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+            </div>
           </div>
 
           {sections.map((section) => (
