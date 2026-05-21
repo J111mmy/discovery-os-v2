@@ -670,6 +670,13 @@ export const ingestSource = inngest.createFunction(
           .eq("id", source_id);
       });
 
+      await step.run("queue-entity-extraction", async () => {
+        await inngest.send({
+          name: "source/entities.requested",
+          data: { org_id, project_id, source_id },
+        });
+      });
+
       return {
         source_id,
         segments_created: segments.length,

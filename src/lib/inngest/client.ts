@@ -15,6 +15,13 @@ export type Events = {
       job_id: string;
     };
   };
+  "source/entities.requested": {
+    data: {
+      org_id: string;
+      project_id: string;
+      source_id: string;
+    };
+  };
   "claim/verification.requested": {
     data: {
       org_id: string;

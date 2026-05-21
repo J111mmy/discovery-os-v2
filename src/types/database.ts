@@ -133,6 +133,7 @@ export interface EvidenceEntity {
   org_id: string;
   project_id: string;
   evidence_id: string;
+  entity_id: string | null;
   entity_type: EntityType;
   label: string;
   metadata: Record<string, unknown>;
