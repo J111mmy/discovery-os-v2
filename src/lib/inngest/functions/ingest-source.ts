@@ -1,101 +1,472 @@
-// Ingest pipeline — runs as an Inngest background function
-// Steps: fetch → extract text → chunk → redact PII → embed → store evidence
+// Ingest pipeline — runs as an Inngest background function.
+// Deterministic parsing creates source segments; AI extraction creates evidence.
 
+import { z } from "zod";
 import { inngest } from "../client";
 import { createServiceClient } from "@/lib/supabase/server";
-import { embed } from "@/lib/llm/client";
+import { callLLM, embedBatch } from "@/lib/llm/client";
 import { redactPII } from "@/lib/llm/pii";
+import {
+  buildIngestExtractionPrompt,
+  INGEST_EXTRACTION_PROMPT_VERSION,
+} from "@/lib/llm/prompts/ingest";
+import type {
+  EvidenceClassification,
+  EvidenceSentiment,
+  SourceType,
+} from "@/types/database";
+
+type RawSegment = {
+  speaker: string | null;
+  content: string;
+  conversation_unit_id: string;
+  segment_index: number;
+  char_start: number;
+  char_end: number;
+  start_time: string | null;
+  end_time: string | null;
+};
+
+type TranscriptTurn = {
+  speaker: string;
+  content: string;
+  char_start: number;
+  char_end: number;
+  start_time: string | null;
+  end_time: string | null;
+};
+
+type TextLine = {
+  raw: string;
+  trimmed: string;
+  start: number;
+  end: number;
+  trimmedStart: number;
+  trimmedEnd: number;
+};
 
 type StoredSegment = {
   id: string;
   segment_index: number;
+  speaker: string | null;
   redacted_content: string | null;
+  conversation_unit_id: string | null;
 };
 
-// Contextual chunking: group transcript by speaker turn / conversation unit
-// For documents: split by paragraph, target ~120 words/chunk
+type ConversationUnit = {
+  id: string;
+  segments: StoredSegment[];
+  content: string;
+};
 
-type Chunk = { speaker: string | null; content: string; index: number };
+type ProjectContext = {
+  name: string;
+  frame: string | null;
+  frame_data: Record<string, unknown> | null;
+};
 
-// Handles formats: "Speaker: text", "00:00 Speaker: text", "[00:00:00] Speaker: text"
-// Accumulates multi-line turns, merges short consecutive turns into ~150-word chunks.
-function chunkTranscript(text: string): Chunk[] {
-  // Matches optional timestamp prefix + "Name: content"
-  const speakerLine = /^(?:\[?[\d:]+\]?\s+)?([A-Za-z][^:\n]{0,50}):\s*(.*)$/;
-  const lines = text.split("\n");
+type ThemeContext = {
+  label: string;
+  description: string | null;
+};
 
-  // Pass 1: collect raw turns
-  const turns: Array<{ speaker: string; content: string }> = [];
+const MAX_TURN_TOKENS = 800;
+
+const ExtractedClaimSchema = z.object({
+  content: z.string().trim().min(1),
+  summary: z.string().trim().nullable().optional(),
+  classification: z.enum(["insight", "verbatim", "data_point", "signal"]),
+  sentiment: z.enum(["positive", "negative", "neutral", "mixed"]),
+  speaker: z.string().trim().nullable().optional(),
+  themes: z.array(z.string().trim().min(1)).optional().default([]),
+});
+
+type ExtractedClaim = z.infer<typeof ExtractedClaimSchema>;
+
+function normalizedText(text: string) {
+  return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+function wordCount(text: string) {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function tokenEstimate(text: string) {
+  return Math.ceil(wordCount(text) * 1.3);
+}
+
+function isTimestamp(value: string) {
+  return /^\[?\d{1,2}:\d{2}(?::\d{2})?\]?$/.test(value.trim());
+}
+
+function isInitialLine(value: string) {
+  return /^[A-Z]{1,4}$/.test(value.trim());
+}
+
+function isSpeakerNameLine(value: string) {
+  const trimmed = value.trim();
+  return (
+    trimmed.length >= 2 &&
+    trimmed.length <= 80 &&
+    !isInitialLine(trimmed) &&
+    !isTimestamp(trimmed) &&
+    /^[A-Z][A-Za-z .'-]+$/.test(trimmed)
+  );
+}
+
+function getLines(text: string): TextLine[] {
+  const lines: TextLine[] = [];
+  const normalized = normalizedText(text);
+  const pattern = /[^\n]*(?:\n|$)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(normalized))) {
+    if (match[0] === "") break;
+
+    const rawWithBreak = match[0];
+    const raw = rawWithBreak.endsWith("\n")
+      ? rawWithBreak.slice(0, -1)
+      : rawWithBreak;
+    const start = match.index;
+    const end = start + raw.length;
+    const leading = raw.match(/^\s*/)?.[0].length ?? 0;
+    const trailing = raw.match(/\s*$/)?.[0].length ?? 0;
+    const trimmedStart = start + leading;
+    const trimmedEnd = Math.max(trimmedStart, end - trailing);
+
+    lines.push({
+      raw,
+      trimmed: raw.trim(),
+      start,
+      end,
+      trimmedStart,
+      trimmedEnd,
+    });
+  }
+
+  return lines;
+}
+
+function parseTranscriptTurns(text: string): TranscriptTurn[] {
+  const lines = getLines(text);
+  const speakerColonLine =
+    /^(?:\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s+)?([A-Za-z][^:\n]{0,80}):\s*(.*)$/;
+  const timestampSpeakerLine =
+    /^\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s+([A-Za-z][A-Za-z .'-]{1,80})(?::)?\s*(.*)$/;
+  const speakerTimestampLine =
+    /^([A-Za-z][A-Za-z .'-]{1,80})\s+\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s*(.*)$/;
+
+  const turns: TranscriptTurn[] = [];
   let curSpeaker: string | null = null;
-  let curLines: string[] = [];
+  let curStartTime: string | null = null;
+  let curLines: Array<{ text: string; start: number; end: number }> = [];
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const m = trimmed.match(speakerLine);
-    if (m) {
-      if (curSpeaker !== null && curLines.length > 0) {
-        turns.push({ speaker: curSpeaker, content: curLines.join(" ") });
-      }
-      curSpeaker = m[1].trim();
-      curLines = m[2].trim() ? [m[2].trim()] : [];
-    } else if (curSpeaker !== null) {
-      curLines.push(trimmed);
+  function flushTurn(nextStartTime: string | null = null) {
+    if (curSpeaker && curLines.length > 0) {
+      turns.push({
+        speaker: curSpeaker,
+        content: curLines.map((line) => line.text).join("\n"),
+        char_start: curLines[0].start,
+        char_end: curLines[curLines.length - 1].end,
+        start_time: curStartTime,
+        end_time: nextStartTime,
+      });
+    }
+    curLines = [];
+  }
+
+  function startTurn(
+    speaker: string,
+    time: string | null,
+    firstContent: string,
+    firstLine: TextLine
+  ) {
+    flushTurn(time);
+    curSpeaker = speaker.trim();
+    curStartTime = time;
+    curLines = [];
+
+    const content = firstContent.trim();
+    if (content) {
+      const start = firstLine.trimmedEnd - content.length;
+      curLines.push({ text: content, start, end: firstLine.trimmedEnd });
     }
   }
-  if (curSpeaker !== null && curLines.length > 0) {
-    turns.push({ speaker: curSpeaker, content: curLines.join(" ") });
+
+  function addContentLine(line: TextLine) {
+    if (!curSpeaker || !line.trimmed) return;
+    curLines.push({
+      text: line.trimmed,
+      start: line.trimmedStart,
+      end: line.trimmedEnd,
+    });
   }
 
-  if (turns.length === 0) return chunkDocument(text);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trimmed) continue;
 
-  // Pass 2: merge short turns into ~150-word chunks
-  const chunks: Chunk[] = [];
-  let buf: { speaker: string; content: string } | null = null;
-  let index = 0;
-
-  for (const turn of turns) {
-    if (!buf) {
-      buf = { ...turn };
-    } else if (buf.speaker === turn.speaker) {
-      buf.content += " " + turn.content;
-    } else if (buf.content.split(/\s+/).length < 80) {
-      // Buffer still small — absorb next turn regardless of speaker
-      buf.content += " " + turn.content;
-      buf.speaker = turn.speaker;
-    } else {
-      chunks.push({ speaker: buf.speaker, content: buf.content, index: index++ });
-      buf = { ...turn };
+    const speakerColonMatch = line.trimmed.match(speakerColonLine);
+    if (speakerColonMatch?.[2]) {
+      startTurn(
+        speakerColonMatch[2],
+        speakerColonMatch[1] ?? null,
+        speakerColonMatch[3] ?? "",
+        line
+      );
+      continue;
     }
-  }
-  if (buf?.content.trim()) {
-    chunks.push({ speaker: buf.speaker, content: buf.content, index: index++ });
+
+    const timestampSpeakerMatch = line.trimmed.match(timestampSpeakerLine);
+    if (timestampSpeakerMatch?.[2]) {
+      startTurn(
+        timestampSpeakerMatch[2],
+        timestampSpeakerMatch[1] ?? null,
+        timestampSpeakerMatch[3] ?? "",
+        line
+      );
+      continue;
+    }
+
+    const speakerTimestampMatch = line.trimmed.match(speakerTimestampLine);
+    if (
+      speakerTimestampMatch?.[1] &&
+      isSpeakerNameLine(speakerTimestampMatch[1])
+    ) {
+      startTurn(
+        speakerTimestampMatch[1],
+        speakerTimestampMatch[2] ?? null,
+        speakerTimestampMatch[3] ?? "",
+        line
+      );
+      continue;
+    }
+
+    const next = lines[i + 1];
+    const afterNext = lines[i + 2];
+    if (
+      isInitialLine(line.trimmed) &&
+      next &&
+      afterNext &&
+      isSpeakerNameLine(next.trimmed) &&
+      isTimestamp(afterNext.trimmed)
+    ) {
+      startTurn(next.trimmed, afterNext.trimmed.replace(/^\[|\]$/g, ""), "", afterNext);
+      i += 2;
+      continue;
+    }
+
+    if (isSpeakerNameLine(line.trimmed) && next && isTimestamp(next.trimmed)) {
+      startTurn(line.trimmed, next.trimmed.replace(/^\[|\]$/g, ""), "", next);
+      i += 1;
+      continue;
+    }
+
+    if (isTimestamp(line.trimmed)) continue;
+    addContentLine(line);
   }
 
-  return chunks.length > 0 ? chunks : chunkDocument(text);
+  flushTurn(null);
+  return turns;
 }
 
-function chunkDocument(text: string): Chunk[] {
-  const chunks: Chunk[] = [];
-  const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
-  let buffer = "";
-  let index = 0;
+function splitOversizedTurn(turn: TranscriptTurn): TranscriptTurn[] {
+  if (tokenEstimate(turn.content) <= MAX_TURN_TOKENS) return [turn];
 
-  for (const para of paragraphs) {
-    buffer = buffer ? `${buffer}\n\n${para}` : para;
-    if (buffer.split(/\s+/).length >= 120) {
-      chunks.push({ speaker: null, content: buffer, index: index++ });
-      buffer = "";
+  const sentences = Array.from(
+    turn.content.matchAll(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g)
+  )
+    .map((match) => ({
+      text: match[0].trim(),
+      start: match.index ?? 0,
+      end: (match.index ?? 0) + match[0].length,
+    }))
+    .filter((sentence) => sentence.text);
+
+  if (sentences.length === 0) return [turn];
+
+  const splitTurns: TranscriptTurn[] = [];
+  let buffer: typeof sentences = [];
+
+  function flush() {
+    if (buffer.length === 0) return;
+    const content = buffer.map((sentence) => sentence.text).join(" ");
+    splitTurns.push({
+      ...turn,
+      content,
+      char_start: turn.char_start + buffer[0].start,
+      char_end: turn.char_start + buffer[buffer.length - 1].end,
+    });
+    buffer = [];
+  }
+
+  for (const sentence of sentences) {
+    const candidate = [...buffer, sentence]
+      .map((entry) => entry.text)
+      .join(" ");
+    if (buffer.length > 0 && tokenEstimate(candidate) > MAX_TURN_TOKENS) {
+      flush();
     }
+    buffer.push(sentence);
   }
-  if (buffer.trim()) {
-    chunks.push({ speaker: null, content: buffer, index: index++ });
-  }
-  return chunks;
+
+  flush();
+  return splitTurns;
 }
 
-function chunkText(text: string, type: string): Chunk[] {
-  return type === "transcript" ? chunkTranscript(text) : chunkDocument(text);
+function chooseInterviewer(turns: TranscriptTurn[]) {
+  const scores = new Map<string, { questions: number; turns: number; firstIndex: number }>();
+
+  turns.forEach((turn, index) => {
+    const current = scores.get(turn.speaker) ?? {
+      questions: 0,
+      turns: 0,
+      firstIndex: index,
+    };
+    current.questions += (turn.content.match(/\?/g) ?? []).length;
+    current.turns += 1;
+    scores.set(turn.speaker, current);
+  });
+
+  const ranked = Array.from(scores.entries()).sort((a, b) => {
+    const questionDelta = b[1].questions - a[1].questions;
+    if (questionDelta !== 0) return questionDelta;
+    return a[1].firstIndex - b[1].firstIndex;
+  });
+
+  return ranked[0]?.[0] ?? turns[0]?.speaker ?? "";
+}
+
+function assignConversationUnits(turns: TranscriptTurn[]): RawSegment[] {
+  const expandedTurns = turns.flatMap(splitOversizedTurn);
+  if (expandedTurns.length === 0) return [];
+
+  const interviewer = chooseInterviewer(expandedTurns);
+  let unitIndex = 0;
+
+  return expandedTurns.map((turn, index) => {
+    if (index > 0 && turn.speaker === interviewer) unitIndex += 1;
+
+    return {
+      speaker: turn.speaker,
+      content: turn.content,
+      conversation_unit_id: `cu-${String(unitIndex + 1).padStart(4, "0")}`,
+      segment_index: index,
+      char_start: turn.char_start,
+      char_end: turn.char_end,
+      start_time: turn.start_time,
+      end_time: turn.end_time,
+    };
+  });
+}
+
+function segmentTranscript(text: string): RawSegment[] {
+  const turns = parseTranscriptTurns(text);
+  return assignConversationUnits(turns);
+}
+
+function segmentDocument(text: string): RawSegment[] {
+  const normalized = normalizedText(text);
+  const matches = Array.from(normalized.matchAll(/\S[\s\S]*?(?=\n{2,}\S|$)/g));
+
+  return matches
+    .map((match, index) => {
+      const raw = match[0];
+      const leading = raw.match(/^\s*/)?.[0].length ?? 0;
+      const trailing = raw.match(/\s*$/)?.[0].length ?? 0;
+      const content = raw.trim();
+      const start = (match.index ?? 0) + leading;
+      const end = (match.index ?? 0) + raw.length - trailing;
+
+      return {
+        speaker: null,
+        content,
+        conversation_unit_id: `doc-${String(index + 1).padStart(4, "0")}`,
+        segment_index: index,
+        char_start: start,
+        char_end: end,
+        start_time: null,
+        end_time: null,
+      };
+    })
+    .filter((segment) => segment.content);
+}
+
+function segmentText(text: string, type: SourceType): RawSegment[] {
+  if (type === "transcript") {
+    const transcriptSegments = segmentTranscript(text);
+    if (transcriptSegments.length > 0) return transcriptSegments;
+  }
+  return segmentDocument(text);
+}
+
+function formatFrame(project: ProjectContext) {
+  if (project.frame_data && Object.keys(project.frame_data).length > 0) {
+    return JSON.stringify(project.frame_data, null, 2);
+  }
+  return project.frame?.trim() || `Project: ${project.name}`;
+}
+
+function formatThemes(themes: ThemeContext[]) {
+  if (themes.length === 0) return "No existing themes yet.";
+  return themes
+    .map((theme) =>
+      theme.description ? `- ${theme.label}: ${theme.description}` : `- ${theme.label}`
+    )
+    .join("\n");
+}
+
+function extractJsonArray(content: string) {
+  const trimmed = content.trim();
+  const unfenced = trimmed
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  const start = unfenced.indexOf("[");
+  const end = unfenced.lastIndexOf("]");
+  if (start === -1 || end === -1 || end < start) {
+    throw new Error("Ingest extraction returned no JSON array");
+  }
+  return JSON.parse(unfenced.slice(start, end + 1)) as unknown;
+}
+
+function normalizeClaim(value: unknown): ExtractedClaim | null {
+  const parsed = ExtractedClaimSchema.safeParse(value);
+  if (!parsed.success) return null;
+  if (
+    parsed.data.classification !== "data_point" &&
+    wordCount(parsed.data.content) < 5
+  ) {
+    return null;
+  }
+  return parsed.data;
+}
+
+function buildConversationUnits(segments: StoredSegment[]): ConversationUnit[] {
+  const byUnit = new Map<string, StoredSegment[]>();
+
+  for (const segment of segments) {
+    const unitId = segment.conversation_unit_id ?? `segment-${segment.segment_index}`;
+    const group = byUnit.get(unitId) ?? [];
+    group.push(segment);
+    byUnit.set(unitId, group);
+  }
+
+  return Array.from(byUnit.entries()).map(([id, unitSegments]) => {
+    const content = unitSegments
+      .map((segment) => {
+        const body = segment.redacted_content?.trim() ?? "";
+        return segment.speaker ? `${segment.speaker}: ${body}` : body;
+      })
+      .filter(Boolean)
+      .join("\n\n");
+
+    return {
+      id,
+      segments: unitSegments,
+      content,
+    };
+  });
 }
 
 export const ingestSource = inngest.createFunction(
@@ -105,126 +476,217 @@ export const ingestSource = inngest.createFunction(
     const { org_id, project_id, source_id, job_id } = event.data;
     const supabase = createServiceClient();
 
-    // Step 1: Mark job as processing
-    await step.run("mark-processing", async () => {
-      await supabase
-        .from("ingest_jobs")
-        .update({ status: "processing", started_at: new Date().toISOString() })
-        .eq("org_id", org_id)
-        .eq("id", job_id);
-    });
+    try {
+      await step.run("mark-processing", async () => {
+        await supabase
+          .from("ingest_jobs")
+          .update({ status: "processing", started_at: new Date().toISOString() })
+          .eq("org_id", org_id)
+          .eq("id", job_id);
+      });
 
-    // Step 2: Fetch source record
-    const source = await step.run("fetch-source", async () => {
-      const { data, error } = await supabase
-        .from("sources")
-        .select("*")
-        .eq("org_id", org_id)
-        .eq("project_id", project_id)
-        .eq("id", source_id)
-        .single();
-      if (error) throw new Error(`Source not found: ${error.message}`);
-      return data;
-    });
+      const source = await step.run("fetch-source", async () => {
+        const { data, error } = await supabase
+          .from("sources")
+          .select("*")
+          .eq("org_id", org_id)
+          .eq("project_id", project_id)
+          .eq("id", source_id)
+          .single();
+        if (error) throw new Error(`Source not found: ${error.message}`);
+        return data as { type: SourceType; metadata: Record<string, unknown> };
+      });
 
-    // Step 3: Extract text
-    // In Phase 1: raw text is stored in source.metadata.raw_text
-    // Phase 2: fetch from storage URL and parse (pdf-parse, docx, etc.)
-    const rawText = await step.run("extract-text", async () => {
-      const text = (source.metadata as Record<string, unknown>)?.raw_text as string;
-      if (!text || text.trim().length < 20) {
-        throw new Error("Source has no extractable text");
-      }
-      return text;
-    });
+      const [project, themes] = await step.run("fetch-context", async () => {
+        const [projectResult, themesResult] = await Promise.all([
+          supabase
+            .from("projects")
+            .select("name, frame, frame_data")
+            .eq("org_id", org_id)
+            .eq("id", project_id)
+            .single(),
+          supabase
+            .from("themes")
+            .select("label, description")
+            .eq("org_id", org_id)
+            .eq("project_id", project_id)
+            .order("label", { ascending: true }),
+        ]);
 
-    // Step 4: Chunk the text
-    const chunks = await step.run("chunk-text", async () => {
-      return chunkText(rawText, source.type);
-    });
+        if (projectResult.error || !projectResult.data) {
+          throw new Error(
+            `Project context not found: ${projectResult.error?.message ?? "missing project"}`
+          );
+        }
 
-    // Step 5: Redact PII + store segments
-    const segments = await step.run("store-segments", async () => {
-      const records = chunks.map((chunk) => ({
-        org_id,
-        source_id,
-        segment_index: chunk.index,
-        speaker: chunk.speaker,
-        raw_content: chunk.content,
-        redacted_content: redactPII(chunk.content),
-        word_count: chunk.content.split(/\s+/).length,
-      }));
+        return [
+          projectResult.data as ProjectContext,
+          (themesResult.data ?? []) as ThemeContext[],
+        ] as const;
+      });
 
-      const { data, error } = await supabase
-        .from("source_segments")
-        .insert(records)
-        .select("id, segment_index, redacted_content");
+      const rawText = await step.run("extract-text", async () => {
+        const text = source.metadata?.raw_text as string | undefined;
+        if (!text || text.trim().length < 20) {
+          throw new Error("Source has no extractable text");
+        }
+        return text;
+      });
 
-      if (error) throw new Error(`Failed to store segments: ${error.message}`);
-      return (data ?? []) as StoredSegment[];
-    });
+      const rawSegments = await step.run("segment-text", async () => {
+        const segments = segmentText(rawText, source.type);
+        if (segments.length === 0) {
+          throw new Error("Source produced no segments");
+        }
+        return segments;
+      });
 
-    // Step 6: Embed segments in batches of 10
-    const evidenceRecords = await step.run("embed-and-store", async () => {
-      const batchSize = 10;
-      const stored = [];
-
-      for (let i = 0; i < segments.length; i += batchSize) {
-        const batch = segments.slice(i, i + batchSize);
-        const texts = batch.map((s: StoredSegment) => s.redacted_content ?? "");
-
-        // Embed each segment
-        const embeddings = await Promise.all(texts.map(embed));
-
-        const evidenceBatch = batch.map((seg: StoredSegment, idx: number) => ({
+      const segments = await step.run("store-segments", async () => {
+        const records = rawSegments.map((segment) => ({
           org_id,
-          project_id,
           source_id,
-          segment_id: seg.id,
-          content: texts[idx],
-          embedding: `[${embeddings[idx].join(",")}]`, // pgvector format
-          trust_scope: "pending" as const,
+          segment_index: segment.segment_index,
+          speaker: segment.speaker,
+          conversation_unit_id: segment.conversation_unit_id,
+          char_start: segment.char_start,
+          char_end: segment.char_end,
+          start_time: segment.start_time,
+          end_time: segment.end_time,
+          raw_content: segment.content,
+          redacted_content: redactPII(segment.content),
+          word_count: wordCount(segment.content),
         }));
 
         const { data, error } = await supabase
-          .from("evidence")
-          .insert(evidenceBatch)
-          .select("id");
+          .from("source_segments")
+          .insert(records)
+          .select("id, segment_index, speaker, redacted_content, conversation_unit_id")
+          .order("segment_index", { ascending: true });
 
-        if (error) throw new Error(`Failed to store evidence: ${error.message}`);
-        stored.push(...(data ?? []));
-      }
+        if (error) throw new Error(`Failed to store segments: ${error.message}`);
+        return (data ?? []) as StoredSegment[];
+      });
 
-      return stored;
-    });
+      const extractedClaims = await step.run("extract-evidence", async () => {
+        const units = buildConversationUnits(segments);
+        const claims: Array<ExtractedClaim & { segment_id: string; unit_id: string }> = [];
 
-    // Step 7: Mark job complete — store counts so UI can show feedback
-    await step.run("mark-complete", async () => {
+        for (const unit of units) {
+          if (!unit.content.trim()) continue;
+
+          const prompt = buildIngestExtractionPrompt({
+            content: unit.content,
+            frame: formatFrame(project),
+            themes: formatThemes(themes),
+          });
+
+          const result = await callLLM({
+            tier: "standard",
+            system:
+              "You extract structured customer evidence. Return strict JSON only.",
+            messages: [{ role: "user", content: prompt }],
+            timeoutMs: 120_000,
+          });
+
+          const parsed = extractJsonArray(result.content);
+          const array = Array.isArray(parsed) ? parsed : [];
+          const primarySegmentId = unit.segments[0]?.id;
+          if (!primarySegmentId) continue;
+
+          for (const item of array) {
+            const claim = normalizeClaim(item);
+            if (!claim) continue;
+            claims.push({
+              ...claim,
+              segment_id: primarySegmentId,
+              unit_id: unit.id,
+            });
+          }
+        }
+
+        return claims;
+      });
+
+      const evidenceRecords = await step.run("embed-and-store", async () => {
+        if (extractedClaims.length === 0) return [];
+
+        const batchSize = 20;
+        const stored: Array<{ id: string }> = [];
+
+        for (let i = 0; i < extractedClaims.length; i += batchSize) {
+          const batch = extractedClaims.slice(i, i + batchSize);
+          const embeddings = await embedBatch(batch.map((claim) => claim.content));
+
+          const evidenceBatch = batch.map((claim, idx) => ({
+            org_id,
+            project_id,
+            source_id,
+            segment_id: claim.segment_id,
+            content: claim.content,
+            summary: claim.summary ?? null,
+            classification: claim.classification as EvidenceClassification,
+            sentiment: claim.sentiment as EvidenceSentiment,
+            themes: claim.themes,
+            metadata: {
+              speaker: claim.speaker ?? null,
+              conversation_unit_id: claim.unit_id,
+              prompt_version: INGEST_EXTRACTION_PROMPT_VERSION,
+            },
+            embedding: `[${embeddings[idx].join(",")}]`,
+            trust_scope: "pending" as const,
+          }));
+
+          const { data, error } = await supabase
+            .from("evidence")
+            .insert(evidenceBatch)
+            .select("id");
+
+          if (error) throw new Error(`Failed to store evidence: ${error.message}`);
+          stored.push(...((data ?? []) as Array<{ id: string }>));
+        }
+
+        return stored;
+      });
+
+      await step.run("mark-complete", async () => {
+        await supabase
+          .from("ingest_jobs")
+          .update({
+            status: "done",
+            completed_at: new Date().toISOString(),
+            result: {
+              segments_created: segments.length,
+              evidence_created: evidenceRecords.length,
+            },
+          })
+          .eq("org_id", org_id)
+          .eq("id", job_id);
+
+        await supabase
+          .from("sources")
+          .update({ trust_scope: "pending" })
+          .eq("org_id", org_id)
+          .eq("project_id", project_id)
+          .eq("id", source_id);
+      });
+
+      return {
+        source_id,
+        segments_created: segments.length,
+        evidence_created: evidenceRecords.length,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown ingest error";
       await supabase
         .from("ingest_jobs")
         .update({
-          status: "done",
+          status: "failed",
+          error: message,
           completed_at: new Date().toISOString(),
-          result: {
-            segments_created: segments.length,
-            evidence_created: evidenceRecords.length,
-          },
         })
         .eq("org_id", org_id)
         .eq("id", job_id);
-
-      await supabase
-        .from("sources")
-        .update({ trust_scope: "pending" })
-        .eq("org_id", org_id)
-        .eq("project_id", project_id)
-        .eq("id", source_id);
-    });
-
-    return {
-      source_id,
-      segments_created: segments.length,
-      evidence_created: evidenceRecords.length,
-    };
+      throw error;
+    }
   }
 );
