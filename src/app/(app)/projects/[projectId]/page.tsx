@@ -3,9 +3,32 @@ import { createClient } from "@/lib/supabase/server";
 import { getProjectForUser } from "@/lib/auth/org";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
+import { runProjectSynthesisAction } from "./actions";
 
 interface Props {
   params: { projectId: string };
+}
+
+type ThemeRow = {
+  id: string;
+  label: string;
+  evidence_count: number;
+};
+
+function synthesisTimeLabel(value: string | null) {
+  if (!value) return "not synthesised yet";
+
+  const diffMs = Date.now() - new Date(value).getTime();
+  const minutes = Math.max(0, Math.floor(diffMs / 60_000));
+
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 export default async function ProjectPage({ params }: Props) {
@@ -19,8 +42,14 @@ export default async function ProjectPage({ params }: Props) {
     name: string;
     description: string | null;
     frame: string | null;
+    synthesis_stale: boolean;
+    last_synthesised_at: string | null;
     created_at: string;
-  }>(user.id, params.projectId, "id, org_id, name, description, frame, created_at");
+  }>(
+    user.id,
+    params.projectId,
+    "id, org_id, name, description, frame, synthesis_stale, last_synthesised_at, created_at"
+  );
 
   if (!project) notFound();
 
@@ -30,6 +59,8 @@ export default async function ProjectPage({ params }: Props) {
     { count: pendingCount },
     { count: artifactCount },
     { data: sources },
+    { data: themes, count: themeCount },
+    { count: runningSynthesisCount },
   ] =
     await Promise.all([
       supabase
@@ -61,7 +92,26 @@ export default async function ProjectPage({ params }: Props) {
         .eq("project_id", project.id)
         .order("ingested_at", { ascending: false })
         .limit(5),
+      supabase
+        .from("themes")
+        .select("id, label, evidence_count", { count: "exact" })
+        .eq("org_id", project.org_id)
+        .eq("project_id", project.id)
+        .order("evidence_count", { ascending: false })
+        .limit(6),
+      supabase
+        .from("agent_runs")
+        .select("*", { count: "exact", head: true })
+        .eq("org_id", project.org_id)
+        .eq("project_id", project.id)
+        .eq("agent_type", "project-synthesis")
+        .eq("status", "running"),
     ]);
+
+  const themeRows = (themes ?? []) as ThemeRow[];
+  const hiddenThemeCount = Math.max((themeCount ?? themeRows.length) - themeRows.length, 0);
+  const trustedTotal = trustedCount ?? 0;
+  const synthesisRunning = (runningSynthesisCount ?? 0) > 0;
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -104,6 +154,61 @@ export default async function ProjectPage({ params }: Props) {
           <div className="mt-1 text-sm text-[var(--ink-muted)]">Documents</div>
         </Link>
       </div>
+
+      {(themeRows.length > 0 || trustedTotal > 0) && (
+        <section className="mb-8 rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-[var(--ink)]">
+                Themes from trusted evidence
+              </h2>
+              {themeRows.length > 0 ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {themeRows.map((theme) => (
+                    <span
+                      key={theme.id}
+                      className="rounded-full border border-[var(--border)] bg-[var(--surface-0)] px-3 py-1 text-xs font-medium text-[var(--ink)]"
+                    >
+                      {theme.label}
+                    </span>
+                  ))}
+                  {hiddenThemeCount > 0 && (
+                    <span className="rounded-full border border-[var(--border)] px-3 py-1 text-xs font-medium text-[var(--ink-muted)]">
+                      +{hiddenThemeCount} more
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-[var(--ink-muted)]">
+                  Trust evidence and run synthesis to discover themes.
+                </p>
+              )}
+              <p className="mt-3 text-xs text-[var(--ink-muted)]">
+                {trustedTotal} trusted records · last synthesised{" "}
+                {synthesisTimeLabel(project.last_synthesised_at)}
+              </p>
+            </div>
+
+            {synthesisRunning ? (
+              <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/10 px-3 py-2 text-xs font-medium text-yellow-300">
+                Synthesis is updating themes.
+              </div>
+            ) : project.synthesis_stale || (themeRows.length === 0 && trustedTotal > 0) ? (
+              <form action={runProjectSynthesisAction} className="shrink-0">
+                <input type="hidden" name="project_id" value={project.id} />
+                <button
+                  type="submit"
+                  className="rounded-lg border border-[var(--brand)] px-3 py-2 text-sm font-medium text-[var(--brand)] transition-colors hover:bg-[var(--brand)] hover:text-white"
+                >
+                  {project.synthesis_stale
+                    ? "New trusted evidence - run synthesis →"
+                    : "Run synthesis"}
+                </button>
+              </form>
+            ) : null}
+          </div>
+        </section>
+      )}
 
       {!project.frame?.trim() && (
         <Link

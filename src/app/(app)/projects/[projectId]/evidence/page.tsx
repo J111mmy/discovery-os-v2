@@ -12,7 +12,7 @@ async function getRecentEvidence(orgId: string, projectId: string): Promise<Evid
   const supabase = await createClient();
   const { data: evidence } = await supabase
     .from("evidence")
-    .select("id, org_id, project_id, source_id, segment_id, content, trust_scope, summary, themes, metadata, created_at")
+    .select("id, org_id, project_id, source_id, segment_id, content, trust_scope, summary, classification, sentiment, themes, metadata, created_at")
     .eq("org_id", orgId)
     .eq("project_id", projectId)
     .order("created_at", { ascending: false })

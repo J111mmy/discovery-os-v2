@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import type { EvidenceRecord } from "@/types/database";
+import Link from "next/link";
 import { updateEvidenceTrustAction } from "./actions";
 
 interface EvidenceBrowserProps {
@@ -26,6 +27,45 @@ function TrustBadge({ trustScope }: { trustScope: string }) {
   );
 }
 
+function ClassificationBadge({ classification }: { classification: EvidenceRecord["classification"] }) {
+  if (!classification) return null;
+
+  const classes =
+    classification === "insight"
+      ? "border-[var(--brand)]/30 bg-[var(--brand)]/10 text-[var(--brand)]"
+      : classification === "verbatim"
+      ? "border-blue-500/25 bg-blue-500/10 text-blue-300"
+      : classification === "data_point"
+      ? "border-cyan-500/25 bg-cyan-500/10 text-cyan-300"
+      : "border-amber-500/25 bg-amber-500/10 text-amber-300";
+
+  return (
+    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}>
+      {classification.replace("_", " ")}
+    </span>
+  );
+}
+
+function SentimentIndicator({ sentiment }: { sentiment: EvidenceRecord["sentiment"] }) {
+  if (!sentiment) return null;
+
+  const classes =
+    sentiment === "positive"
+      ? "bg-green-400"
+      : sentiment === "negative"
+      ? "bg-red-400"
+      : sentiment === "mixed"
+      ? "bg-yellow-400"
+      : "bg-[var(--ink-faint)]";
+
+  return (
+    <span className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--ink-muted)]">
+      <span className={`h-1.5 w-1.5 rounded-full ${classes}`} />
+      {sentiment}
+    </span>
+  );
+}
+
 function EvidenceCard({ projectId, record }: { projectId: string; record: EvidenceRecord }) {
   return (
     <article className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5 transition-colors hover:border-white/15">
@@ -37,15 +77,25 @@ function EvidenceCard({ projectId, record }: { projectId: string; record: Eviden
             </div>
           )}
           {record.segment_speaker && (
-            <div className="mt-1 text-xs font-medium text-[var(--brand)]">
-              {record.segment_speaker}
-            </div>
+            <div className="mt-1 text-xs font-medium text-[var(--brand)]">{record.segment_speaker}</div>
           )}
+          <SentimentIndicator sentiment={record.sentiment} />
           {record.summary && (
             <div className="mt-1 text-sm font-medium text-[var(--ink)]">{record.summary}</div>
           )}
+          {record.segment_id && (
+            <Link
+              href={`/projects/${projectId}/sources/${record.source_id}#segment-${record.segment_id}`}
+              className="mt-2 inline-flex text-xs font-medium text-[var(--ink-muted)] transition-colors hover:text-[var(--brand)]"
+            >
+              View source segment
+            </Link>
+          )}
         </div>
-        <TrustBadge trustScope={record.trust_scope} />
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          <ClassificationBadge classification={record.classification} />
+          <TrustBadge trustScope={record.trust_scope} />
+        </div>
       </div>
 
       <p className="whitespace-pre-wrap text-sm leading-6 text-[var(--ink)]">

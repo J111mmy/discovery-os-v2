@@ -73,6 +73,8 @@ export interface Project {
   operating_style: string | null;
   settings: Record<string, unknown>;
   archived: boolean;
+  synthesis_stale: boolean;
+  last_synthesised_at: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -141,6 +143,24 @@ export interface EvidenceEntity {
   company_id: string | null;
   competitor_id: string | null;
   relationship: string | null;
+  created_at: string;
+}
+
+export interface Theme {
+  id: string;
+  org_id: string;
+  project_id: string;
+  label: string;
+  description: string | null;
+  evidence_count: number;
+  created_at: string;
+}
+
+export interface EvidenceTheme {
+  evidence_id: string;
+  theme_id: string;
+  org_id: string;
+  confidence: number | null;
   created_at: string;
 }
 

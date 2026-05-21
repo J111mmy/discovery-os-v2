@@ -22,6 +22,12 @@ export type Events = {
       source_id: string;
     };
   };
+  "project/synthesis.requested": {
+    data: {
+      org_id: string;
+      project_id: string;
+    };
+  };
   "claim/verification.requested": {
     data: {
       org_id: string;

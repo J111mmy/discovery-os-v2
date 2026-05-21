@@ -169,6 +169,7 @@ export default async function SourceDetailPage({ params }: Props) {
           return (
             <article
               key={segment.id}
+              id={`segment-${segment.id}`}
               className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5"
             >
               <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
