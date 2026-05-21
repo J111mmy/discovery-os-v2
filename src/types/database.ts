@@ -4,11 +4,33 @@
 
 export type OrgRole = "owner" | "admin" | "member" | "viewer";
 export type TrustScope = "pending" | "trusted" | "disputed" | "excluded";
-export type SourceType = "transcript" | "document" | "note" | "survey" | "support_ticket" | "other";
+export type SourceType =
+  | "transcript"
+  | "document"
+  | "note"
+  | "survey"
+  | "support_ticket"
+  | "other"
+  | "web"
+  | "slack"
+  | "usability"
+  | "monitoring";
 export type ArtifactType = "prd" | "brief" | "persona" | "opportunity" | "gtm" | "interview_guide" | "report" | "other";
 export type VerificationStatus = "unverified" | "supported" | "disputed" | "retracted";
 export type JobStatus = "pending" | "processing" | "done" | "failed";
 export type TaskTier = "cheap" | "standard" | "premium" | "eval";
+export type EvidenceClassification = "insight" | "verbatim" | "data_point" | "signal";
+export type EvidenceSentiment = "positive" | "negative" | "neutral" | "mixed";
+export type EntityType = "person" | "company" | "product" | "feature" | "pain_point" | "competitor";
+export type PersonStatus =
+  | "prospect"
+  | "interviewed"
+  | "concept-shown"
+  | "demo-shown"
+  | "beta-candidate"
+  | "beta-participant"
+  | "customer";
+export type AgentRunStatus = "running" | "completed" | "failed";
 
 export interface Org {
   id: string;
@@ -46,6 +68,7 @@ export interface Project {
   slug: string;
   description: string | null;
   frame: string | null;
+  frame_data: Record<string, unknown> | null;
   gtm_context: string | null;
   operating_style: string | null;
   settings: Record<string, unknown>;
@@ -76,6 +99,11 @@ export interface SourceSegment {
   source_id: string;
   segment_index: number;
   speaker: string | null;
+  conversation_unit_id: string | null;
+  char_start: number | null;
+  char_end: number | null;
+  start_time: string | null;
+  end_time: string | null;
   raw_content: string;
   redacted_content: string | null;
   word_count: number | null;
@@ -93,9 +121,78 @@ export interface Evidence {
   // embedding is vector(1536) — not returned by default, only for similarity queries
   trust_scope: TrustScope;
   summary: string | null;
+  classification: EvidenceClassification | null;
+  sentiment: EvidenceSentiment | null;
   themes: string[];
   metadata: Record<string, unknown>;
   created_at: string;
+}
+
+export interface EvidenceEntity {
+  id: string;
+  org_id: string;
+  project_id: string;
+  evidence_id: string;
+  entity_type: EntityType;
+  label: string;
+  metadata: Record<string, unknown>;
+  person_id: string | null;
+  company_id: string | null;
+  competitor_id: string | null;
+  relationship: string | null;
+  created_at: string;
+}
+
+export interface Company {
+  id: string;
+  org_id: string;
+  name: string;
+  domain: string | null;
+  industry: string | null;
+  size: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Person {
+  id: string;
+  org_id: string;
+  name: string;
+  role: string | null;
+  email: string | null;
+  company_id: string | null;
+  status: PersonStatus;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Competitor {
+  id: string;
+  org_id: string;
+  name: string;
+  slug: string;
+  website: string | null;
+  positioning: string | null;
+  known_strengths: string | null;
+  known_gaps: string | null;
+  last_researched: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PersonProject {
+  person_id: string;
+  project_id: string;
+  status: string | null;
+  first_seen: string;
+}
+
+export interface CompanyProject {
+  company_id: string;
+  project_id: string;
+  first_seen: string;
 }
 
 export interface Artifact {
@@ -160,6 +257,32 @@ export interface IngestJob {
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
+}
+
+export interface AgentRun {
+  id: string;
+  org_id: string;
+  project_id: string | null;
+  agent_type: string;
+  status: AgentRunStatus;
+  input: Record<string, unknown> | null;
+  output: Record<string, unknown> | null;
+  error: string | null;
+  model_used: string | null;
+  started_at: string;
+  completed_at: string | null;
+}
+
+export interface SkillConfig {
+  id: string;
+  org_id: string | null;
+  skill_type: string;
+  system_prompt: string | null;
+  output_schema: Record<string, unknown> | null;
+  model_tier: TaskTier;
+  prompt_version: string | null;
+  active: boolean;
+  updated_at: string;
 }
 
 // ============================================================
