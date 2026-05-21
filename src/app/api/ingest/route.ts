@@ -1,7 +1,7 @@
 // POST /api/ingest
 // Creates a source record and fires the ingest Inngest event
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getProjectForUser } from "@/lib/auth/org";
 import { inngest } from "@/lib/inngest/client";
 import { z } from "zod";
@@ -43,9 +43,10 @@ export async function POST(req: NextRequest) {
   }
 
   const org_id = project.org_id;
+  const service = createServiceClient();
 
   // Create source record — raw_text stored in metadata for Phase 1
-  const { data: source, error: sourceError } = await supabase
+  const { data: source, error: sourceError } = await service
     .from("sources")
     .insert({
       org_id,
@@ -61,18 +62,32 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (sourceError || !source) {
-    return NextResponse.json({ error: "Failed to create source" }, { status: 500 });
+    console.error("Failed to create source", sourceError);
+    return NextResponse.json(
+      { error: sourceError?.message ?? "Failed to create source" },
+      { status: 500 }
+    );
   }
 
   // Create ingest job record
-  const { data: job } = await supabase
+  const { data: job, error: jobError } = await service
     .from("ingest_jobs")
     .insert({ org_id, source_id: source.id, status: "pending" })
     .select("id")
     .single();
 
-  if (!job) {
-    return NextResponse.json({ error: "Failed to create job" }, { status: 500 });
+  if (jobError || !job) {
+    console.error("Failed to create ingest job", jobError);
+    await service
+      .from("sources")
+      .delete()
+      .eq("org_id", org_id)
+      .eq("project_id", project_id)
+      .eq("id", source.id);
+    return NextResponse.json(
+      { error: jobError?.message ?? "Failed to create job" },
+      { status: 500 }
+    );
   }
 
   // Fire Inngest event
