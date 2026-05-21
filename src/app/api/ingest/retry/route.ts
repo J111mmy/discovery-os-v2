@@ -2,7 +2,7 @@
 // Re-fires ingest events for jobs stuck in 'pending' status.
 // Useful when sources were submitted before Inngest was connected.
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getProjectForUser } from "@/lib/auth/org";
 import { inngest } from "@/lib/inngest/client";
 import { z } from "zod";
@@ -44,10 +44,11 @@ export async function POST(req: NextRequest) {
   }
 
   const org_id = project.org_id;
+  const service = createServiceClient();
   let sourceIds: string[] = [];
 
   if (source_id) {
-    const { data: source } = await supabase
+    const { data: source } = await service
       .from("sources")
       .select("id, org_id, project_id")
       .eq("org_id", org_id)
@@ -61,20 +62,36 @@ export async function POST(req: NextRequest) {
 
     sourceIds = [source.id];
 
-    await supabase
+    const { error: evidenceDeleteError } = await service
       .from("evidence")
       .delete()
       .eq("org_id", org_id)
       .eq("project_id", project.id)
       .eq("source_id", source.id);
 
-    await supabase
+    if (evidenceDeleteError) {
+      console.error("Failed to clear evidence before retry", evidenceDeleteError);
+      return NextResponse.json(
+        { error: evidenceDeleteError.message },
+        { status: 500 }
+      );
+    }
+
+    const { error: segmentDeleteError } = await service
       .from("source_segments")
       .delete()
       .eq("org_id", org_id)
       .eq("source_id", source.id);
+
+    if (segmentDeleteError) {
+      console.error("Failed to clear source segments before retry", segmentDeleteError);
+      return NextResponse.json(
+        { error: segmentDeleteError.message },
+        { status: 500 }
+      );
+    }
   } else {
-    const { data: sources, error: sourceError } = await supabase
+    const { data: sources, error: sourceError } = await service
       .from("sources")
       .select("id, org_id, project_id")
       .eq("org_id", org_id)
@@ -92,14 +109,18 @@ export async function POST(req: NextRequest) {
   }
 
   if (source_id) {
-    const { data: job, error: jobError } = await supabase
+    const { data: job, error: jobError } = await service
       .from("ingest_jobs")
-      .insert({ org_id, source_id, status: "pending" })
+      .insert({ org_id, source_id: sourceIds[0], status: "pending" })
       .select("id, source_id")
       .single();
 
     if (jobError || !job) {
-      return NextResponse.json({ error: "Failed to create retry job" }, { status: 500 });
+      console.error("Failed to create retry job", jobError);
+      return NextResponse.json(
+        { error: jobError?.message ?? "Failed to create retry job" },
+        { status: 500 }
+      );
     }
 
     await inngest.send({
@@ -116,7 +137,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Find all pending jobs for this project
-  const { data: stuckJobs, error } = await supabase
+  const { data: stuckJobs, error } = await service
     .from("ingest_jobs")
     .select("id, source_id")
     .eq("org_id", org_id)
