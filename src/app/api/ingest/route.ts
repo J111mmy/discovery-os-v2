@@ -91,10 +91,22 @@ export async function POST(req: NextRequest) {
   }
 
   // Fire Inngest event
-  await inngest.send({
-    name: "source/ingest.requested",
-    data: { org_id, project_id, source_id: source.id, job_id: job.id },
-  });
+  try {
+    await inngest.send({
+      name: "source/ingest.requested",
+      data: { org_id, project_id, source_id: source.id, job_id: job.id },
+    });
+  } catch (inngestError) {
+    const message = inngestError instanceof Error ? inngestError.message : String(inngestError);
+    console.error("Inngest send failed:", message);
+    // Clean up the orphaned records so the user can try again
+    await service.from("ingest_jobs").delete().eq("org_id", org_id).eq("id", job.id);
+    await service.from("sources").delete().eq("org_id", org_id).eq("id", source.id);
+    return NextResponse.json(
+      { error: `Ingest queuing failed: ${message}. Check that INNGEST_EVENT_KEY is set and Inngest is reachable.` },
+      { status: 503 }
+    );
+  }
 
   return NextResponse.json({
     source_id: source.id,

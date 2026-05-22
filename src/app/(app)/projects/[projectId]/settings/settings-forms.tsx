@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { generateFrameAction } from "./actions";
 
 interface ProjectSettings {
   frame: string | null;
@@ -54,6 +55,7 @@ export function SettingsForms({
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isGeneratingFrame, setIsGeneratingFrame] = useState(false);
 
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"admin" | "member">("member");
@@ -112,6 +114,26 @@ export function SettingsForms({
     setInviteMessage(`Invite sent to ${payload.invite.email}.`);
   }
 
+  async function generateFrame() {
+    setSettingsMessage(null);
+    setSettingsError(null);
+    setIsGeneratingFrame(true);
+
+    try {
+      const formData = new FormData();
+      formData.set("project_id", projectId);
+      const generatedFrame = await generateFrameAction(formData);
+      setFrame(generatedFrame);
+      setSettingsMessage("Project frame generated and saved.");
+    } catch (error) {
+      setSettingsError(
+        error instanceof Error ? error.message : "Could not generate project frame."
+      );
+    } finally {
+      setIsGeneratingFrame(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="inline-flex rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-1">
@@ -140,6 +162,16 @@ export function SettingsForms({
                 onChange={(event) => setFrame(event.target.value)}
                 className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
               />
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={generateFrame}
+                  disabled={isGeneratingFrame}
+                  className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isGeneratingFrame ? "Generating..." : "Auto-generate frame"}
+                </button>
+              </div>
             </div>
             <div>
               <label className="mb-2 block text-sm font-medium text-[var(--ink)]" htmlFor="operating-style">

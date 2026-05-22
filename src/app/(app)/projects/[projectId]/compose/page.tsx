@@ -56,7 +56,7 @@ export default async function ComposePage({ params, searchParams }: Props) {
   if (searchParams?.artifactId) {
     const { data: artifact } = await supabase
       .from("artifacts")
-      .select("id, org_id, project_id, type, title, prompt, content_md, model_used, task_tier, metadata")
+      .select("id, org_id, project_id, type, title, prompt, content_md, model_used, task_tier, metadata, verification_status, verification_run_at, verification_summary")
       .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .eq("id", searchParams.artifactId)
@@ -74,6 +74,9 @@ export default async function ComposePage({ params, searchParams }: Props) {
         taskTier: artifact.task_tier,
         artifactType: artifact.type,
         evidenceIds: Array.isArray(metadata.evidence_ids) ? metadata.evidence_ids : [],
+        verificationStatus: artifact.verification_status,
+        verificationRunAt: artifact.verification_run_at,
+        verificationSummary: artifact.verification_summary,
       };
     }
   }

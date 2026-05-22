@@ -107,14 +107,21 @@ export async function POST(req: NextRequest) {
     saved_by: user.id,
   });
 
-  await inngest.send({
-    name: "artifact/claim.verification.requested",
-    data: {
-      org_id: project.org_id,
-      project_id: project.id,
-      artifact_id: artifact.id,
-    },
-  });
+  let verificationQueued = true;
 
-  return NextResponse.json({ artifact });
+  try {
+    await inngest.send({
+      name: "artifact/claim.verification.requested",
+      data: {
+        org_id: project.org_id,
+        project_id: project.id,
+        artifact_id: artifact.id,
+      },
+    });
+  } catch (error) {
+    verificationQueued = false;
+    console.error("Failed to queue claim verification", error);
+  }
+
+  return NextResponse.json({ artifact, verification_queued: verificationQueued });
 }

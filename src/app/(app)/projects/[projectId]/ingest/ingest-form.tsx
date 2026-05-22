@@ -23,9 +23,19 @@ export function IngestForm({ projectId }: IngestFormProps) {
   const [status, setStatus] = useState<JobStatus>("idle");
   const [result, setResult] = useState<IngestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pollCount, setPollCount] = useState(0);
 
   useEffect(() => {
     if (!jobId || status === "done" || status === "failed") return;
+
+    // Give up after ~3 minutes (100 polls × 1800ms) and show a helpful message
+    if (pollCount > 100) {
+      setError(
+        "Still processing after 3 minutes. Check that Inngest is running — locally run: npx inngest-cli@latest dev -u http://localhost:3000/api/inngest. On Vercel make sure INNGEST_EVENT_KEY and INNGEST_SIGNING_KEY are set."
+      );
+      setStatus("failed");
+      return;
+    }
 
     const interval = window.setInterval(async () => {
       const response = await fetch(`/api/ingest/status?job_id=${jobId}`, {
@@ -39,6 +49,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
         return;
       }
 
+      setPollCount((c) => c + 1);
       setStatus(payload.status);
       if (payload.status === "done") {
         setResult(payload.result ?? { segments_created: 0, evidence_created: 0 });
@@ -50,7 +61,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
     }, 1800);
 
     return () => window.clearInterval(interval);
-  }, [jobId, router, status]);
+  }, [jobId, router, status, pollCount]);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

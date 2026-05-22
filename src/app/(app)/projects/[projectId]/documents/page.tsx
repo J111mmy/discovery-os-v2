@@ -1,6 +1,6 @@
 import { getProjectForUser } from "@/lib/auth/org";
 import { createClient } from "@/lib/supabase/server";
-import type { ArtifactType } from "@/types/database";
+import type { ArtifactType, ArtifactVerificationStatus } from "@/types/database";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { deleteArtifactAction } from "./actions";
@@ -18,6 +18,8 @@ type ArtifactRow = {
   prompt: string;
   word_count: number | null;
   version: number;
+  verification_status: ArtifactVerificationStatus;
+  verification_summary: Record<string, unknown> | null;
   updated_at: string;
   created_at: string;
 };
@@ -28,6 +30,28 @@ function dateLabel(value: string) {
     day: "numeric",
     year: "numeric",
   }).format(new Date(value));
+}
+
+function VerificationBadge({ status }: { status: ArtifactVerificationStatus }) {
+  const classes =
+    status === "verified"
+      ? "border-green-500/20 bg-green-500/10 text-green-300"
+      : status === "partial"
+      ? "border-yellow-500/20 bg-yellow-500/10 text-yellow-300"
+      : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
+
+  const label =
+    status === "verified"
+      ? "Verified"
+      : status === "partial"
+      ? "Partially verified"
+      : "Unverified";
+
+  return (
+    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}>
+      {label}
+    </span>
+  );
 }
 
 export default async function DocumentsPage({ params }: Props) {
@@ -48,7 +72,7 @@ export default async function DocumentsPage({ params }: Props) {
 
   const { data } = await supabase
     .from("artifacts")
-    .select("id, org_id, project_id, type, title, prompt, word_count, version, updated_at, created_at")
+    .select("id, org_id, project_id, type, title, prompt, word_count, version, verification_status, verification_summary, updated_at, created_at")
     .eq("org_id", project.org_id)
     .eq("project_id", project.id)
     .order("updated_at", { ascending: false });
@@ -95,6 +119,7 @@ export default async function DocumentsPage({ params }: Props) {
                     <span className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-xs font-medium capitalize text-[var(--ink-muted)]">
                       {artifact.type}
                     </span>
+                    <VerificationBadge status={artifact.verification_status} />
                     <span className="text-xs text-[var(--ink-faint)]">v{artifact.version}</span>
                     <span className="text-xs text-[var(--ink-faint)]">{dateLabel(artifact.updated_at)}</span>
                   </div>

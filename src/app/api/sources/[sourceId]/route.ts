@@ -1,5 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -40,7 +40,12 @@ export async function DELETE(req: NextRequest, { params }: Props) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
-  const { data: source } = await supabase
+  // Use service client for the actual delete — RLS on sources may not have a DELETE policy,
+  // which causes the user-scoped client to silently return 0 rows without error.
+  // Auth is already verified above via getProjectForUser.
+  const service = createServiceClient();
+
+  const { data: source } = await service
     .from("sources")
     .select("id, org_id, project_id")
     .eq("org_id", project.org_id)
@@ -52,7 +57,7 @@ export async function DELETE(req: NextRequest, { params }: Props) {
     return NextResponse.json({ error: "Source not found" }, { status: 404 });
   }
 
-  const { error } = await supabase
+  const { error } = await service
     .from("sources")
     .delete()
     .eq("org_id", project.org_id)

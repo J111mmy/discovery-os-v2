@@ -1,7 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import type { ArtifactType } from "@/types/database";
+import { useEffect, useState } from "react";
+import type { ArtifactType, ArtifactVerificationStatus } from "@/types/database";
+import {
+  getArtifactVerificationStatusAction,
+  type ArtifactVerificationState,
+} from "./actions";
 
 interface Section {
   id: string;
@@ -20,6 +24,9 @@ interface ComposeEditorProps {
     taskTier: string | null;
     artifactType: ArtifactType;
     evidenceIds: string[];
+    verificationStatus: ArtifactVerificationStatus;
+    verificationRunAt: string | null;
+    verificationSummary: Record<string, unknown> | null;
   } | null;
 }
 
@@ -29,6 +36,75 @@ function markdownFromSections(title: string, sections: Section[]) {
     "",
     ...sections.map((section) => `## ${section.heading.trim() || "Untitled"}\n\n${section.content.trim()}`),
   ].join("\n\n");
+}
+
+function verificationLabel(status: ArtifactVerificationStatus) {
+  if (status === "verified") return "Verified";
+  if (status === "partial") return "Partially verified";
+  return "Unverified";
+}
+
+function verificationClasses(status: ArtifactVerificationStatus) {
+  if (status === "verified") return "border-green-500/20 bg-green-500/10 text-green-300";
+  if (status === "partial") return "border-yellow-500/20 bg-yellow-500/10 text-yellow-300";
+  return "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
+}
+
+function summaryLabel(summary: Record<string, unknown> | null) {
+  if (!summary) return null;
+  const total = Number(summary.total ?? 0);
+  const supported = Number(summary.supported ?? 0);
+  const partial = Number(summary.partial ?? 0);
+  if (!total) return null;
+  return `${supported} supported${partial ? `, ${partial} partial` : ""} of ${total} claims`;
+}
+
+function VerificationBanner({
+  state,
+  pending,
+  queueError,
+}: {
+  state: ArtifactVerificationState | null;
+  pending: boolean;
+  queueError: string | null;
+}) {
+  if (queueError) {
+    return (
+      <div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+        {queueError}
+      </div>
+    );
+  }
+
+  if (pending) {
+    return (
+      <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink-muted)]">
+        Verification running...
+      </div>
+    );
+  }
+
+  if (!state?.runAt) {
+    return (
+      <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm font-medium text-[var(--ink-muted)]">
+        Unverified
+        <span className="font-normal"> — no verification run yet</span>
+      </div>
+    );
+  }
+
+  const detail = summaryLabel(state.summary);
+
+  return (
+    <div
+      className={`mt-4 rounded-lg border px-3 py-2 text-sm font-medium ${verificationClasses(
+        state.status
+      )}`}
+    >
+      {verificationLabel(state.status)}
+      {detail ? <span className="font-normal"> — {detail}</span> : null}
+    </div>
+  );
 }
 
 export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorProps) {
@@ -46,10 +122,56 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
   const [taskTier, setTaskTier] = useState<string | null>(initialDraft?.taskTier ?? null);
   const [artifactType, setArtifactType] = useState<ArtifactType>(initialDraft?.artifactType ?? "other");
   const [evidenceIds, setEvidenceIds] = useState<string[]>(initialDraft?.evidenceIds ?? []);
+  const [verification, setVerification] = useState<ArtifactVerificationState | null>(
+    initialDraft
+      ? {
+          status: initialDraft.verificationStatus,
+          runAt: initialDraft.verificationRunAt,
+          summary: initialDraft.verificationSummary,
+        }
+      : null
+  );
+  const [verificationPending, setVerificationPending] = useState(false);
+  const [verificationQueueError, setVerificationQueueError] = useState<string | null>(null);
   const [isDrafting, setIsDrafting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!artifactId || !verificationPending) return;
+
+    let cancelled = false;
+    let attempts = 0;
+
+    async function pollVerification() {
+      attempts += 1;
+      const nextState = await getArtifactVerificationStatusAction(projectId, artifactId!);
+      if (cancelled) return;
+
+      if (nextState) {
+        setVerification(nextState);
+        if (nextState.runAt) {
+          setVerificationPending(false);
+          return;
+        }
+      }
+
+      if (attempts >= 20) {
+        setVerificationPending(false);
+      }
+    }
+
+    void pollVerification();
+    const interval = window.setInterval(() => {
+      void pollVerification();
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [artifactId, projectId, verificationPending]);
 
   async function createDraft(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -76,6 +198,9 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
 
     setTitle(payload.title ?? "Untitled");
     setArtifactId(payload.artifact_id ?? null);
+    setVerification(null);
+    setVerificationPending(false);
+    setVerificationQueueError(null);
     setModelUsed(payload.model_used ?? null);
     setTaskTier(payload.task_tier ?? null);
     setArtifactType("other");
@@ -120,6 +245,17 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
     }
 
     setArtifactId(payload.artifact.id);
+    setVerification({
+      status: "unverified",
+      runAt: null,
+      summary: null,
+    });
+    setVerificationPending(payload.verification_queued !== false);
+    setVerificationQueueError(
+      payload.verification_queued === false
+        ? "Saved, but verification could not start yet."
+        : null
+    );
     setMessage(`Saved version ${payload.artifact.version}.`);
   }
 
@@ -244,6 +380,13 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
                 </select>
               </div>
             </div>
+            {artifactId && (
+              <VerificationBanner
+                state={verification}
+                pending={verificationPending}
+                queueError={verificationQueueError}
+              />
+            )}
           </div>
 
           {sections.map((section) => (
