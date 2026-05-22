@@ -340,6 +340,14 @@ export const synthesiseProject = inngest.createFunction(
         });
       });
 
+      // Chain: trigger problem discovery now that themes are fresh
+      await step.run("trigger-problem-discovery", async () => {
+        await inngest.send({
+          name: "project/problems.requested",
+          data: { org_id, project_id },
+        });
+      });
+
       return output;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown synthesis error";

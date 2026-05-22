@@ -12,6 +12,7 @@ interface ProjectSidebarProps {
 const navItems = [
   { href: "", label: "Workspace" },
   { href: "evidence", label: "Evidence" },
+  { href: "ask", label: "Ask" },
   { href: "sources", label: "Sources" },
   { href: "compose", label: "Compose" },
   { href: "documents", label: "Documents" },
