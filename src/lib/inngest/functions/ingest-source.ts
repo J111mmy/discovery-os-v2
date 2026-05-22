@@ -497,8 +497,8 @@ export const ingestSource = inngest.createFunction(
         return data as { type: SourceType; metadata: Record<string, unknown> };
       });
 
-      const [project, themes] = await step.run("fetch-context", async () => {
-        const [projectResult, themesResult] = await Promise.all([
+      const [project, themes, problems, otherProjects] = await step.run("fetch-context", async () => {
+        const [projectResult, themesResult, problemsResult, otherProjectsResult] = await Promise.all([
           supabase
             .from("projects")
             .select("name, frame, frame_data")
@@ -511,6 +511,21 @@ export const ingestSource = inngest.createFunction(
             .eq("org_id", org_id)
             .eq("project_id", project_id)
             .order("label", { ascending: true }),
+          // Known problems — agent checks if evidence supports or contradicts these
+          supabase
+            .from("problems")
+            .select("title")
+            .eq("org_id", org_id)
+            .eq("project_id", project_id)
+            .in("status", ["surfaced", "acknowledged", "active"])
+            .limit(20),
+          // Other active projects — for adjacent signal detection
+          supabase
+            .from("projects")
+            .select("name, frame")
+            .eq("org_id", org_id)
+            .neq("id", project_id)
+            .limit(10),
         ]);
 
         if (projectResult.error || !projectResult.data) {
@@ -522,6 +537,8 @@ export const ingestSource = inngest.createFunction(
         return [
           projectResult.data as ProjectContext,
           (themesResult.data ?? []) as ThemeContext[],
+          (problemsResult.data ?? []) as Array<{ title: string }>,
+          (otherProjectsResult.data ?? []) as Array<{ name: string; frame: string | null }>,
         ] as const;
       });
 
@@ -578,6 +595,12 @@ export const ingestSource = inngest.createFunction(
             content: unit.content,
             frame: formatFrame(project),
             themes: formatThemes(themes),
+            problems: problems.length > 0
+              ? problems.map((p) => `- ${p.title}`).join("\n")
+              : "No problems identified yet.",
+            otherProjects: otherProjects.length > 0
+              ? otherProjects.map((p) => `- ${p.name}${p.frame ? `: ${p.frame.slice(0, 120)}` : ""}`).join("\n")
+              : "No other active projects.",
           });
 
           const result = await callLLM({
