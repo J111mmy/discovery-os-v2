@@ -598,7 +598,8 @@ Use these exact values. Do not invent new ones without a meta-review update.
 **Evidence trust scope:** `trusted | pending | excluded | disputed`
 **Source kind:** `transcript | document | note | web | slack | usability | monitoring`
 **Person status:** `prospect | interviewed | concept-shown | demo-shown | beta-candidate | beta-participant | customer`
-**Problem status:** `open | in-progress | resolved | deferred | invalid | merged`
+**Problem status:** `surfaced | acknowledged | active | resolved | dismissed`
+  *(surfaced = AI-discovered, not yet human-reviewed; acknowledged = PM has seen it; active = being worked; resolved = addressed; dismissed = not valid)*
 **Prototype status:** `concept | designing | built | testing | validated | deprecated`
 **Confidence:** `high | medium | low`
 **Decision outcome:** `go | conditional-go | no-go | approved | deferred | rejected`
