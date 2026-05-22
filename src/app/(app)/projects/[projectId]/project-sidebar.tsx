@@ -13,6 +13,7 @@ const navItems = [
   { href: "", label: "Workspace" },
   { href: "evidence", label: "Evidence" },
   { href: "ask", label: "Ask" },
+  { href: "problems", label: "Problems" },
   { href: "sources", label: "Sources" },
   { href: "compose", label: "Compose" },
   { href: "documents", label: "Documents" },
