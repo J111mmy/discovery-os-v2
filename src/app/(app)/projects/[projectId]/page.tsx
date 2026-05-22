@@ -58,8 +58,10 @@ export default async function ProjectPage({ params }: Props) {
     { count: trustedCount },
     { count: pendingCount },
     { count: artifactCount },
+    { count: sourceCount },
     { data: sources },
     { data: themes, count: themeCount },
+    { count: problemCount },
     { count: runningSynthesisCount },
   ] =
     await Promise.all([
@@ -87,6 +89,11 @@ export default async function ProjectPage({ params }: Props) {
         .eq("project_id", project.id),
       supabase
         .from("sources")
+        .select("*", { count: "exact", head: true })
+        .eq("org_id", project.org_id)
+        .eq("project_id", project.id),
+      supabase
+        .from("sources")
         .select("id, org_id, title, type, trust_scope, ingested_at")
         .eq("org_id", project.org_id)
         .eq("project_id", project.id)
@@ -100,6 +107,12 @@ export default async function ProjectPage({ params }: Props) {
         .order("evidence_count", { ascending: false })
         .limit(6),
       supabase
+        .from("problems")
+        .select("*", { count: "exact", head: true })
+        .eq("org_id", project.org_id)
+        .eq("project_id", project.id)
+        .in("status", ["surfaced", "acknowledged", "active"]),
+      supabase
         .from("agent_runs")
         .select("*", { count: "exact", head: true })
         .eq("org_id", project.org_id)
@@ -112,6 +125,37 @@ export default async function ProjectPage({ params }: Props) {
   const hiddenThemeCount = Math.max((themeCount ?? themeRows.length) - themeRows.length, 0);
   const trustedTotal = trustedCount ?? 0;
   const synthesisRunning = (runningSynthesisCount ?? 0) > 0;
+
+  // Confidence score — four equally-weighted signals (25 pts each, 100 max)
+  // Targets: 20 trusted records, 5 sources, 5 themes, 3 problems
+  const confidenceTrusted   = Math.min((trustedTotal / 20), 1) * 25;
+  const confidenceSources   = Math.min(((sourceCount ?? 0) / 5), 1) * 25;
+  const confidenceThemes    = Math.min(((themeCount ?? 0) / 5), 1) * 25;
+  const confidenceProblems  = Math.min(((problemCount ?? 0) / 3), 1) * 25;
+  const confidenceScore     = Math.round(confidenceTrusted + confidenceSources + confidenceThemes + confidenceProblems);
+
+  function confidenceLabel(score: number) {
+    if (score >= 80) return "Strong";
+    if (score >= 55) return "Building";
+    if (score >= 25) return "Early";
+    return "Just started";
+  }
+
+  function confidenceColour(score: number) {
+    if (score >= 80) return "bg-green-400";
+    if (score >= 55) return "bg-[var(--brand)]";
+    if (score >= 25) return "bg-yellow-400";
+    return "bg-[var(--ink-faint)]";
+  }
+
+  // Explain the weakest signal so users know what to do next
+  const signals = [
+    { score: confidenceTrusted,  max: 25, hint: `${trustedTotal} trusted record${trustedTotal === 1 ? "" : "s"} — aim for 20+` },
+    { score: confidenceSources,  max: 25, hint: `${sourceCount ?? 0} source${(sourceCount ?? 0) === 1 ? "" : "s"} — aim for 5+` },
+    { score: confidenceThemes,   max: 25, hint: `${themeCount ?? 0} theme${(themeCount ?? 0) === 1 ? "" : "s"} — run synthesis to surface more` },
+    { score: confidenceProblems, max: 25, hint: `${problemCount ?? 0} open problem${(problemCount ?? 0) === 1 ? "" : "s"} — synthesis surfaces these automatically` },
+  ];
+  const weakestSignal = signals.slice().sort((a, b) => (a.score / a.max) - (b.score / b.max))[0];
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -153,6 +197,36 @@ export default async function ProjectPage({ params }: Props) {
           <div className="text-2xl font-semibold text-[var(--ink)]">{artifactCount ?? 0}</div>
           <div className="mt-1 text-sm text-[var(--ink-muted)]">Documents</div>
         </Link>
+      </div>
+
+      {/* Confidence indicator */}
+      <div className="mb-8 rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-semibold text-[var(--ink)]">
+                Research confidence
+              </span>
+              <span className="text-sm font-semibold text-[var(--ink)]">
+                {confidenceScore}%
+              </span>
+              <span className="rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-xs font-medium text-[var(--ink-muted)]">
+                {confidenceLabel(confidenceScore)}
+              </span>
+            </div>
+            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
+              <div
+                className={`h-full rounded-full transition-all ${confidenceColour(confidenceScore)}`}
+                style={{ width: `${confidenceScore}%` }}
+              />
+            </div>
+            {confidenceScore < 100 && (
+              <p className="mt-2 text-xs text-[var(--ink-muted)]">
+                Next: {weakestSignal.hint}
+              </p>
+            )}
+          </div>
+        </div>
       </div>
 
       {(themeRows.length > 0 || trustedTotal > 0) && (
