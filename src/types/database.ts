@@ -17,6 +17,7 @@ export type SourceType =
   | "monitoring";
 export type ArtifactType = "prd" | "brief" | "persona" | "opportunity" | "gtm" | "interview_guide" | "report" | "other";
 export type VerificationStatus = "unverified" | "supported" | "disputed" | "retracted";
+export type ArtifactVerificationStatus = "verified" | "partial" | "unverified";
 export type JobStatus = "pending" | "processing" | "done" | "failed";
 export type TaskTier = "cheap" | "standard" | "premium" | "eval";
 export type EvidenceClassification = "insight" | "verbatim" | "data_point" | "signal";
@@ -229,6 +230,9 @@ export interface Artifact {
   model_used: string | null;
   task_tier: TaskTier | null;
   metadata: Record<string, unknown>;
+  verification_status: ArtifactVerificationStatus;
+  verification_run_at: string | null;
+  verification_summary: Record<string, unknown> | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -241,6 +245,8 @@ export interface ArtifactClaim {
   claim_text: string;
   section_heading: string | null;
   verification_status: VerificationStatus;
+  verified: boolean | null;
+  verification_note: string | null;
   verified_at: string | null;
   verifier_model: string | null;
   notes: string | null;

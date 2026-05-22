@@ -1,4 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import { inngest } from "@/lib/inngest/client";
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -80,6 +81,9 @@ export async function POST(req: NextRequest) {
     model_used: body.model_used ?? null,
     task_tier: body.task_tier ?? null,
     metadata: body.metadata ?? {},
+    verification_status: "unverified",
+    verification_run_at: null,
+    verification_summary: null,
     created_by: user.id,
   };
 
@@ -101,6 +105,15 @@ export async function POST(req: NextRequest) {
     version,
     content_md: body.content_md,
     saved_by: user.id,
+  });
+
+  await inngest.send({
+    name: "artifact/claim.verification.requested",
+    data: {
+      org_id: project.org_id,
+      project_id: project.id,
+      artifact_id: artifact.id,
+    },
   });
 
   return NextResponse.json({ artifact });

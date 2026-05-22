@@ -28,11 +28,17 @@ export type Events = {
       project_id: string;
     };
   };
-  "claim/verification.requested": {
+  "project/problems.requested": {
     data: {
       org_id: string;
+      project_id: string;
+    };
+  };
+  "artifact/claim.verification.requested": {
+    data: {
+      org_id: string;
+      project_id: string;
       artifact_id: string;
-      claim_id: string;
     };
   };
 };
