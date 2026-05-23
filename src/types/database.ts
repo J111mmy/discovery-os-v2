@@ -182,6 +182,9 @@ export interface Company {
   industry: string | null;
   size: string | null;
   notes: string | null;
+  /** AI-synthesised narrative profile. Written by synthesise-company Inngest function. */
+  digest: string | null;
+  digest_updated_at: string | null;
   created_at: string;
   updated_at: string;
 }

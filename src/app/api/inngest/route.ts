@@ -12,6 +12,7 @@ import { sessionReview } from "@/lib/inngest/functions/session-review";
 import { composeArtifact } from "@/lib/inngest/functions/compose-artifact";
 import { synthesisePerson } from "@/lib/inngest/functions/synthesise-person";
 import { draftFrame } from "@/lib/inngest/functions/draft-frame";
+import { synthesiseCompany } from "@/lib/inngest/functions/synthesise-company";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
@@ -27,5 +28,6 @@ export const { GET, POST, PUT } = serve({
     composeArtifact,
     synthesisePerson,
     draftFrame,
+    synthesiseCompany,
   ],
 });

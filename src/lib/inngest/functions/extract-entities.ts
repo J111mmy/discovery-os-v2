@@ -547,6 +547,34 @@ export const extractEntities = inngest.createFunction(
         });
       }
 
+      // Queue company digest synthesis for any companies resolved in this source.
+      // The synthesise-company function checks the evidence threshold itself (≥3 records).
+      if (output.companies_resolved > 0) {
+        await step.run("queue-company-digests", async () => {
+          const { data: involvedCompanies } = await supabase
+            .from("evidence_entities")
+            .select("entity_id")
+            .eq("org_id", org_id)
+            .eq("entity_type", "company")
+            .eq("evidence.source_id", source_id);
+
+          const companyIds = Array.from(
+            new Set(
+              ((involvedCompanies ?? []) as Array<{ entity_id: string }>).map((r) => r.entity_id)
+            )
+          );
+
+          if (companyIds.length > 0) {
+            await inngest.send(
+              companyIds.map((company_id) => ({
+                name: "company/digest.requested" as const,
+                data: { org_id, company_id },
+              }))
+            );
+          }
+        });
+      }
+
       return output;
     } catch (error) {
       // Entity extraction is background enrichment — a failure here does not

@@ -22,12 +22,8 @@ Each item has a rough size: **S** (one session), **M** (2–3 sessions), **L** (
 
 These are not build work — they are operational steps needed right now before the system works fully.
 
-- [ ] Run migration SQL in Supabase SQL Editor: `0012_fix_org_members_rls.sql` — fixes "infinite recursion" error blocking document saves
-- [ ] Run migration SQL: `0013_affiliation_and_source_types.sql` — adds `affiliation` to people table and new source type values
-- [ ] `git add -A && git commit -m "feat: affiliation-aware ingest and source profiles" && git push` — pushes all pending fixes and new features
-- [ ] In Supabase Table Editor: confirm `gap_signals` and `gaps_detected_at` columns exist on the `projects` table (from migration 0011). If not, run `0011_gap_signals.sql`
-- [ ] Run migration SQL: `0015_frame_draft.sql` — adds `frame_draft` (jsonb) and `frame_draft_generated_at` to projects table
-- [ ] `git add -A && git commit -m "feat: frame auto-generation — AI proposes draft frame after first ingest" && git push`
+- [ ] Run migration SQL in Supabase SQL Editor: `0016_company_digest.sql` — adds `digest` and `digest_updated_at` to companies table
+- [ ] `git add -A && git commit -m "feat: company digest synthesis" && git push`
 
 ---
 
@@ -36,26 +32,20 @@ These are not build work — they are operational steps needed right now before 
 ### ✅ Internal speaker flagging (backend)
 **What was built:** `affiliation` field on people table, ingest pipeline now queries internal people before extraction and passes them to Claude so their turns are treated as context, not evidence. New source types (`customer_interview`, `sales_call`, `usability_study`, `internal_meeting`) parse as conversations. Ingest API route updated to accept new values.
 
-### 🔄 Internal speaker flagging (UI) + source type dropdown — Codex
-**Brief:** `CODEX_BRIEF_AFFILIATION_AND_PROFILES.md`
-**Why:** The backend is done but Jimmy has no way to flag people as internal without writing SQL, and the ingest form still shows the old source type labels.
-**What:** Affiliation badge on people list + one-click toggle on person detail page. Source type dropdown updated to meaningful labels (`Customer interview`, `Sales call`, etc.). Affiliation PATCH API route with org_id guard.
-**Size:** S
+### ✅ Internal speaker flagging (UI) + source type dropdown
+**What was built (Codex, 31cc401):** Affiliation badge on people list, one-click affiliation toggle on person detail page, source type dropdown updated to human labels (`Customer interview`, `Sales call`, etc.), `PATCH /api/people/[personId]/affiliation` with org_id guard.
 
 ---
 
 ## Next — high priority
 
-### 🔄 Rich people profiles
-**Why:** A stream of evidence isn't digestible. Jimmy needs to look at Jake Chen and understand at a glance: who he is, his company, his status, every project he's appeared in, and a synthesised digest of what he's said.
-**Backend done:** `synthesise-person.ts` Inngest function, `person-digest-v1` prompt, migration 0014 (`digest` + `digest_updated_at` on people), `POST /api/people/[personId]/synthesise` on-demand trigger. Chained from entity extraction — fires automatically for external people after each ingest.
-**UI brief:** `CODEX_BRIEF_PERSON_DIGEST_UI.md` — digest prose section + "Refresh digest" button on person detail page.
-**Size:** M
+### ✅ Rich people profiles
+**What was built:** `synthesise-person.ts` Inngest function, `person-digest-v1` prompt, migration 0014, `POST /api/people/[personId]/synthesise`. UI shipped by Codex (8b19ede): "Intelligence brief" section on person detail page, `DigestRefreshButton` client component, date of last generation shown.
 
-### 🔜 Rich company profiles
+### 🔄 Rich company profiles
 **Why:** "AECOM" is just a name right now. The company page should show every person spoken to from that org, a summary of their collective feedback, their involvement across projects, and their overall relationship signal.
-**What:**
-- Company detail page: header (name, domain, industry), people roster from that company, cross-project involvement, synthesised perspective digest, linked evidence
+**Backend done:** `synthesise-company.ts` Inngest function, `company-digest-v1` prompt, migration 0016 (`digest` + `digest_updated_at` on companies), `POST /api/companies/[companyId]/synthesise` on-demand trigger. Chained from entity extraction — fires automatically after each ingest where companies are resolved.
+**UI brief:** `CODEX_BRIEF_COMPANY_DIGEST_UI.md` — company detail page with digest section, people roster, cross-project involvement, and "Refresh digest" button.
 **Size:** M
 
 ### 🔜 Rich competitor profiles + battle cards
