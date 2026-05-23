@@ -1,7 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
-import type { EvidenceClassification, EvidenceSentiment, TrustScope } from "@/types/database";
+import type {
+  Affiliation,
+  EvidenceClassification,
+  EvidenceSentiment,
+  PersonStatus,
+  TrustScope,
+} from "@/types/database";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { AffiliationToggle } from "./affiliation-toggle";
 
 type ProjectRelation = {
   project_id: string;
@@ -13,6 +20,9 @@ type PersonDetail = {
   name: string;
   role: string | null;
   email: string | null;
+  affiliation: Affiliation;
+  status: PersonStatus;
+  company_id: string | null;
   person_projects: ProjectRelation[] | ProjectRelation | null;
 };
 
@@ -100,6 +110,16 @@ function SentimentIndicator({ sentiment }: { sentiment: EvidenceSentiment | null
   );
 }
 
+function StatusBadge({ status }: { status: PersonStatus }) {
+  const label = status.replace(/-/g, " ");
+
+  return (
+    <span className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-xs font-medium capitalize text-[var(--ink-muted)]">
+      {label}
+    </span>
+  );
+}
+
 function EvidenceCard({ evidence }: { evidence: EvidenceMention }) {
   return (
     <article className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
@@ -140,7 +160,7 @@ export default async function PersonDetailPage({ params }: Props) {
   const [{ data: person }, { data: entityRows }] = await Promise.all([
     supabase
       .from("people")
-      .select("id, name, role, email, person_projects(project_id, projects(name))")
+      .select("id, name, role, email, affiliation, status, company_id, person_projects(project_id, projects(name))")
       .eq("org_id", orgId)
       .eq("id", params.personId)
       .single(),
@@ -171,8 +191,16 @@ export default async function PersonDetailPage({ params }: Props) {
         </Link>
 
         <section className="mb-8 rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <StatusBadge status={personRow.status} />
+                {personRow.affiliation === "internal" && (
+                  <span className="rounded-full border border-yellow-500/20 bg-yellow-500/10 px-2 py-0.5 text-xs font-medium text-yellow-300">
+                    Internal
+                  </span>
+                )}
+              </div>
               <h1 className="text-2xl font-semibold text-[var(--ink)]">{personRow.name}</h1>
               {(personRow.role || personRow.email) && (
                 <p className="mt-2 text-sm text-[var(--ink-muted)]">
@@ -193,6 +221,13 @@ export default async function PersonDetailPage({ params }: Props) {
                 ))}
               </div>
             )}
+          </div>
+
+          <div className="mt-5 border-t border-[var(--border)] pt-5">
+            <AffiliationToggle
+              personId={personRow.id}
+              initialAffiliation={personRow.affiliation}
+            />
           </div>
         </section>
 

@@ -17,7 +17,7 @@ interface IngestFormProps {
 export function IngestForm({ projectId }: IngestFormProps) {
   const router = useRouter();
   const [title, setTitle] = useState("");
-  const [type, setType] = useState("transcript");
+  const [type, setType] = useState("customer_interview");
   const [rawText, setRawText] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -199,9 +199,14 @@ export function IngestForm({ projectId }: IngestFormProps) {
               onChange={(event) => setType(event.target.value)}
               className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors focus:border-[var(--brand)]"
             >
-              <option value="transcript">Transcript</option>
+              <option value="customer_interview">Customer interview</option>
+              <option value="sales_call">Sales call</option>
+              <option value="usability_study">Usability study</option>
+              <option value="internal_meeting">Internal meeting</option>
               <option value="document">Document</option>
               <option value="note">Note</option>
+              <option value="survey">Survey</option>
+              <option value="support_ticket">Support ticket</option>
               <option value="other">Other</option>
             </select>
           </div>
