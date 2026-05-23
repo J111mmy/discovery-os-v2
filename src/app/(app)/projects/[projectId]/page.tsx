@@ -15,6 +15,14 @@ type ThemeRow = {
   evidence_count: number;
 };
 
+type ProductRequestPreview = {
+  id: string;
+  description: string;
+  requester_name: string | null;
+  priority_signal: "nice_to_have" | "important" | "critical";
+  status: string;
+};
+
 function synthesisTimeLabel(value: string | null) {
   if (!value) return "not synthesised yet";
 
@@ -79,6 +87,7 @@ export default async function ProjectPage({ params }: Props) {
     { data: themes, count: themeCount },
     { count: problemCount },
     { count: runningSynthesisCount },
+    { data: productRequests, count: productRequestCount },
   ] =
     await Promise.all([
       supabase
@@ -135,10 +144,19 @@ export default async function ProjectPage({ params }: Props) {
         .eq("project_id", project.id)
         .eq("agent_type", "project-synthesis")
         .eq("status", "running"),
+      supabase
+        .from("product_requests")
+        .select("id, description, requester_name, priority_signal, status", { count: "exact" })
+        .eq("org_id", project.org_id)
+        .eq("project_id", project.id)
+        .order("created_at", { ascending: false })
+        .limit(4),
     ]);
 
   const themeRows = (themes ?? []) as ThemeRow[];
+  const productRequestRows = (productRequests ?? []) as ProductRequestPreview[];
   const hiddenThemeCount = Math.max((themeCount ?? themeRows.length) - themeRows.length, 0);
+  const productRequestTotal = productRequestCount ?? productRequestRows.length;
   const trustedTotal = trustedCount ?? 0;
   const synthesisRunning = (runningSynthesisCount ?? 0) > 0;
 
@@ -343,6 +361,59 @@ export default async function ProjectPage({ params }: Props) {
                 </div>
               </div>
             ))}
+          </div>
+        </section>
+      )}
+
+      {productRequestTotal > 0 && (
+        <section className="mb-8 rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-[var(--ink)]">Product requests</h2>
+              <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                {productRequestTotal} request{productRequestTotal === 1 ? "" : "s"} captured from recent sessions
+              </p>
+            </div>
+            <Link
+              href={`/projects/${project.id}/sources`}
+              className="text-xs font-medium text-[var(--ink-muted)] transition-colors hover:text-[var(--brand)]"
+            >
+              Review sources
+            </Link>
+          </div>
+          <div className="grid gap-2 lg:grid-cols-2">
+            {productRequestRows.map((request) => {
+              const priorityClass =
+                request.priority_signal === "critical"
+                  ? "border-red-400/40 bg-red-500/10 text-red-300"
+                  : request.priority_signal === "important"
+                  ? "border-amber-400/40 bg-amber-500/10 text-amber-300"
+                  : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
+              const priorityLabel =
+                request.priority_signal === "nice_to_have"
+                  ? "Nice to have"
+                  : request.priority_signal[0].toUpperCase() + request.priority_signal.slice(1);
+
+              return (
+                <div
+                  key={request.id}
+                  className="rounded-lg border border-[var(--border)] bg-[var(--surface-0)] p-4"
+                >
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${priorityClass}`}>
+                      {priorityLabel}
+                    </span>
+                    <span className="text-xs capitalize text-[var(--ink-faint)]">
+                      {request.status.replace("_", " ")}
+                    </span>
+                  </div>
+                  <p className="text-sm leading-6 text-[var(--ink)]">{request.description}</p>
+                  {request.requester_name && (
+                    <p className="mt-2 text-xs text-[var(--ink-faint)]">{request.requester_name}</p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </section>
       )}

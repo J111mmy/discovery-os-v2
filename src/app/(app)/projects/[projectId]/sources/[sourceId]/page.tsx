@@ -4,6 +4,7 @@ import type { JobStatus, SourceType, TrustScope } from "@/types/database";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { SourceActions } from "../source-actions";
+import { SessionExtras } from "./session-extras";
 
 interface Props {
   params: { projectId: string; sourceId: string };
@@ -229,6 +230,8 @@ export default async function SourceDetailPage({ params }: Props) {
           )}
         </div>
       )}
+
+      <SessionExtras sourceId={typedSource.id} />
 
       <div className="grid gap-3">
         {segments.map((segment) => {
