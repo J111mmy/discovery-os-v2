@@ -738,6 +738,15 @@ export const ingestSource = inngest.createFunction(
             data: { org_id, project_id, source_id },
           });
         });
+
+        // Fire action extraction alongside the session review.
+        // Pulls interviewer commitments and participant feature requests from evidence.
+        await step.run("queue-action-extraction", async () => {
+          await inngest.send({
+            name: "source/actions.requested",
+            data: { org_id, project_id, source_id },
+          });
+        });
       }
 
       // Auto-trigger synthesis when ingest produces enough new evidence (≥5 records)

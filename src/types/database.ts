@@ -301,6 +301,39 @@ export interface IngestJob {
   created_at: string;
 }
 
+export type ActionStatus = "open" | "done" | "dismissed";
+export type PrioritySignal = "nice_to_have" | "important" | "critical";
+export type ProductRequestStatus = "open" | "backlog" | "in_progress" | "shipped" | "dismissed";
+
+export interface Action {
+  id: string;
+  org_id: string;
+  project_id: string;
+  source_id: string;
+  evidence_id: string | null;
+  description: string;
+  owner: string | null;
+  due_note: string | null;
+  status: ActionStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductRequest {
+  id: string;
+  org_id: string;
+  project_id: string;
+  source_id: string;
+  evidence_id: string | null;
+  company_id: string | null;
+  description: string;
+  requester_name: string | null;
+  priority_signal: PrioritySignal;
+  status: ProductRequestStatus;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AgentRun {
   id: string;
   org_id: string;

@@ -23,7 +23,8 @@ Each item has a rough size: **S** (one session), **M** (2–3 sessions), **L** (
 These are not build work — they are operational steps needed right now before the system works fully.
 
 - [ ] Run migration SQL in Supabase SQL Editor: `0016_company_digest.sql` — adds `digest` and `digest_updated_at` to companies table
-- [ ] `git add -A && git commit -m "feat: company digest synthesis" && git push`
+- [ ] Run migration SQL: `0017_actions_and_requests.sql` — creates `actions` and `product_requests` tables with RLS
+- [ ] `git add -A && git commit -m "feat: company digest + action extraction backend" && git push`
 
 ---
 
@@ -60,26 +61,22 @@ These are not build work — they are operational steps needed right now before 
 **What was built:** `compose-artifact.ts` Inngest function. Route handler creates stub artifact, fires `artifact/compose.requested`, returns `artifact_id` immediately. Editor polls `/api/artifacts/[id]/status` every 2 seconds until done or failed. No timeout risk on large evidence sets.
 **Size:** M
 
-### 🔄 Session review skill
-**Why:** After every interview, you want a human-readable brief — not just evidence records. "What was discussed, key quotes, what they want, what they thought of the prototype." Designed to be read by a human, shareable.
-**What:** Inngest function triggered after ingest. One Claude call that reads all evidence from a source and writes a structured narrative brief. Saved as an artifact linked to the source.
-**Backend done:** `session-review.ts` Inngest function, prompt (`session-review-v1`), chained from ingest, registered in route. Brief has 6 sections: Summary / What they want / Product reactions / Friction / Notable quotes / Follow-up.
-**UI brief:** `CODEX_BRIEF_SESSION_REVIEW_UI.md` — session brief card on source detail page + artifact detail page markdown rendering.
-**Size:** S
+### ✅ Session review skill
+**What was built:** `session-review.ts` Inngest function, `session-review-v1` prompt, chained from ingest. 6-section narrative brief: Summary / What they want / Product reactions / Friction / Notable quotes / Follow-up. UI shipped by Codex (852f6ff): session brief card on source detail page, artifact detail page with markdown rendering.
 
 ---
 
 ## Medium priority
 
-### 💡 Action extraction
+### 🔄 Action extraction
 **Why:** Every interview contains personal commitments ("I'll send you X") and product backlog requests ("I wish it could do Y"). These should be captured automatically, not lost in the transcript.
-**What:** Inngest function after ingest. Claude reads evidence and extracts: (a) interviewer commitments → personal action records, (b) participant feature requests → product request records linked to evidence. Optional sync to Jira Product Discovery or Linear.
-**Size:** S
-
-### ✅ Frame auto-generation from first transcript (backend)
-**What was built:** `draft-frame.ts` Inngest function, `frame-draft-v1` prompt, migration 0015 (`frame_draft` jsonb + `frame_draft_generated_at` on projects), chained from `ingest-source` — fires `project/frame.requested` after every ingest where `project.frame` is null. Outputs structured JSON: `{ problem, hypothesis, buyers, research_areas[] }`. Skips gracefully if frame is set between queue and execution, or if evidence < 3 records.
-**UI needed:** Codex brief required — surface the draft on the project frame page with Accept / Edit / Discard controls.
+**Backend done:** `extract-actions.ts` Inngest function, `action-extraction-v1` prompt, migration 0017 (`actions` + `product_requests` tables with RLS). Chained from ingest — fires `source/actions.requested` after every ingest with evidence. Idempotent (deletes existing rows for source before re-inserting). Uses `cheap` LLM tier.
+**UI brief:** `CODEX_BRIEF_ACTION_EXTRACTION_UI.md` — actions checklist on source detail page + product requests list on project overview.
 **Size:** S (backend done)
+
+### ✅ Frame auto-generation from first transcript
+**What was built:** `draft-frame.ts` Inngest function, `frame-draft-v1` prompt, migration 0015 (`frame_draft` jsonb + `frame_draft_generated_at` on projects), chained from `ingest-source`. UI shipped by Codex (8b19ede): draft banner in project settings (the app's frame surface) with Accept/Discard controls. `PATCH /api/projects/[projectId]` updated to accept partial updates safely, fixing a latent bug where omitted fields could null settings.
+**Size:** S
 
 ### 💡 Adjacent signal routing UI
 **Why:** When Claude detects that a signal from one transcript is relevant to a different project, it sets `adjacent_project_hint` in the evidence metadata. But there's no UI to surface or act on this.
