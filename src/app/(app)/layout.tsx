@@ -10,6 +10,7 @@ const navItems = [
   { href: "/projects", label: "Projects" },
   { href: "/people", label: "People" },
   { href: "/companies", label: "Companies" },
+  { href: "/competitors", label: "Competitors" },
 ];
 
 export default async function AppLayout({ children }: AppLayoutProps) {

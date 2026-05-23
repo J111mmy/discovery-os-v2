@@ -1,4 +1,4 @@
-// Entity extraction — resolves people and companies from evidence after ingest.
+// Entity extraction — resolves people, companies, and competitors from evidence after ingest.
 
 import { z } from "zod";
 import { inngest } from "../client";
@@ -25,6 +25,11 @@ type ExistingPerson = {
   name: string;
 };
 
+type ExistingCompetitor = {
+  id: string;
+  slug: string;
+};
+
 const EntityExtractionSchema = z.object({
   people: z
     .array(
@@ -41,6 +46,16 @@ const EntityExtractionSchema = z.object({
       z.object({
         name: z.string().trim().min(1),
         domain: z.string().trim().nullable().optional(),
+        evidence_ids: z.array(z.string().uuid()).default([]),
+      })
+    )
+    .default([]),
+  competitors: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1),
+        slug: z.string().trim().min(1),
+        website: z.string().trim().nullable().optional(),
         evidence_ids: z.array(z.string().uuid()).default([]),
       })
     )
@@ -152,16 +167,50 @@ async function findOrCreatePerson(input: {
   return data.id as string;
 }
 
+async function findOrCreateCompetitor(input: {
+  org_id: string;
+  name: string;
+  slug: string;
+  website?: string | null;
+  existing: Map<string, ExistingCompetitor>;
+  supabase: ReturnType<typeof createServiceClient>;
+}) {
+  const existing = input.existing.get(input.slug);
+  if (existing) return existing.id;
+
+  const { data, error } = await input.supabase
+    .from("competitors")
+    .upsert(
+      {
+        org_id: input.org_id,
+        name: input.name,
+        slug: input.slug,
+        website: input.website ?? null,
+      },
+      { onConflict: "org_id,slug" }
+    )
+    .select("id, slug")
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Failed to upsert competitor ${input.name}: ${error?.message}`);
+  }
+
+  input.existing.set(data.slug, { id: data.id, slug: data.slug });
+  return data.id as string;
+}
+
 async function insertEvidenceEntity(input: {
   supabase: ReturnType<typeof createServiceClient>;
   org_id: string;
   project_id: string;
   evidence_id: string;
-  entity_type: "person" | "company";
+  entity_type: "person" | "company" | "competitor";
   entity_id: string;
   label: string;
   person_id?: string | null;
   company_id?: string | null;
+  competitor_id?: string | null;
 }) {
   const { error } = await input.supabase.from("evidence_entities").insert({
     org_id: input.org_id,
@@ -172,6 +221,7 @@ async function insertEvidenceEntity(input: {
     label: input.label,
     person_id: input.person_id ?? null,
     company_id: input.company_id ?? null,
+    competitor_id: input.competitor_id ?? null,
     relationship: "mentioned",
     metadata: {
       prompt_version: ENTITY_EXTRACTION_PROMPT_VERSION,
