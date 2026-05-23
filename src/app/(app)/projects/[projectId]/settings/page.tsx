@@ -21,9 +21,20 @@ export default async function SettingsPage({ params, searchParams }: Props) {
     org_id: string;
     name: string;
     frame: string | null;
+    frame_draft: {
+      problem: string;
+      hypothesis: string;
+      buyers: string;
+      research_areas: string[];
+    } | null;
+    frame_draft_generated_at: string | null;
     operating_style: string | null;
     gtm_context: string | null;
-  }>(user.id, params.projectId, "id, org_id, name, frame, operating_style, gtm_context");
+  }>(
+    user.id,
+    params.projectId,
+    "id, org_id, name, frame, frame_draft, frame_draft_generated_at, operating_style, gtm_context"
+  );
 
   if (!project) notFound();
 
@@ -56,6 +67,8 @@ export default async function SettingsPage({ params, searchParams }: Props) {
         projectId={project.id}
         initialProject={{
           frame: project.frame,
+          frame_draft: project.frame_draft,
+          frame_draft_generated_at: project.frame_draft_generated_at,
           operating_style: project.operating_style,
           gtm_context: project.gtm_context,
         }}

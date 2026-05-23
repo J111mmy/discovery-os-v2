@@ -9,6 +9,7 @@ import type {
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { AffiliationToggle } from "./affiliation-toggle";
+import { DigestRefreshButton } from "./digest-refresh-button";
 
 type ProjectRelation = {
   project_id: string;
@@ -23,6 +24,8 @@ type PersonDetail = {
   affiliation: Affiliation;
   status: PersonStatus;
   company_id: string | null;
+  digest: string | null;
+  digest_updated_at: string | null;
   person_projects: ProjectRelation[] | ProjectRelation | null;
 };
 
@@ -120,6 +123,13 @@ function StatusBadge({ status }: { status: PersonStatus }) {
   );
 }
 
+function digestDateLabel(value: string) {
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(value));
+}
+
 function EvidenceCard({ evidence }: { evidence: EvidenceMention }) {
   return (
     <article className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
@@ -160,7 +170,7 @@ export default async function PersonDetailPage({ params }: Props) {
   const [{ data: person }, { data: entityRows }] = await Promise.all([
     supabase
       .from("people")
-      .select("id, name, role, email, affiliation, status, company_id, person_projects(project_id, projects(name))")
+      .select("id, name, role, email, affiliation, status, company_id, digest, digest_updated_at, person_projects(project_id, projects(name))")
       .eq("org_id", orgId)
       .eq("id", params.personId)
       .single(),
@@ -229,6 +239,35 @@ export default async function PersonDetailPage({ params }: Props) {
               initialAffiliation={personRow.affiliation}
             />
           </div>
+        </section>
+
+        <section className="mb-8">
+          <div className="mb-4 flex items-end justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-[var(--ink)]">Intelligence brief</h2>
+              {personRow.digest_updated_at && (
+                <p className="mt-1 text-xs text-[var(--ink-faint)]">
+                  Last generated {digestDateLabel(personRow.digest_updated_at)}
+                </p>
+              )}
+            </div>
+            <DigestRefreshButton personId={personRow.id} />
+          </div>
+
+          {personRow.digest ? (
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-6">
+              <p className="whitespace-pre-wrap text-sm leading-7 text-[var(--ink)]">
+                {personRow.digest}
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-1)] p-8 text-center">
+              <p className="text-sm leading-6 text-[var(--ink-muted)]">
+                No digest yet. Digests are generated automatically after ingest once this person has
+                enough linked evidence. You can also generate one now.
+              </p>
+            </div>
+          )}
         </section>
 
         <section>

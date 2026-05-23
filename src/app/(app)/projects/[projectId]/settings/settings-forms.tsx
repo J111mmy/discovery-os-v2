@@ -2,9 +2,12 @@
 
 import { useState } from "react";
 import { generateFrameAction } from "./actions";
+import { FrameDraftBanner, type FrameDraft } from "./frame-draft-banner";
 
 interface ProjectSettings {
   frame: string | null;
+  frame_draft: FrameDraft | null;
+  frame_draft_generated_at: string | null;
   operating_style: string | null;
   gtm_context: string | null;
 }
@@ -50,6 +53,8 @@ export function SettingsForms({
 }: SettingsFormsProps) {
   const [tab, setTab] = useState(initialTab);
   const [frame, setFrame] = useState(initialProject.frame ?? "");
+  const [frameDraft, setFrameDraft] = useState(initialProject.frame_draft);
+  const [frameDraftGeneratedAt] = useState(initialProject.frame_draft_generated_at);
   const [operatingStyle, setOperatingStyle] = useState(initialProject.operating_style ?? "");
   const [gtmContext, setGtmContext] = useState(initialProject.gtm_context ?? "");
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
@@ -151,6 +156,22 @@ export function SettingsForms({
             <h2 className="text-sm font-semibold text-[var(--ink)]">Project context</h2>
           </div>
           <div className="grid gap-5 p-5">
+            {frameDraft && frame.trim().length === 0 && (
+              <FrameDraftBanner
+                projectId={projectId}
+                draft={frameDraft}
+                generatedAt={frameDraftGeneratedAt}
+                onAccepted={(frameText) => {
+                  setFrame(frameText);
+                  setFrameDraft(null);
+                  setSettingsMessage("AI-proposed frame accepted.");
+                }}
+                onDiscarded={() => {
+                  setFrameDraft(null);
+                  setSettingsMessage("AI-proposed frame discarded.");
+                }}
+              />
+            )}
             <div>
               <label className="mb-2 block text-sm font-medium text-[var(--ink)]" htmlFor="frame">
                 Project Frame
