@@ -340,12 +340,18 @@ export const synthesiseProject = inngest.createFunction(
         });
       });
 
-      // Chain: trigger problem discovery now that themes are fresh
-      await step.run("trigger-problem-discovery", async () => {
-        await inngest.send({
-          name: "project/problems.requested",
-          data: { org_id, project_id },
-        });
+      // Chain: trigger problem discovery + gap detection now that themes are fresh
+      await step.run("trigger-downstream-agents", async () => {
+        await inngest.send([
+          {
+            name: "project/problems.requested",
+            data: { org_id, project_id },
+          },
+          {
+            name: "project/synthesis.completed",
+            data: { org_id, project_id },
+          },
+        ]);
       });
 
       return output;

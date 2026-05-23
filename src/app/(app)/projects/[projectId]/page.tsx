@@ -44,11 +44,12 @@ export default async function ProjectPage({ params }: Props) {
     frame: string | null;
     synthesis_stale: boolean;
     last_synthesised_at: string | null;
+    gap_signals: Array<{ area: string; description: string; severity: string; suggested_action: string }> | null;
     created_at: string;
   }>(
     user.id,
     params.projectId,
-    "id, org_id, name, description, frame, synthesis_stale, last_synthesised_at, created_at"
+    "id, org_id, name, description, frame, synthesis_stale, last_synthesised_at, gap_signals, created_at"
   );
 
   if (!project) notFound();
@@ -294,6 +295,41 @@ export default async function ProjectPage({ params }: Props) {
             Give drafts a clearer north star, audience, and decision context.
           </div>
         </Link>
+      )}
+
+      {/* Research gaps */}
+      {project.gap_signals && project.gap_signals.length > 0 && (
+        <section className="mb-8 rounded-xl border border-yellow-500/20 bg-[var(--surface-1)] p-5">
+          <h2 className="text-sm font-semibold text-[var(--ink)]">Research gaps</h2>
+          <p className="mt-1 text-xs text-[var(--ink-muted)]">
+            Areas from your project frame with little or no evidence coverage
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {project.gap_signals.map((gap, i) => (
+              <div
+                key={i}
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface-0)] p-4"
+              >
+                <div className="flex items-start gap-2">
+                  <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                    gap.severity === "high"
+                      ? "bg-red-900/30 text-red-400"
+                      : gap.severity === "medium"
+                      ? "bg-yellow-900/30 text-yellow-400"
+                      : "bg-[var(--surface-2)] text-[var(--ink-muted)]"
+                  }`}>
+                    {gap.severity}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-[var(--ink)]">{gap.area}</div>
+                    <div className="mt-1 text-xs leading-5 text-[var(--ink-muted)]">{gap.description}</div>
+                    <div className="mt-2 text-xs text-[var(--brand)]">→ {gap.suggested_action}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       <div className="mb-8 grid gap-3 lg:grid-cols-4">

@@ -19,6 +19,9 @@ export function IngestForm({ projectId }: IngestFormProps) {
   const [title, setTitle] = useState("");
   const [type, setType] = useState("transcript");
   const [rawText, setRawText] = useState("");
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [extractingFile, setExtractingFile] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
   const [status, setStatus] = useState<JobStatus>("idle");
   const [result, setResult] = useState<IngestResult | null>(null);
@@ -91,6 +94,81 @@ export function IngestForm({ projectId }: IngestFormProps) {
     setStatus("pending");
   }
 
+  async function readTextFile(file: File) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ""));
+      reader.onerror = () => reject(new Error("Could not read this text file."));
+      reader.readAsText(file);
+    });
+  }
+
+  async function onFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setFileName(file.name);
+    setFileError(null);
+    setError(null);
+
+    if (!title.trim()) {
+      setTitle(file.name.replace(/\.[^.]+$/, ""));
+    }
+
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    if (!["pdf", "doc", "docx", "txt"].includes(extension ?? "")) {
+      setFileError("Upload a .pdf, .doc, .docx, or .txt file.");
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      setFileError("File is too large. Upload a file under 10MB.");
+      return;
+    }
+
+    setExtractingFile(true);
+
+    try {
+      let text = "";
+
+      if (extension === "txt") {
+        text = await readTextFile(file);
+      } else {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const response = await fetch("/api/ingest/extract-text", {
+          method: "POST",
+          body: formData,
+        });
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Could not extract text from this file.");
+        }
+
+        text = payload.text ?? "";
+      }
+
+      if (!text.trim()) {
+        throw new Error("No readable text was found in this file.");
+      }
+
+      setRawText(text.trim());
+      if (extension === "pdf" || extension === "doc" || extension === "docx") {
+        setType("document");
+      }
+    } catch (extractError) {
+      const message =
+        extractError instanceof Error
+          ? extractError.message
+          : "Could not extract text from this file.";
+      setFileError(`${message} You can paste the text manually instead.`);
+    } finally {
+      setExtractingFile(false);
+    }
+  }
+
   const isWorking = status === "queued" || status === "pending" || status === "processing";
 
   return (
@@ -127,6 +205,33 @@ export function IngestForm({ projectId }: IngestFormProps) {
               <option value="other">Other</option>
             </select>
           </div>
+        </div>
+
+        <div className="mt-5">
+          <label className="mb-2 block text-sm font-medium text-[var(--ink)]" htmlFor="sourceFile">
+            Or upload a file
+          </label>
+          <input
+            id="sourceFile"
+            type="file"
+            accept=".pdf,.doc,.docx,.txt"
+            disabled={isWorking || extractingFile}
+            onChange={onFileChange}
+            className="block w-full rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-sm text-[var(--ink-muted)] file:mr-4 file:rounded-md file:border-0 file:bg-[var(--surface-2)] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-[var(--ink)] hover:border-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-60"
+          />
+          {extractingFile && (
+            <div className="mt-2 text-sm text-[var(--ink-muted)]">Extracting text...</div>
+          )}
+          {!extractingFile && fileName && rawText && !fileError && (
+            <div className="mt-2 text-sm text-green-300">
+              Loaded {fileName}. Review the extracted text below before ingesting.
+            </div>
+          )}
+          {fileError && (
+            <div className="mt-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+              {fileError}
+            </div>
+          )}
         </div>
 
         <div className="mt-5">
@@ -176,10 +281,10 @@ export function IngestForm({ projectId }: IngestFormProps) {
         <div className="mt-5">
           <button
             type="submit"
-            disabled={isWorking}
+            disabled={isWorking || extractingFile}
             className="w-full rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isWorking ? "Processing..." : "Start ingest"}
+            {extractingFile ? "Extracting..." : isWorking ? "Processing..." : "Start ingest"}
           </button>
         </div>
       </aside>

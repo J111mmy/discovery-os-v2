@@ -6,6 +6,7 @@ import { ingestSource } from "@/lib/inngest/functions/ingest-source";
 import { synthesiseProject } from "@/lib/inngest/functions/synthesise-project";
 import { discoverProblems } from "@/lib/inngest/functions/discover-problems";
 import { verifyClaims } from "@/lib/inngest/functions/verify-claims";
+import { detectGaps } from "@/lib/inngest/functions/detect-gaps";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
@@ -15,5 +16,6 @@ export const { GET, POST, PUT } = serve({
     synthesiseProject,
     discoverProblems,
     verifyClaims,
+    detectGaps,
   ],
 });
