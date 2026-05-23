@@ -757,6 +757,18 @@ export const ingestSource = inngest.createFunction(
         });
       }
 
+      // Fire frame draft if the project has no frame yet.
+      // The draft-frame function checks again at run time in case the frame was
+      // set between ingest and execution, so firing is always safe.
+      if (!project.frame || project.frame.trim().length === 0) {
+        await step.run("queue-frame-draft", async () => {
+          await inngest.send({
+            name: "project/frame.requested",
+            data: { org_id, project_id, source_id },
+          });
+        });
+      }
+
       return {
         source_id,
         segments_created: segments.length,

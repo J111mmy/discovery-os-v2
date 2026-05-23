@@ -354,10 +354,20 @@ Stored in `projects.frame`. Currently `text | null` in the app — the schema re
 
 Nothing else. No lengthy briefs. No mandatory fields. An empty frame is valid — the agent will work with whatever is present and flag what's missing.
 
+### Frame draft columns (migration 0015)
+
+`projects.frame_draft` (jsonb, nullable) — AI-proposed draft, shape:
+```json
+{ "problem": "...", "hypothesis": "...", "buyers": "...", "research_areas": ["..."] }
+```
+`projects.frame_draft_generated_at` (timestamptz, nullable) — when the draft was last written.
+
+The draft does **not** overwrite `projects.frame`. Jimmy accepts, edits, or discards it via UI. Once accepted, the UI writes to `projects.frame` (and optionally clears `frame_draft`).
+
 ### How the frame gets populated
 
-**Option 1 — AI-drafted from first transcript.**
-After the first ingest, the Ingest Agent proposes a draft frame based on what it heard: "Based on this interview, it sounds like you're investigating X with Y personas. Here's a draft frame — edit anything that's wrong." The user accepts, edits, or ignores it.
+**Option 1 — AI-drafted automatically after first ingest (built).**
+The `draft-frame` Inngest function fires `project/frame.requested` from `ingest-source` whenever `projects.frame` is null after an ingest. It reads the session's evidence (min 3 records), calls Claude with the `frame-draft-v1` prompt, and writes the result to `projects.frame_draft`. Skips gracefully if the frame was set between queue and execution. Prompt outputs structured JSON: `{ problem, hypothesis, buyers, research_areas[] }`. Fails silently — never surfaces to the user.
 
 **Option 2 — User writes it directly.**
 A simple form in project settings. Each field is a single text input, no rich text needed.

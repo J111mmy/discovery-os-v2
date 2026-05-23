@@ -26,6 +26,8 @@ These are not build work — they are operational steps needed right now before 
 - [ ] Run migration SQL: `0013_affiliation_and_source_types.sql` — adds `affiliation` to people table and new source type values
 - [ ] `git add -A && git commit -m "feat: affiliation-aware ingest and source profiles" && git push` — pushes all pending fixes and new features
 - [ ] In Supabase Table Editor: confirm `gap_signals` and `gaps_detected_at` columns exist on the `projects` table (from migration 0011). If not, run `0011_gap_signals.sql`
+- [ ] Run migration SQL: `0015_frame_draft.sql` — adds `frame_draft` (jsonb) and `frame_draft_generated_at` to projects table
+- [ ] `git add -A && git commit -m "feat: frame auto-generation — AI proposes draft frame after first ingest" && git push`
 
 ---
 
@@ -44,12 +46,10 @@ These are not build work — they are operational steps needed right now before 
 
 ## Next — high priority
 
-### 🔜 Rich people profiles
-**Why:** A stream of evidence isn't digestible. Jimmy needs to look at Jake Chen and understand at a glance: who he is, his company, his status (prospect → interviewed → beta candidate), every project he's appeared in, and a synthesised digest of what he's said.
-**What:**
-- Person detail page: header (name, role, company, affiliation, status), cross-project involvement, AI-generated digest of their key perspectives, all linked evidence records
-- Synthesis agent run per person on demand (or after each ingest that involves them)
-- Status progression visible: prospect → interviewed → concept-shown → beta-candidate → customer
+### 🔄 Rich people profiles
+**Why:** A stream of evidence isn't digestible. Jimmy needs to look at Jake Chen and understand at a glance: who he is, his company, his status, every project he's appeared in, and a synthesised digest of what he's said.
+**Backend done:** `synthesise-person.ts` Inngest function, `person-digest-v1` prompt, migration 0014 (`digest` + `digest_updated_at` on people), `POST /api/people/[personId]/synthesise` on-demand trigger. Chained from entity extraction — fires automatically for external people after each ingest.
+**UI brief:** `CODEX_BRIEF_PERSON_DIGEST_UI.md` — digest prose section + "Refresh digest" button on person detail page.
 **Size:** M
 
 ### 🔜 Rich company profiles
@@ -86,10 +86,10 @@ These are not build work — they are operational steps needed right now before 
 **What:** Inngest function after ingest. Claude reads evidence and extracts: (a) interviewer commitments → personal action records, (b) participant feature requests → product request records linked to evidence. Optional sync to Jira Product Discovery or Linear.
 **Size:** S
 
-### 💡 Frame auto-generation from first transcript
-**Why:** The project frame (problem, hypothesis, buyers, research areas) is currently blank until Jimmy writes it. After the first ingest, Claude has enough to propose a draft.
-**What:** After first ingest, if `projects.frame` is null, fire a frame-draft event. Claude reads the evidence and proposes: "Based on this interview, it sounds like you're investigating X with Y personas. Here's a draft frame — edit anything wrong." User accepts, edits, or ignores.
-**Size:** S
+### ✅ Frame auto-generation from first transcript (backend)
+**What was built:** `draft-frame.ts` Inngest function, `frame-draft-v1` prompt, migration 0015 (`frame_draft` jsonb + `frame_draft_generated_at` on projects), chained from `ingest-source` — fires `project/frame.requested` after every ingest where `project.frame` is null. Outputs structured JSON: `{ problem, hypothesis, buyers, research_areas[] }`. Skips gracefully if frame is set between queue and execution, or if evidence < 3 records.
+**UI needed:** Codex brief required — surface the draft on the project frame page with Accept / Edit / Discard controls.
+**Size:** S (backend done)
 
 ### 💡 Adjacent signal routing UI
 **Why:** When Claude detects that a signal from one transcript is relevant to a different project, it sets `adjacent_project_hint` in the evidence metadata. But there's no UI to surface or act on this.

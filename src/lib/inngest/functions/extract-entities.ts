@@ -516,6 +516,37 @@ export const extractEntities = inngest.createFunction(
           .eq("id", agentRunId);
       });
 
+      // Queue digest synthesis for any external people who have accumulated evidence.
+      // Only external people produce customer evidence — internal people are skipped.
+      // The synthesise-person function will check the evidence threshold itself (≥3 records).
+      if (output.people_resolved > 0) {
+        await step.run("queue-person-digests", async () => {
+          // Find external people involved in this source who now have evidence
+          const { data: involvedPeople } = await supabase
+            .from("evidence_entities")
+            .select("entity_id, people!inner(id, affiliation)")
+            .eq("org_id", org_id)
+            .eq("entity_type", "person")
+            .eq("evidence.source_id", source_id)
+            .neq("people.affiliation", "internal");
+
+          const personIds = Array.from(
+            new Set(
+              ((involvedPeople ?? []) as Array<{ entity_id: string }>).map((r) => r.entity_id)
+            )
+          );
+
+          if (personIds.length > 0) {
+            await inngest.send(
+              personIds.map((person_id) => ({
+                name: "person/digest.requested" as const,
+                data: { org_id, person_id },
+              }))
+            );
+          }
+        });
+      }
+
       return output;
     } catch (error) {
       // Entity extraction is background enrichment — a failure here does not

@@ -10,6 +10,8 @@ import { detectGaps } from "@/lib/inngest/functions/detect-gaps";
 import { weeklyProjectSynthesis } from "@/lib/inngest/functions/scheduled-synthesis";
 import { sessionReview } from "@/lib/inngest/functions/session-review";
 import { composeArtifact } from "@/lib/inngest/functions/compose-artifact";
+import { synthesisePerson } from "@/lib/inngest/functions/synthesise-person";
+import { draftFrame } from "@/lib/inngest/functions/draft-frame";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
@@ -23,5 +25,7 @@ export const { GET, POST, PUT } = serve({
     weeklyProjectSynthesis,
     sessionReview,
     composeArtifact,
+    synthesisePerson,
+    draftFrame,
   ],
 });

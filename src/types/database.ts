@@ -76,6 +76,9 @@ export interface Project {
   description: string | null;
   frame: string | null;
   frame_data: Record<string, unknown> | null;
+  /** AI-proposed draft. Written by draft-frame when frame is null after first ingest. Does not overwrite frame. */
+  frame_draft: { problem: string; hypothesis: string; buyers: string; research_areas: string[] } | null;
+  frame_draft_generated_at: string | null;
   gtm_context: string | null;
   operating_style: string | null;
   settings: Record<string, unknown>;
@@ -192,6 +195,8 @@ export interface Person {
   company_id: string | null;
   status: PersonStatus;
   affiliation: Affiliation;
+  digest: string | null;
+  digest_updated_at: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
