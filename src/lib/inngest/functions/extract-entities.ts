@@ -575,6 +575,34 @@ export const extractEntities = inngest.createFunction(
         });
       }
 
+      // Queue competitor digest synthesis for any competitors resolved in this source.
+      // Lower evidence threshold (≥2) since even one or two mentions are worth synthesising.
+      if (output.competitors_resolved > 0) {
+        await step.run("queue-competitor-digests", async () => {
+          const { data: involvedCompetitors } = await supabase
+            .from("evidence_entities")
+            .select("entity_id")
+            .eq("org_id", org_id)
+            .eq("entity_type", "competitor")
+            .eq("evidence.source_id", source_id);
+
+          const competitorIds = Array.from(
+            new Set(
+              ((involvedCompetitors ?? []) as Array<{ entity_id: string }>).map((r) => r.entity_id)
+            )
+          );
+
+          if (competitorIds.length > 0) {
+            await inngest.send(
+              competitorIds.map((competitor_id) => ({
+                name: "competitor/digest.requested" as const,
+                data: { org_id, competitor_id },
+              }))
+            );
+          }
+        });
+      }
+
       return output;
     } catch (error) {
       // Entity extraction is background enrichment — a failure here does not

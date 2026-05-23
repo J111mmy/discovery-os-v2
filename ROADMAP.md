@@ -23,7 +23,9 @@ Each item has a rough size: **S** (one session), **M** (2–3 sessions), **L** (
 These are not build work — they are operational steps needed right now before the system works fully.
 
 - [ ] Run migration SQL: `0017_actions_and_requests.sql` — creates `actions` and `product_requests` tables with RLS
-- [ ] `git add -A && git commit -m "feat: action extraction + improved confidence scoring" && git push`
+- [ ] Run migration SQL: `0018_competitor_digest.sql` — adds `digest`, `digest_updated_at`, `battle_card` to competitors table
+- [ ] `git add -A && git commit -m "feat: competitor profiles backend" && git push`
+- [ ] Hand `CODEX_BRIEF_COMPETITOR_UI.md` to Codex
 
 ---
 
@@ -59,11 +61,11 @@ These are not build work — they are operational steps needed right now before 
 **What was built:** `synthesise-company.ts` Inngest function, `company-digest-v1` prompt, migration 0016. UI shipped by Codex (a0e2e4b + 139da19): company detail page with digest, people roster, project links, evidence mentions, Refresh digest button. Person detail pages now link company names through to the company profile.
 **Architecture note:** Company detail page fetches via `GET /api/companies/[companyId]` (API route + server component both query the same shape). Fine for now; worth consolidating into a shared server helper once this layer settles.
 
-### 🔜 Rich competitor profiles + battle cards
-**Why:** Competitors are mentioned in interviews. That intelligence should accumulate into actionable competitor profiles and eventually battle cards.
-**What:**
-- Competitor detail page: positioning (sourced), where they win (with evidence), their known gaps (with evidence), which customers mentioned them and what they said
-- Battle card format: Their Pitch / Where They Win / Their Gap / Your Counter / One Proof Point
+### 🔄 Rich competitor profiles + battle cards
+**Backend done:** `synthesise-competitor.ts` Inngest function, `competitor-digest-v1` prompt, migration 0018, `POST /api/competitors/[competitorId]/synthesise`. Auto-triggered from `extract-entities` after each ingest. Battle card AI-fills `their_pitch`, `where_they_win`, `their_gap`; user fills `your_counter` and `one_proof_point` in the UI.
+**UI brief written:** `CODEX_BRIEF_COMPETITOR_UI.md`
+**Remaining:**
+- Competitor detail page (digest, battle card with editable counter/proof fields, evidence list, customers who mentioned them)
 - Win/loss records: after a deal involving a competitor, log why you won or lost and which gap was decisive
 **Size:** M
 

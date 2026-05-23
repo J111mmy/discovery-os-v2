@@ -14,6 +14,7 @@ import { synthesisePerson } from "@/lib/inngest/functions/synthesise-person";
 import { draftFrame } from "@/lib/inngest/functions/draft-frame";
 import { synthesiseCompany } from "@/lib/inngest/functions/synthesise-company";
 import { extractActions } from "@/lib/inngest/functions/extract-actions";
+import { synthesiseCompetitor } from "@/lib/inngest/functions/synthesise-competitor";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
@@ -31,5 +32,6 @@ export const { GET, POST, PUT } = serve({
     draftFrame,
     synthesiseCompany,
     extractActions,
+    synthesiseCompetitor,
   ],
 });

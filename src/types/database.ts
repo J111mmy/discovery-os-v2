@@ -205,6 +205,14 @@ export interface Person {
   updated_at: string;
 }
 
+export interface CompetitorBattleCard {
+  their_pitch: string;
+  where_they_win: string;
+  their_gap: string;
+  your_counter: string | null;
+  one_proof_point: string | null;
+}
+
 export interface Competitor {
   id: string;
   org_id: string;
@@ -215,6 +223,9 @@ export interface Competitor {
   known_strengths: string | null;
   known_gaps: string | null;
   last_researched: string | null;
+  digest: string | null;
+  digest_updated_at: string | null;
+  battle_card: CompetitorBattleCard | null;
   created_at: string;
   updated_at: string;
 }
