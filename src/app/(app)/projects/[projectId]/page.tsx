@@ -4,6 +4,7 @@ import { getProjectForUser } from "@/lib/auth/org";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { runProjectSynthesisAction } from "./actions";
+import { computeConfidence } from "@/lib/confidence";
 
 interface Props {
   params: { projectId: string };
@@ -88,6 +89,7 @@ export default async function ProjectPage({ params }: Props) {
     { count: problemCount },
     { count: runningSynthesisCount },
     { data: productRequests, count: productRequestCount },
+    { data: trustedEvidenceMeta },
   ] =
     await Promise.all([
       supabase
@@ -151,6 +153,15 @@ export default async function ProjectPage({ params }: Props) {
         .eq("project_id", project.id)
         .order("created_at", { ascending: false })
         .limit(4),
+      // Lightweight query for confidence scoring: source_id + created_at per trusted record.
+      // Used to compute source diversity (distinct source_ids) and recency (max created_at).
+      supabase
+        .from("evidence")
+        .select("source_id, created_at")
+        .eq("org_id", project.org_id)
+        .eq("project_id", project.id)
+        .eq("trust_scope", "trusted")
+        .order("created_at", { ascending: false }),
     ]);
 
   const themeRows = (themes ?? []) as ThemeRow[];
@@ -160,36 +171,17 @@ export default async function ProjectPage({ params }: Props) {
   const trustedTotal = trustedCount ?? 0;
   const synthesisRunning = (runningSynthesisCount ?? 0) > 0;
 
-  // Confidence score — four equally-weighted signals (25 pts each, 100 max)
-  // Targets: 20 trusted records, 5 sources, 5 themes, 3 problems
-  const confidenceTrusted   = Math.min((trustedTotal / 20), 1) * 25;
-  const confidenceSources   = Math.min(((sourceCount ?? 0) / 5), 1) * 25;
-  const confidenceThemes    = Math.min(((themeCount ?? 0) / 5), 1) * 25;
-  const confidenceProblems  = Math.min(((problemCount ?? 0) / 3), 1) * 25;
-  const confidenceScore     = Math.round(confidenceTrusted + confidenceSources + confidenceThemes + confidenceProblems);
-
-  function confidenceLabel(score: number) {
-    if (score >= 80) return "Strong";
-    if (score >= 55) return "Building";
-    if (score >= 25) return "Early";
-    return "Just started";
-  }
-
-  function confidenceColour(score: number) {
-    if (score >= 80) return "bg-green-400";
-    if (score >= 55) return "bg-[var(--brand)]";
-    if (score >= 25) return "bg-yellow-400";
-    return "bg-[var(--ink-faint)]";
-  }
-
-  // Explain the weakest signal so users know what to do next
-  const signals = [
-    { score: confidenceTrusted,  max: 25, hint: `${trustedTotal} trusted record${trustedTotal === 1 ? "" : "s"} — aim for 20+` },
-    { score: confidenceSources,  max: 25, hint: `${sourceCount ?? 0} source${(sourceCount ?? 0) === 1 ? "" : "s"} — aim for 5+` },
-    { score: confidenceThemes,   max: 25, hint: `${themeCount ?? 0} theme${(themeCount ?? 0) === 1 ? "" : "s"} — run synthesis to surface more` },
-    { score: confidenceProblems, max: 25, hint: `${problemCount ?? 0} open problem${(problemCount ?? 0) === 1 ? "" : "s"} — synthesis surfaces these automatically` },
-  ];
-  const weakestSignal = signals.slice().sort((a, b) => (a.score / a.max) - (b.score / b.max))[0];
+  // Confidence scoring — weighted model via src/lib/confidence.ts
+  // Signals: evidence depth (30), source diversity (30), recency (20), synthesis breadth (20)
+  const trustedMeta = (trustedEvidenceMeta ?? []) as Array<{ source_id: string; created_at: string }>;
+  const confidence = computeConfidence({
+    trustedCount: trustedTotal,
+    sourceIds: trustedMeta.map((r) => r.source_id),
+    mostRecentAt: trustedMeta[0]?.created_at ?? null,
+    themeCount: themeCount ?? 0,
+    problemCount: problemCount ?? 0,
+  });
+  const { score: confidenceScore, label: confidenceLabelText, colour: confidenceColour, weakest: weakestSignal } = confidence;
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -245,12 +237,12 @@ export default async function ProjectPage({ params }: Props) {
                 {confidenceScore}%
               </span>
               <span className="rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-xs font-medium text-[var(--ink-muted)]">
-                {confidenceLabel(confidenceScore)}
+                {confidenceLabelText}
               </span>
             </div>
             <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
               <div
-                className={`h-full rounded-full transition-all ${confidenceColour(confidenceScore)}`}
+                className={`h-full rounded-full transition-all ${confidenceColour}`}
                 style={{ width: `${confidenceScore}%` }}
               />
             </div>

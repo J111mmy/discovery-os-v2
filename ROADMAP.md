@@ -22,9 +22,8 @@ Each item has a rough size: **S** (one session), **M** (2–3 sessions), **L** (
 
 These are not build work — they are operational steps needed right now before the system works fully.
 
-- [ ] Run migration SQL in Supabase SQL Editor: `0016_company_digest.sql` — adds `digest` and `digest_updated_at` to companies table
 - [ ] Run migration SQL: `0017_actions_and_requests.sql` — creates `actions` and `product_requests` tables with RLS
-- [ ] `git add -A && git commit -m "feat: company digest + action extraction backend" && git push`
+- [ ] `git add -A && git commit -m "feat: action extraction + improved confidence scoring" && git push`
 
 ---
 
@@ -40,14 +39,25 @@ These are not build work — they are operational steps needed right now before 
 
 ## Next — high priority
 
+### 🔜 Architecture, reliability, and security hardening
+**Why:** The 3-layer model (database → AI agents → UI) is the right architecture for DiscOS and reusable for other stateful intelligence products, but the implementation now has enough agents and data surfaces that product quality depends on making it observable, secure, and boringly reliable.
+**What:** Run a full cross-system sanity check covering data flow, agent event graph, idempotency, Supabase RLS, service-role usage, Inngest signing, LLM payload/redaction boundaries, route/server action auth guards, and end-to-end failure states. Turn the results into fixes, not just notes.
+**Key concerns to sort:**
+- Agent sprawl: document every event, trigger, downstream job, read/write table, idempotency rule, and retry/replay behavior.
+- Observability: expose `agent_runs` in the app so a user can see whether ingest, synthesis, actions, digests, compose, and verification are queued, running, skipped, failed, or done.
+- Security: audit every query for `org_id`, every RLS policy, every service-role use, every invite/team path, and every Inngest/API boundary.
+- LLM data safety: prove PII redaction and raw-source boundaries before every model call; map what each agent sends to external providers.
+- Regression tests: build golden transcript fixtures so evidence quality, entity extraction, session review, action extraction, and synthesis cannot silently degrade.
+- Shared query helpers: consolidate repeated project/source/person/company/evidence queries so auth and `org_id` filtering stay consistent.
+**Reference:** See [ARCHITECTURE_SECURITY_HARDENING.md](ARCHITECTURE_SECURITY_HARDENING.md).
+**Size:** L
+
 ### ✅ Rich people profiles
 **What was built:** `synthesise-person.ts` Inngest function, `person-digest-v1` prompt, migration 0014, `POST /api/people/[personId]/synthesise`. UI shipped by Codex (8b19ede): "Intelligence brief" section on person detail page, `DigestRefreshButton` client component, date of last generation shown.
 
-### 🔄 Rich company profiles
-**Why:** "AECOM" is just a name right now. The company page should show every person spoken to from that org, a summary of their collective feedback, their involvement across projects, and their overall relationship signal.
-**Backend done:** `synthesise-company.ts` Inngest function, `company-digest-v1` prompt, migration 0016 (`digest` + `digest_updated_at` on companies), `POST /api/companies/[companyId]/synthesise` on-demand trigger. Chained from entity extraction — fires automatically after each ingest where companies are resolved.
-**UI brief:** `CODEX_BRIEF_COMPANY_DIGEST_UI.md` — company detail page with digest section, people roster, cross-project involvement, and "Refresh digest" button.
-**Size:** M
+### ✅ Rich company profiles
+**What was built:** `synthesise-company.ts` Inngest function, `company-digest-v1` prompt, migration 0016. UI shipped by Codex (a0e2e4b + 139da19): company detail page with digest, people roster, project links, evidence mentions, Refresh digest button. Person detail pages now link company names through to the company profile.
+**Architecture note:** Company detail page fetches via `GET /api/companies/[companyId]` (API route + server component both query the same shape). Fine for now; worth consolidating into a shared server helper once this layer settles.
 
 ### 🔜 Rich competitor profiles + battle cards
 **Why:** Competitors are mentioned in interviews. That intelligence should accumulate into actionable competitor profiles and eventually battle cards.
@@ -88,10 +98,8 @@ These are not build work — they are operational steps needed right now before 
 **What:** Artifact render component parses citation markers in Claude output. Each citation renders as a chip: "[EVD-001]" → hover/click shows the quote, source title, speaker, and timestamp. Links through to the evidence detail page.
 **Size:** M
 
-### 💡 Evidence confidence scoring improvements
-**Why:** The current confidence bar uses simple counts (20 trusted records = full score). It should reflect source diversity, coverage of research areas, and recency — not just volume.
-**What:** Update the confidence calculation in the project overview to weight source diversity (3 sources > 30 records from 1 source), research area coverage (which frame areas have evidence), and recency (evidence older than 90 days decays slightly).
-**Size:** S
+### ✅ Evidence confidence scoring improvements
+**What was built:** `src/lib/confidence.ts` utility with four weighted signals: evidence depth (30pts), source diversity (30pts — 4 sources from different sessions > 30 records from 1 source), recency (20pts — decays from 30→60→90→180 days), synthesis breadth (20pts — themes + problems). Project overview updated to use the new model. Weakest signal drives the "Next:" coaching hint.
 
 ### 💡 Ask / query interface improvements
 **Why:** The `/ask` page exists but the query pipeline isn't sophisticated. Natural language questions should produce sourced answers with cited evidence, not just retrieved records.
@@ -127,6 +135,11 @@ Settings are read by the LLM prompt builder at compose and ingest time. Writing 
 **Why:** The system should learn from corrections. If Jimmy consistently edits Claude's output in a certain way, that pattern should surface as a proposed prompt improvement.
 **What:** Monthly scheduled Inngest job reads `agent_runs` logs, clusters correction patterns, surfaces proposals to the user. Approved changes update `skill_configs`. Nothing auto-applies.
 **Size:** L
+
+### ⏸ Agent observability dashboard
+**Why:** When a workflow feels stuck, users should not have to inspect terminal output or Inngest manually. The app should explain what happened.
+**What:** Project/source-level processing timeline backed by `agent_runs`: job name, status, started/completed times, output counts, errors, skipped reasons, and safe retry buttons. This should cover ingest, session review, action extraction, synthesis, gap detection, compose, verification, and profile digests.
+**Size:** M
 
 ### ⏸ Schema reconciliation migration
 **Why:** CLAUDE.md flags several naming inconsistencies: `source_segment_id` vs `segment_id`, legacy source kind values, `frame` still as text not jsonb. These don't break anything yet but will cause confusion as the schema grows.
