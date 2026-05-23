@@ -23,26 +23,21 @@ Each item has a rough size: **S** (one session), **M** (2–3 sessions), **L** (
 These are not build work — they are operational steps needed right now before the system works fully.
 
 - [ ] Run migration SQL in Supabase SQL Editor: `0012_fix_org_members_rls.sql` — fixes "infinite recursion" error blocking document saves
-- [ ] `rm .git/HEAD.lock` then `git add -A && git push` — pushes several pending bug fixes (gap_signals resilience, pdf-parse fix, entity extraction graceful failure, sources page UX)
+- [ ] Run migration SQL: `0013_affiliation_and_source_types.sql` — adds `affiliation` to people table and new source type values
+- [ ] `git add -A && git commit -m "feat: affiliation-aware ingest and source profiles" && git push` — pushes all pending fixes and new features
 - [ ] In Supabase Table Editor: confirm `gap_signals` and `gaps_detected_at` columns exist on the `projects` table (from migration 0011). If not, run `0011_gap_signals.sql`
 
 ---
 
 ## Now — active build
 
-### 🔄 Internal speaker flagging (backend)
-**Why:** Jake from sales shouldn't produce customer evidence. Internal speakers should be flagged once globally so every future ingest across every project treats their speech correctly — as context, not evidence.
-**What:** `affiliation` field on the `people` table (`internal | external | unknown`). When set to `internal`, Claude receives a list of known internal speakers before extraction and treats their turns as context-setting rather than evidence.
-**Size:** S
+### ✅ Internal speaker flagging (backend)
+**What was built:** `affiliation` field on people table, ingest pipeline now queries internal people before extraction and passes them to Claude so their turns are treated as context, not evidence. New source types (`customer_interview`, `sales_call`, `usability_study`, `internal_meeting`) parse as conversations. Ingest API route updated to accept new values.
 
-### 🔜 Internal speaker flagging (UI) — Codex
-**Why:** Same as above — the backend is only useful if Jimmy can actually flag people.
-**What:** Affiliation badge on people list and detail pages. One-click toggle to mark someone as internal. Shows "Internal" pill in yellow on the person card. No migration needed (backend handles schema).
-**Size:** S
-
-### 🔜 Source type extension — Codex
-**Why:** "transcript", "document", "other" aren't meaningful categories. A usability study is different from a sales call — Claude should know.
-**What:** Extend `source_type` enum to: `customer_interview | sales_call | usability_study | internal_meeting | document | note | survey | support_ticket | other`. Update the ingest form dropdown. Pass source type to the extraction prompt so Claude frames its reading correctly.
+### 🔄 Internal speaker flagging (UI) + source type dropdown — Codex
+**Brief:** `CODEX_BRIEF_AFFILIATION_AND_PROFILES.md`
+**Why:** The backend is done but Jimmy has no way to flag people as internal without writing SQL, and the ingest form still shows the old source type labels.
+**What:** Affiliation badge on people list + one-click toggle on person detail page. Source type dropdown updated to meaningful labels (`Customer interview`, `Sales call`, etc.). Affiliation PATCH API route with org_id guard.
 **Size:** S
 
 ---
@@ -71,14 +66,15 @@ These are not build work — they are operational steps needed right now before 
 - Win/loss records: after a deal involving a competitor, log why you won or lost and which gap was decisive
 **Size:** M
 
-### 🔜 Compose via Inngest
-**Why:** Compose currently runs in a Vercel Route Handler. On large evidence sets (50+ records) it will hit the 60-second timeout limit. Moving it to Inngest makes it durable — the same pattern as ingest.
-**What:** `artifact/compose.requested` Inngest event. Route handler fires event, returns `artifact_id`. UI polls `/api/artifacts/[id]/status`. Compose function runs as Inngest steps: fetch-evidence → draft → save.
+### ✅ Compose via Inngest
+**What was built:** `compose-artifact.ts` Inngest function. Route handler creates stub artifact, fires `artifact/compose.requested`, returns `artifact_id` immediately. Editor polls `/api/artifacts/[id]/status` every 2 seconds until done or failed. No timeout risk on large evidence sets.
 **Size:** M
 
-### 🔜 Session review skill
+### 🔄 Session review skill
 **Why:** After every interview, you want a human-readable brief — not just evidence records. "What was discussed, key quotes, what they want, what they thought of the prototype." Designed to be read by a human, shareable.
 **What:** Inngest function triggered after ingest. One Claude call that reads all evidence from a source and writes a structured narrative brief. Saved as an artifact linked to the source.
+**Backend done:** `session-review.ts` Inngest function, prompt (`session-review-v1`), chained from ingest, registered in route. Brief has 6 sections: Summary / What they want / Product reactions / Friction / Notable quotes / Follow-up.
+**UI brief:** `CODEX_BRIEF_SESSION_REVIEW_UI.md` — session brief card on source detail page + artifact detail page markdown rendering.
 **Size:** S
 
 ---
@@ -113,6 +109,17 @@ These are not build work — they are operational steps needed right now before 
 ### 💡 Ask / query interface improvements
 **Why:** The `/ask` page exists but the query pipeline isn't sophisticated. Natural language questions should produce sourced answers with cited evidence, not just retrieved records.
 **What:** Improve the RAG pipeline — retrieve semantically relevant evidence, pass to Claude with the question, get a sourced narrative answer with inline citations. Show sources as collapsible evidence cards below the answer.
+**Size:** M
+
+### 💡 Org settings — output preferences and compliance controls
+**Why:** Different orgs have different house styles and legal obligations. A B2B SaaS team may want em-dash-free output. An org handling EU customer data may need GDPR-compliant anonymisation. These should be configurable per org, not hardcoded.
+**What:** `org_settings` table (jsonb blob, keyed by setting name). Settings UI at `/settings/org` accessible to owners/admins. Initial settings:
+- **Writing style** — "No em dashes in AI output", preferred punctuation style, tone (formal / neutral / conversational)
+- **GDPR / compliance mode** — when enabled: (a) all new evidence is anonymised before storage (speaker names replaced with roles, e.g. "Participant A"), (b) people records cannot store real names without explicit consent flag, (c) exports include a data-subject disclaimer
+- **Participant anonymisation** — manual toggle per person: replaces their name in all rendered evidence with "Participant [N]" without altering the underlying record (display-layer only, reversible)
+- **Data residency reminder** — informational flag noting which Supabase region the org's data is in (read-only, no enforcement needed yet)
+
+Settings are read by the LLM prompt builder at compose and ingest time. Writing style prefs go into the system prompt. Compliance mode triggers a separate anonymisation pass before evidence is stored.
 **Size:** M
 
 ---

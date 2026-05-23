@@ -37,6 +37,27 @@ type EvidenceRow = {
   trust_scope: TrustScope;
 };
 
+type SessionBriefRow = {
+  id: string;
+  title: string;
+  content_md: string;
+  created_at: string;
+  metadata: Record<string, unknown>;
+};
+
+function briefPreview(markdown: string) {
+  return (
+    markdown
+      .split("\n")
+      .find((line) => {
+        const trimmed = line.trim();
+        return trimmed && !trimmed.startsWith("#") && !trimmed.startsWith("---");
+      })
+      ?.replace(/^>\s?/, "")
+      .trim() ?? "Brief generated. Click to read."
+  );
+}
+
 function TrustBadge({ trustScope }: { trustScope: TrustScope | "missing" }) {
   const classes =
     trustScope === "trusted"
@@ -98,7 +119,7 @@ export default async function SourceDetailPage({ params }: Props) {
 
   if (!source) notFound();
 
-  const [segmentsResult, evidenceResult, jobResult] = await Promise.all([
+  const [segmentsResult, evidenceResult, jobResult, briefResult] = await Promise.all([
     supabase
       .from("source_segments")
       .select("id, org_id, source_id, segment_index, speaker, raw_content, redacted_content, word_count")
@@ -118,6 +139,15 @@ export default async function SourceDetailPage({ params }: Props) {
       .eq("source_id", source.id)
       .order("created_at", { ascending: false })
       .limit(1),
+    supabase
+      .from("artifacts")
+      .select("id, title, content_md, created_at, metadata")
+      .eq("org_id", project.org_id)
+      .eq("project_id", project.id)
+      .eq("type", "report")
+      .filter("metadata->>source_id", "eq", params.sourceId)
+      .order("created_at", { ascending: false })
+      .limit(1),
   ]);
 
   const typedSource = source as SourceRow;
@@ -126,6 +156,7 @@ export default async function SourceDetailPage({ params }: Props) {
   const latestJob = jobResult.data?.[0] as
     | { status: JobStatus; error: string | null; result: Record<string, number> | null }
     | undefined;
+  const sessionBrief = (briefResult.data?.[0] as SessionBriefRow | undefined) ?? null;
 
   const evidenceBySegment = new Map<string, EvidenceRow>();
   evidenceRows.forEach((record) => {
@@ -159,6 +190,43 @@ export default async function SourceDetailPage({ params }: Props) {
       {latestJob?.error && (
         <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
           {latestJob.error}
+        </div>
+      )}
+
+      {latestJob?.status === "done" && (
+        <div className="mb-6">
+          {sessionBrief ? (
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+              <div className="mb-3 flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
+                    Session brief
+                  </div>
+                  <h2 className="mt-1 text-base font-semibold text-[var(--ink)]">
+                    {sessionBrief.title}
+                  </h2>
+                </div>
+                <Link
+                  href={`/projects/${project.id}/documents/${sessionBrief.id}`}
+                  className="whitespace-nowrap rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
+                >
+                  Read brief
+                </Link>
+              </div>
+              <p className="line-clamp-3 text-sm leading-6 text-[var(--ink-muted)]">
+                {briefPreview(sessionBrief.content_md)}
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-1)] p-5">
+              <div className="text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
+                Session brief
+              </div>
+              <p className="mt-1 text-sm text-[var(--ink-muted)]">
+                Generating session brief. This usually takes under a minute after evidence is ready.
+              </p>
+            </div>
+          )}
         </div>
       )}
 

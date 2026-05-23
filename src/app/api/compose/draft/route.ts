@@ -1,9 +1,10 @@
 // POST /api/compose/draft
-// Generates an evidence-grounded document draft
+// Creates an artifact stub and fires the Inngest compose event.
+// Returns immediately — client polls /api/artifacts/[id]/status for completion.
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getProjectForUser } from "@/lib/auth/org";
-import { composeDraft } from "@/lib/compose/draft";
+import { inngest } from "@/lib/inngest/client";
 import { z } from "zod";
 
 const DraftSchema = z.object({
@@ -39,36 +40,56 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
-  const draft = await composeDraft({
-    org_id: project.org_id,
-    project_id,
-    prompt,
-    limit,
-  });
+  const service = createServiceClient();
 
-  // Persist as artifact
-  const { data: artifact } = await supabase
+  // Create an artifact stub so the client has an ID to poll against immediately
+  const { data: artifact, error: artifactError } = await service
     .from("artifacts")
     .insert({
       org_id: project.org_id,
       project_id,
       type: "other",
-      title: draft.title,
+      title: "Drafting…",
       prompt,
-      content_md: [
-        `# ${draft.title}`,
-        "",
-        ...draft.sections.map((s) => `## ${s.heading}\n\n${s.content}`),
-      ].join("\n\n"),
-      model_used: draft.model_used,
-      task_tier: draft.task_tier,
+      content_md: "",
+      metadata: {
+        compose_status: "pending",
+        prompt,
+      },
       created_by: user.id,
     })
     .select("id")
     .single();
 
-  return NextResponse.json({
-    ...draft,
-    artifact_id: artifact?.id ?? null,
-  });
+  if (artifactError || !artifact) {
+    return NextResponse.json(
+      { error: artifactError?.message ?? "Failed to create artifact" },
+      { status: 500 }
+    );
+  }
+
+  // Fire the Inngest event — compose runs as a durable background function
+  try {
+    await inngest.send({
+      name: "artifact/compose.requested",
+      data: {
+        org_id: project.org_id,
+        project_id,
+        artifact_id: artifact.id,
+        prompt,
+        limit,
+        user_id: user.id,
+      },
+    });
+  } catch (inngestError) {
+    const message = inngestError instanceof Error ? inngestError.message : String(inngestError);
+    // Clean up the stub so the user can try again
+    await service.from("artifacts").delete().eq("org_id", project.org_id).eq("id", artifact.id);
+    return NextResponse.json(
+      { error: `Could not queue compose job: ${message}` },
+      { status: 503 }
+    );
+  }
+
+  return NextResponse.json({ artifact_id: artifact.id, status: "pending" });
 }

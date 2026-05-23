@@ -729,6 +729,17 @@ export const ingestSource = inngest.createFunction(
         });
       });
 
+      // Session review fires for every ingest that produced evidence.
+      // The review function itself decides whether there's enough to write a useful brief (≥3 records).
+      if (evidenceRecords.length > 0) {
+        await step.run("queue-session-review", async () => {
+          await inngest.send({
+            name: "source/review.requested",
+            data: { org_id, project_id, source_id },
+          });
+        });
+      }
+
       // Auto-trigger synthesis when ingest produces enough new evidence (≥5 records)
       // per CLAUDE.md §15: synthesis runs after every ingest batch with 5+ new records
       if (evidenceRecords.length >= 5) {

@@ -134,6 +134,7 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
   const [verificationPending, setVerificationPending] = useState(false);
   const [verificationQueueError, setVerificationQueueError] = useState<string | null>(null);
   const [isDrafting, setIsDrafting] = useState(false);
+  const [isPollingDraft, setIsPollingDraft] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -173,45 +174,91 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
     };
   }, [artifactId, projectId, verificationPending]);
 
+  // Poll for compose completion after fire-and-forget draft request
+  useEffect(() => {
+    if (!artifactId || !isPollingDraft) return;
+
+    let cancelled = false;
+    let attempts = 0;
+
+    async function poll() {
+      attempts += 1;
+      try {
+        const response = await fetch(`/api/artifacts/${artifactId}/status`, { cache: "no-store" });
+        const payload = await response.json();
+        if (cancelled) return;
+
+        if (payload.status === "done") {
+          setTitle(payload.title ?? "Untitled");
+          setModelUsed(payload.model_used ?? null);
+          setTaskTier(payload.task_tier ?? null);
+          setArtifactType("other");
+          setEvidenceIds(payload.evidence_ids ?? []);
+          setSections(
+            (payload.sections ?? []).map(
+              (section: { heading: string; content: string }, index: number) => ({
+                id: `${Date.now()}-${index}`,
+                heading: section.heading,
+                content: section.content,
+              })
+            )
+          );
+          setIsPollingDraft(false);
+          setIsDrafting(false);
+          return;
+        }
+
+        if (payload.status === "failed") {
+          setError(payload.error ?? "Compose failed — please try again.");
+          setIsPollingDraft(false);
+          setIsDrafting(false);
+          return;
+        }
+      } catch {
+        // Network hiccup — keep polling
+      }
+
+      // Give up after ~3 minutes (90 attempts × 2s)
+      if (attempts >= 90) {
+        setError("Compose is taking longer than expected. Check that Inngest is running.");
+        setIsPollingDraft(false);
+        setIsDrafting(false);
+      }
+    }
+
+    void poll();
+    const interval = window.setInterval(() => { void poll(); }, 2000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [artifactId, isPollingDraft]);
+
   async function createDraft(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setMessage(null);
+    setSections([]);
     setIsDrafting(true);
+    setIsPollingDraft(false);
 
     const response = await fetch("/api/compose/draft", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        project_id: projectId,
-        prompt,
-      }),
+      body: JSON.stringify({ project_id: projectId, prompt }),
     });
 
     const payload = await response.json();
-    setIsDrafting(false);
 
     if (!response.ok) {
-      setError(payload.error ?? "Could not draft artifact.");
+      setError(payload.error ?? "Could not start draft.");
+      setIsDrafting(false);
       return;
     }
 
-    setTitle(payload.title ?? "Untitled");
+    // Route now returns immediately with artifact_id — start polling
     setArtifactId(payload.artifact_id ?? null);
     setVerification(null);
     setVerificationPending(false);
     setVerificationQueueError(null);
-    setModelUsed(payload.model_used ?? null);
-    setTaskTier(payload.task_tier ?? null);
-    setArtifactType("other");
-    setEvidenceIds(payload.evidence_ids ?? []);
-    setSections(
-      (payload.sections ?? []).map((section: { heading: string; content: string }, index: number) => ({
-        id: `${Date.now()}-${index}`,
-        heading: section.heading,
-        content: section.content,
-      }))
-    );
+    setIsPollingDraft(true);
   }
 
   async function saveArtifact() {
@@ -317,7 +364,9 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
           </div>
           {isDrafting && (
             <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink-muted)]">
-              Generating a grounded draft. This can take 20-40 seconds.
+              {isPollingDraft
+                ? "Generating a grounded draft — this usually takes 30–60 seconds on large evidence sets."
+                : "Queuing draft…"}
             </div>
           )}
         </div>
