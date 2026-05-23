@@ -11,6 +11,8 @@ type CompetitorRow = {
   known_strengths: string | null;
   known_gaps: string | null;
   last_researched: string | null;
+  digest_updated_at: string | null;
+  evidence_count: number;
 };
 
 function formatDate(value: string | null) {
@@ -49,12 +51,34 @@ export default async function CompetitorsPage() {
   const { data: competitors } = orgId
     ? await supabase
         .from("competitors")
-        .select("id, name, slug, website, positioning, known_strengths, known_gaps, last_researched")
+        .select("id, name, slug, website, positioning, known_strengths, known_gaps, last_researched, digest_updated_at")
         .eq("org_id", orgId)
         .order("name", { ascending: true })
     : { data: [] };
 
-  const rows = (competitors ?? []) as CompetitorRow[];
+  const competitorRows = (competitors ?? []) as Omit<CompetitorRow, "evidence_count">[];
+  const competitorIds = competitorRows.map((competitor) => competitor.id);
+  const { data: evidenceLinks } =
+    orgId && competitorIds.length > 0
+      ? await supabase
+          .from("evidence_entities")
+          .select("entity_id")
+          .eq("org_id", orgId)
+          .eq("entity_type", "competitor")
+          .in("entity_id", competitorIds)
+      : { data: [] };
+
+  const evidenceCounts = new Map<string, number>();
+  (evidenceLinks ?? []).forEach((link) => {
+    const entityId = (link as { entity_id: string | null }).entity_id;
+    if (!entityId) return;
+    evidenceCounts.set(entityId, (evidenceCounts.get(entityId) ?? 0) + 1);
+  });
+
+  const rows: CompetitorRow[] = competitorRows.map((competitor) => ({
+    ...competitor,
+    evidence_count: evidenceCounts.get(competitor.id) ?? 0,
+  }));
 
   return (
     <main className="min-h-screen px-5 py-8 sm:px-8">
@@ -100,12 +124,18 @@ export default async function CompetitorsPage() {
                           </a>
                         )}
                         {researchedAt && <span>Last researched {researchedAt}</span>}
+                        {competitor.digest_updated_at && <span>Digest generated</span>}
                       </div>
                     </div>
 
-                    <span className="rounded-full border border-[var(--border)] bg-[var(--surface-0)] px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)]">
-                      {competitor.slug}
-                    </span>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <span className="rounded-full border border-[var(--border)] bg-[var(--surface-0)] px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)]">
+                        {competitor.evidence_count} evidence
+                      </span>
+                      <span className="rounded-full border border-[var(--border)] bg-[var(--surface-0)] px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)]">
+                        {competitor.slug}
+                      </span>
+                    </div>
                   </div>
                 </article>
               );
