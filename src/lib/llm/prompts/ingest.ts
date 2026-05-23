@@ -1,9 +1,9 @@
-export const INGEST_EXTRACTION_PROMPT_VERSION = "ingest-extraction-v2";
+export const INGEST_EXTRACTION_PROMPT_VERSION = "ingest-extraction-v3";
 
 export const INGEST_EXTRACTION_PROMPT = `
 You are a senior research analyst reviewing customer discovery material.
 
-Read the conversation unit below. Extract every discrete, citable claim made by any participant.
+Read the conversation unit below. Extract every discrete, citable claim made by external participants (customers, prospects, or third parties).
 
 For each claim return:
 - content: the exact quote or close paraphrase, in quotable form
@@ -17,6 +17,10 @@ For each claim return:
 Return only a JSON array. Do not include markdown fences or explanatory text.
 Extract as many claims as the content supports. If there are no citable claims, return [].
 Do not extract greetings, filler acknowledgements, backchannels, or standalone fragments such as "yeah", "okay", "right", or "I agree" unless they contain a concrete claim.
+
+IMPORTANT — INTERNAL SPEAKERS:
+{internalSpeakers}
+Do NOT extract claims made by internal speakers as customer evidence. Their turns provide context for understanding what the external participant is responding to, but their own words are not evidence. Only extract claims from external participants (customers, prospects, or any unlisted speaker).
 
 PROJECT FRAME (what this project is investigating):
 {frame}
@@ -40,11 +44,17 @@ export function buildIngestExtractionPrompt(input: {
   themes: string;
   problems: string;
   otherProjects: string;
+  internalSpeakers: string | null;
 }) {
+  const internalSpeakersBlock = input.internalSpeakers
+    ? `The following people are internal team members (employees, sales, research, etc.):\n${input.internalSpeakers}`
+    : "No internal speakers have been flagged. Treat all speakers as potentially external unless context makes it clear they are not.";
+
   return INGEST_EXTRACTION_PROMPT
     .replace("{content}", input.content)
     .replace("{frame}", input.frame)
     .replace("{themes}", input.themes)
     .replace("{problems}", input.problems)
-    .replace("{otherProjects}", input.otherProjects);
+    .replace("{otherProjects}", input.otherProjects)
+    .replace("{internalSpeakers}", internalSpeakersBlock);
 }

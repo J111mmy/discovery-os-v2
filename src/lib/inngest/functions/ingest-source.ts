@@ -70,6 +70,11 @@ type ThemeContext = {
   description: string | null;
 };
 
+type InternalSpeaker = {
+  name: string;
+  role: string | null;
+};
+
 const MAX_TURN_TOKENS = 800;
 
 const ExtractedClaimSchema = z.object({
@@ -392,8 +397,16 @@ function segmentDocument(text: string): RawSegment[] {
     .filter((segment) => segment.content);
 }
 
+const TRANSCRIPT_LIKE_TYPES = new Set<SourceType>([
+  "transcript",
+  "customer_interview",
+  "sales_call",
+  "usability_study",
+  "internal_meeting",
+]);
+
 function segmentText(text: string, type: SourceType): RawSegment[] {
-  if (type === "transcript") {
+  if (TRANSCRIPT_LIKE_TYPES.has(type)) {
     const transcriptSegments = segmentTranscript(text);
     if (transcriptSegments.length > 0) return transcriptSegments;
   }
@@ -413,6 +426,13 @@ function formatThemes(themes: ThemeContext[]) {
     .map((theme) =>
       theme.description ? `- ${theme.label}: ${theme.description}` : `- ${theme.label}`
     )
+    .join("\n");
+}
+
+function formatInternalSpeakers(speakers: InternalSpeaker[]) {
+  if (speakers.length === 0) return null;
+  return speakers
+    .map((s) => (s.role ? `- ${s.name} (${s.role})` : `- ${s.name}`))
     .join("\n");
 }
 
@@ -497,8 +517,8 @@ export const ingestSource = inngest.createFunction(
         return data as { type: SourceType; metadata: Record<string, unknown> };
       });
 
-      const [project, themes, problems, otherProjects] = await step.run("fetch-context", async () => {
-        const [projectResult, themesResult, problemsResult, otherProjectsResult] = await Promise.all([
+      const [project, themes, problems, otherProjects, internalSpeakers] = await step.run("fetch-context", async () => {
+        const [projectResult, themesResult, problemsResult, otherProjectsResult, internalPeopleResult] = await Promise.all([
           supabase
             .from("projects")
             .select("name, frame, frame_data")
@@ -526,6 +546,13 @@ export const ingestSource = inngest.createFunction(
             .eq("org_id", org_id)
             .neq("id", project_id)
             .limit(10),
+          // Internal speakers — their turns are context, not customer evidence
+          supabase
+            .from("people")
+            .select("name, role")
+            .eq("org_id", org_id)
+            .eq("affiliation", "internal")
+            .order("name", { ascending: true }),
         ]);
 
         if (projectResult.error || !projectResult.data) {
@@ -539,6 +566,7 @@ export const ingestSource = inngest.createFunction(
           (themesResult.data ?? []) as ThemeContext[],
           (problemsResult.data ?? []) as Array<{ title: string }>,
           (otherProjectsResult.data ?? []) as Array<{ name: string; frame: string | null }>,
+          (internalPeopleResult.data ?? []) as InternalSpeaker[],
         ] as const;
       });
 
@@ -601,6 +629,7 @@ export const ingestSource = inngest.createFunction(
             otherProjects: otherProjects.length > 0
               ? otherProjects.map((p) => `- ${p.name}${p.frame ? `: ${p.frame.slice(0, 120)}` : ""}`).join("\n")
               : "No other active projects.",
+            internalSpeakers: formatInternalSpeakers(internalSpeakers),
           });
 
           const result = await callLLM({

@@ -8,7 +8,18 @@ import { z } from "zod";
 
 const IngestSchema = z.object({
   project_id: z.string().uuid(),
-  type: z.enum(["transcript", "document", "note", "survey", "support_ticket", "other"]),
+  type: z.enum([
+    "transcript",
+    "document",
+    "note",
+    "survey",
+    "support_ticket",
+    "other",
+    "customer_interview",
+    "sales_call",
+    "usability_study",
+    "internal_meeting",
+  ]),
   title: z.string().min(1).max(255),
   description: z.string().optional(),
   raw_text: z.string().min(20, "Text must be at least 20 characters"),

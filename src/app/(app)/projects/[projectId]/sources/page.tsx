@@ -31,7 +31,11 @@ type JobRow = {
 };
 
 function StatusBadge({ status }: { status: JobStatus | "not_started" }) {
-  const label = status === "failed" ? "error" : status.replace("_", " ");
+  const label =
+    status === "done" ? "ready" :
+    status === "failed" ? "check needed" :
+    status === "processing" || status === "pending" ? "analyzing" :
+    "not started";
   const classes =
     status === "done"
       ? "border-green-500/20 bg-green-500/10 text-green-300"
@@ -162,6 +166,10 @@ export default async function SourcesPage({ params }: Props) {
             const evidenceCount = evidenceCountBySource.get(source.id) ?? 0;
             const segmentCount = segmentCountBySource.get(source.id) ?? 0;
 
+            const jobStatus = job?.status ?? "not_started";
+            const isAnalyzing = jobStatus === "processing" || jobStatus === "pending";
+            const hasFailed = jobStatus === "failed";
+
             return (
               <article
                 key={source.id}
@@ -170,7 +178,7 @@ export default async function SourcesPage({ params }: Props) {
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">
                     <div className="mb-2 flex flex-wrap items-center gap-2">
-                      <StatusBadge status={job?.status ?? "not_started"} />
+                      <StatusBadge status={jobStatus} />
                       <span className="text-xs capitalize text-[var(--ink-muted)]">{source.type}</span>
                       <span className="text-xs text-[var(--ink-faint)]">{dateLabel(source.ingested_at)}</span>
                     </div>
@@ -180,27 +188,26 @@ export default async function SourcesPage({ params }: Props) {
                     >
                       {source.title}
                     </Link>
-                    <div className="mt-2 flex flex-wrap gap-3 text-xs text-[var(--ink-muted)]">
-                      <span>{segmentCount} segments</span>
-                      <span>{evidenceCount} evidence records</span>
-                      {job?.result?.evidence_created !== undefined && (
-                        <span>{job.result.evidence_created} created in latest job</span>
-                      )}
+                    <div className="mt-2 text-xs text-[var(--ink-muted)]">
+                      {isAnalyzing
+                        ? "Extracting evidence — this may take a minute for long transcripts."
+                        : hasFailed
+                        ? "Processing did not complete. Use Retry to try again."
+                        : `${evidenceCount} evidence record${evidenceCount === 1 ? "" : "s"}`}
                     </div>
-                    {job?.error && (
-                      <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">
-                        {job.error}
-                      </div>
-                    )}
                   </div>
                   <div className="flex flex-col gap-3 lg:items-end">
                     <Link
                       href={`/projects/${project.id}/sources/${source.id}`}
                       className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
                     >
-                      View segments
+                      View evidence
                     </Link>
-                    <SourceActions projectId={project.id} sourceId={source.id} />
+                    <SourceActions
+                      projectId={project.id}
+                      sourceId={source.id}
+                      showRetry={hasFailed}
+                    />
                   </div>
                 </div>
               </article>

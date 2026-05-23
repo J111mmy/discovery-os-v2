@@ -7,12 +7,14 @@ interface SourceActionsProps {
   projectId: string;
   sourceId: string;
   variant?: "list" | "detail";
+  showRetry?: boolean;
 }
 
 export function SourceActions({
   projectId,
   sourceId,
   variant = "list",
+  showRetry = true,
 }: SourceActionsProps) {
   const router = useRouter();
   const [isRetrying, setIsRetrying] = useState(false);
@@ -66,14 +68,16 @@ export function SourceActions({
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={retrySource}
-          disabled={isRetrying || isDeleting}
-          className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {isRetrying ? "Retrying..." : "Retry"}
-        </button>
+        {showRetry && (
+          <button
+            type="button"
+            onClick={retrySource}
+            disabled={isRetrying || isDeleting}
+            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isRetrying ? "Retrying..." : "Retry"}
+          </button>
+        )}
         <button
           type="button"
           onClick={deleteSource}

@@ -518,7 +518,12 @@ export const extractEntities = inngest.createFunction(
 
       return output;
     } catch (error) {
+      // Entity extraction is background enrichment — a failure here does not
+      // mean evidence was lost. Log to agent_runs for developer visibility
+      // but do NOT re-throw. Surfacing this to users as a pipeline failure
+      // would be misleading since the evidence records already exist.
       const message = error instanceof Error ? error.message : "Unknown entity error";
+      console.error("[extract-entities] failed:", message);
       if (agentRunId) {
         await supabase
           .from("agent_runs")
@@ -530,7 +535,7 @@ export const extractEntities = inngest.createFunction(
           .eq("org_id", org_id)
           .eq("id", agentRunId);
       }
-      throw error;
+      return { people: 0, companies: 0, competitors: 0, links: 0, skipped: true };
     }
   }
 );

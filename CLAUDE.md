@@ -420,8 +420,12 @@ The current schema has no global entity tables. This needs to be added:
 
 ```sql
 people
-  id, org_id (tenant), name, role, email, company_id, status, preferences jsonb
-  -- status: prospect | interviewed | demo-shown | beta-candidate | beta-participant | customer
+  id, org_id (tenant), name, role, email, company_id, status, affiliation, notes
+  -- status: prospect | interviewed | concept-shown | demo-shown | beta-candidate | beta-participant | customer
+  -- affiliation: internal | external | unknown (default: unknown)
+  --   'internal' = team member (sales, research, eng). Their speech is CONTEXT, not evidence.
+  --   The ingest agent receives the list of internal people before extraction and skips their
+  --   turns as evidence sources. Flag people here once and every future ingest handles them correctly.
 
 companies  (equivalent of _entities/organisations/)
   id, org_id (tenant), name, domain, size, industry, notes
@@ -778,7 +782,7 @@ These outputs live in the DB and are surfaced in the project overview. The Compo
 
 ### NOT yet built — priority order
 
-1. **Schema reconciliation migration** — align column names (`source_segment_id` → `segment_id`), reconcile trust scope docs and UI with the existing `disputed` value already in the DB and TS types, fix source kind values to the canonical list (`transcript | document | note | web | slack | usability | monitoring`), add `evidence_entities` join table, convert `projects.frame` from `text` to `jsonb`, add global entity tables. Do this before any new feature work.
+1. **Schema reconciliation migration** — align column names (`source_segment_id` → `segment_id`), reconcile trust scope docs and UI with the existing `disputed` value already in the DB and TS types, fix source kind values to the canonical list (`customer_interview | sales_call | usability_study | internal_meeting | transcript | document | note | survey | support_ticket | other | web | slack | usability | monitoring`). The four new values (`customer_interview`, `sales_call`, `usability_study`, `internal_meeting`) are added by migration 0013 and are the preferred values for new ingests., add `evidence_entities` join table, convert `projects.frame` from `text` to `jsonb`, add global entity tables. Do this before any new feature work.
 
 2. **AI-powered evidence extraction** — the single most important build. Replace the mechanical word-count chunker in `src/lib/inngest/functions/ingest-source.ts` with: (a) deterministic conversation-unit segmentation, then (b) Claude agent call per conversation unit to extract discrete citable claims with classification, sentiment, and verbatim quotes. Everything downstream depends on this.
 

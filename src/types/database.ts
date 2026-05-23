@@ -14,7 +14,13 @@ export type SourceType =
   | "web"
   | "slack"
   | "usability"
-  | "monitoring";
+  | "monitoring"
+  | "customer_interview"
+  | "sales_call"
+  | "usability_study"
+  | "internal_meeting";
+
+export type Affiliation = "internal" | "external" | "unknown";
 export type ArtifactType = "prd" | "brief" | "persona" | "opportunity" | "gtm" | "interview_guide" | "report" | "other";
 export type VerificationStatus = "unverified" | "supported" | "disputed" | "retracted";
 export type ArtifactVerificationStatus = "verified" | "partial" | "unverified";
@@ -185,6 +191,7 @@ export interface Person {
   email: string | null;
   company_id: string | null;
   status: PersonStatus;
+  affiliation: Affiliation;
   notes: string | null;
   created_at: string;
   updated_at: string;
