@@ -1,46 +1,100 @@
-import { createClient } from "@/lib/supabase/server";
-import type { EvidenceClassification, EvidenceSentiment, TrustScope } from "@/types/database";
+import type { EvidenceClassification, EvidenceSentiment, PersonStatus, TrustScope } from "@/types/database";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { DigestRefreshButton } from "./digest-refresh-button";
 
-type ProjectRelation = {
-  project_id: string;
-  projects: { name: string } | { name: string }[] | null;
-};
+interface Props {
+  params: { companyId: string };
+}
 
 type CompanyDetail = {
   id: string;
   name: string;
   domain: string | null;
-  company_projects: ProjectRelation[] | ProjectRelation | null;
+  industry: string | null;
+  size: string | null;
+  notes: string | null;
+  digest: string | null;
+  digest_updated_at: string | null;
 };
 
-type EvidenceMention = {
+type CompanyPerson = {
+  id: string;
+  name: string;
+  role: string | null;
+  status: PersonStatus | null;
+  email: string | null;
+};
+
+type CompanyProject = {
+  id: string;
+  name: string;
+};
+
+type CompanyEvidence = {
   id: string;
   content: string;
   summary: string | null;
   classification: EvidenceClassification | null;
   sentiment: EvidenceSentiment | null;
   trust_scope: TrustScope;
+  metadata: Record<string, unknown>;
+  project_id: string;
+  project_name: string | null;
   source_id: string;
+  source_title: string | null;
+  created_at: string;
 };
 
-type EvidenceEntityRow = {
-  evidence: EvidenceMention | EvidenceMention[] | null;
+type CompanyDetailPayload = {
+  company: CompanyDetail;
+  people: CompanyPerson[];
+  projects: CompanyProject[];
+  evidence: CompanyEvidence[];
 };
 
-interface Props {
-  params: { companyId: string };
+async function fetchCompanyDetail(companyId: string) {
+  const requestHeaders = headers();
+  const host = requestHeaders.get("host");
+  if (!host) notFound();
+
+  const protocol = requestHeaders.get("x-forwarded-proto") ?? "http";
+  const response = await fetch(`${protocol}://${host}/api/companies/${companyId}`, {
+    cache: "no-store",
+    headers: {
+      cookie: requestHeaders.get("cookie") ?? "",
+    },
+  });
+
+  if (response.status === 401) redirect("/login");
+  if (response.status === 404) notFound();
+  if (!response.ok) {
+    throw new Error("Could not load company detail.");
+  }
+
+  return (await response.json()) as CompanyDetailPayload;
 }
 
-function asArray<T>(value: T | T[] | null | undefined): T[] {
-  if (!value) return [];
-  return Array.isArray(value) ? value : [value];
+function dateLabel(value: string) {
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(value));
 }
 
-function projectName(projects: ProjectRelation["projects"]) {
-  const project = Array.isArray(projects) ? projects[0] : projects;
-  return project?.name ?? "Project";
+function domainHref(domain: string) {
+  return domain.startsWith("http://") || domain.startsWith("https://")
+    ? domain
+    : `https://${domain}`;
+}
+
+function StatusBadge({ status }: { status: PersonStatus | null }) {
+  return (
+    <span className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-xs font-medium capitalize text-[var(--ink-muted)]">
+      {status ? status.replace(/-/g, " ") : "unknown"}
+    </span>
+  );
 }
 
 function TrustBadge({ trustScope }: { trustScope: TrustScope }) {
@@ -48,10 +102,10 @@ function TrustBadge({ trustScope }: { trustScope: TrustScope }) {
     trustScope === "trusted"
       ? "border-green-500/20 bg-green-500/10 text-green-300"
       : trustScope === "pending"
-      ? "border-yellow-500/20 bg-yellow-500/10 text-yellow-300"
-      : trustScope === "disputed"
-      ? "border-[var(--brand)]/30 bg-[var(--brand)]/10 text-[var(--brand)]"
-      : "border-red-500/20 bg-red-500/10 text-red-300";
+        ? "border-yellow-500/20 bg-yellow-500/10 text-yellow-300"
+        : trustScope === "disputed"
+          ? "border-[var(--brand)]/30 bg-[var(--brand)]/10 text-[var(--brand)]"
+          : "border-red-500/20 bg-red-500/10 text-red-300";
 
   return (
     <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}>
@@ -67,10 +121,10 @@ function ClassificationBadge({ classification }: { classification: EvidenceClass
     classification === "insight"
       ? "border-[var(--brand)]/30 bg-[var(--brand)]/10 text-[var(--brand)]"
       : classification === "verbatim"
-      ? "border-blue-500/25 bg-blue-500/10 text-blue-300"
-      : classification === "data_point"
-      ? "border-cyan-500/25 bg-cyan-500/10 text-cyan-300"
-      : "border-amber-500/25 bg-amber-500/10 text-amber-300";
+        ? "border-blue-500/25 bg-blue-500/10 text-blue-300"
+        : classification === "data_point"
+          ? "border-cyan-500/25 bg-cyan-500/10 text-cyan-300"
+          : "border-amber-500/25 bg-amber-500/10 text-amber-300";
 
   return (
     <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}>
@@ -86,10 +140,10 @@ function SentimentIndicator({ sentiment }: { sentiment: EvidenceSentiment | null
     sentiment === "positive"
       ? "bg-green-400"
       : sentiment === "negative"
-      ? "bg-red-400"
-      : sentiment === "mixed"
-      ? "bg-yellow-400"
-      : "bg-[var(--ink-faint)]";
+        ? "bg-red-400"
+        : sentiment === "mixed"
+          ? "bg-yellow-400"
+          : "bg-[var(--ink-faint)]";
 
   return (
     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--ink-muted)]">
@@ -99,7 +153,15 @@ function SentimentIndicator({ sentiment }: { sentiment: EvidenceSentiment | null
   );
 }
 
-function EvidenceCard({ evidence }: { evidence: EvidenceMention }) {
+function speakerLabel(metadata: Record<string, unknown>) {
+  return typeof metadata.speaker === "string" && metadata.speaker.trim()
+    ? metadata.speaker.trim()
+    : null;
+}
+
+function EvidenceCard({ evidence }: { evidence: CompanyEvidence }) {
+  const speaker = speakerLabel(evidence.metadata);
+
   return (
     <article className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -113,51 +175,24 @@ function EvidenceCard({ evidence }: { evidence: EvidenceMention }) {
       {evidence.summary && (
         <p className="mt-3 text-sm leading-6 text-[var(--ink-muted)]">{evidence.summary}</p>
       )}
+      <div className="mt-4 flex flex-wrap gap-2 text-xs text-[var(--ink-faint)]">
+        {speaker && <span>{speaker}</span>}
+        {evidence.source_title && <span>{evidence.source_title}</span>}
+        {evidence.project_name && (
+          <Link
+            href={`/projects/${evidence.project_id}`}
+            className="text-[var(--brand)] transition-colors hover:text-[var(--ink)]"
+          >
+            {evidence.project_name}
+          </Link>
+        )}
+      </div>
     </article>
   );
 }
 
 export default async function CompanyDetailPage({ params }: Props) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/login");
-
-  const { data: membership } = await supabase
-    .from("org_members")
-    .select("org_id")
-    .eq("user_id", user.id)
-    .order("joined_at", { ascending: true })
-    .limit(1)
-    .single();
-
-  if (!membership?.org_id) notFound();
-
-  const orgId = membership.org_id;
-  const [{ data: company }, { data: entityRows }] = await Promise.all([
-    supabase
-      .from("companies")
-      .select("id, name, domain, company_projects(project_id, projects(name))")
-      .eq("org_id", orgId)
-      .eq("id", params.companyId)
-      .single(),
-    supabase
-      .from("evidence_entities")
-      .select("evidence(id, content, summary, classification, sentiment, trust_scope, source_id)")
-      .eq("org_id", orgId)
-      .eq("entity_type", "company")
-      .eq("entity_id", params.companyId),
-  ]);
-
-  if (!company) notFound();
-
-  const companyRow = company as CompanyDetail;
-  const projectLinks = asArray(companyRow.company_projects);
-  const evidence = ((entityRows ?? []) as EvidenceEntityRow[])
-    .flatMap((row) => asArray(row.evidence))
-    .filter((row): row is EvidenceMention => Boolean(row));
+  const { company, people, projects, evidence } = await fetchCompanyDetail(params.companyId);
 
   return (
     <main className="min-h-screen px-5 py-8 sm:px-8">
@@ -166,37 +201,115 @@ export default async function CompanyDetailPage({ params }: Props) {
           href="/companies"
           className="mb-6 inline-flex text-sm font-medium text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
         >
-          ← All companies
+          All companies
         </Link>
 
-        <section className="mb-8 rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <section className="mb-8 rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-6">
+          <h1 className="text-2xl font-semibold text-[var(--ink)]">{company.name}</h1>
+          {company.domain && (
+            <a
+              href={domainHref(company.domain)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-flex text-sm text-[var(--brand)] transition-colors hover:text-[var(--ink)]"
+            >
+              {company.domain}
+            </a>
+          )}
+          {(company.industry || company.size) && (
+            <div className="mt-3 flex flex-wrap gap-3 text-sm text-[var(--ink-muted)]">
+              {company.industry && <span>{company.industry}</span>}
+              {company.size && <span>{company.size}</span>}
+            </div>
+          )}
+          {company.notes && (
+            <p className="mt-4 text-sm leading-6 text-[var(--ink-muted)]">{company.notes}</p>
+          )}
+        </section>
+
+        <section className="mb-8">
+          <div className="mb-4 flex items-end justify-between gap-4">
             <div>
-              <h1 className="text-2xl font-semibold text-[var(--ink)]">{companyRow.name}</h1>
-              {companyRow.domain && (
-                <p className="mt-2 text-sm text-[var(--ink-muted)]">{companyRow.domain}</p>
+              <h2 className="text-lg font-semibold text-[var(--ink)]">Intelligence brief</h2>
+              {company.digest_updated_at && (
+                <p className="mt-1 text-xs text-[var(--ink-faint)]">
+                  Last generated {dateLabel(company.digest_updated_at)}
+                </p>
               )}
             </div>
-            {projectLinks.length > 0 && (
-              <div className="flex flex-wrap gap-2 sm:justify-end">
-                {projectLinks.map((relation) => (
-                  <Link
-                    key={relation.project_id}
-                    href={`/projects/${relation.project_id}`}
-                    className="rounded-full border border-[var(--border)] bg-[var(--surface-0)] px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
-                  >
-                    {projectName(relation.projects)}
-                  </Link>
-                ))}
-              </div>
-            )}
+            <DigestRefreshButton companyId={company.id} />
           </div>
+
+          {company.digest ? (
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-6">
+              <p className="whitespace-pre-wrap text-sm leading-7 text-[var(--ink)]">
+                {company.digest}
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-1)] p-8 text-center">
+              <p className="text-sm leading-6 text-[var(--ink-muted)]">
+                No digest yet. Digests generate automatically after evidence accumulates from this
+                company. You can also generate one now.
+              </p>
+            </div>
+          )}
+        </section>
+
+        <section className="mb-8">
+          <h2 className="mb-4 text-lg font-semibold text-[var(--ink)]">
+            People ({people.length})
+          </h2>
+          {people.length === 0 ? (
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-8 text-center text-sm text-[var(--ink-muted)]">
+              No named contacts yet.
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              {people.map((person) => (
+                <Link
+                  key={person.id}
+                  href={`/people/${person.id}`}
+                  className="flex items-center justify-between gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] px-4 py-3 transition-colors hover:border-[var(--brand)]"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-[var(--ink)]">{person.name}</p>
+                    {(person.role || person.email) && (
+                      <p className="mt-1 truncate text-xs text-[var(--ink-muted)]">
+                        {[person.role, person.email].filter(Boolean).join(" · ")}
+                      </p>
+                    )}
+                  </div>
+                  <StatusBadge status={person.status} />
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="mb-8">
+          <h2 className="mb-3 text-lg font-semibold text-[var(--ink)]">Projects</h2>
+          {projects.length === 0 ? (
+            <p className="text-sm text-[var(--ink-muted)]">Not linked to any projects yet.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {projects.map((project) => (
+                <Link
+                  key={project.id}
+                  href={`/projects/${project.id}`}
+                  className="rounded-full border border-[var(--border)] px-3 py-1 text-sm text-[var(--ink-muted)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
+                >
+                  {project.name}
+                </Link>
+              ))}
+            </div>
+          )}
         </section>
 
         <section>
           <div className="mb-4 flex items-end justify-between gap-4">
             <div>
-              <h2 className="text-lg font-semibold text-[var(--ink)]">Evidence mentions</h2>
+              <h2 className="text-lg font-semibold text-[var(--ink)]">Recent evidence</h2>
               <p className="mt-1 text-sm text-[var(--ink-muted)]">
                 Evidence linked to this company by the entity extraction agent.
               </p>

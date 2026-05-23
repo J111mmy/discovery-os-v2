@@ -16,6 +16,8 @@ type ProjectRelation = {
   projects: { name: string } | { name: string }[] | null;
 };
 
+type CompanyRelation = { id: string; name: string } | { id: string; name: string }[] | null;
+
 type PersonDetail = {
   id: string;
   name: string;
@@ -24,6 +26,7 @@ type PersonDetail = {
   affiliation: Affiliation;
   status: PersonStatus;
   company_id: string | null;
+  companies: CompanyRelation;
   digest: string | null;
   digest_updated_at: string | null;
   person_projects: ProjectRelation[] | ProjectRelation | null;
@@ -55,6 +58,10 @@ function asArray<T>(value: T | T[] | null | undefined): T[] {
 function projectName(projects: ProjectRelation["projects"]) {
   const project = Array.isArray(projects) ? projects[0] : projects;
   return project?.name ?? "Project";
+}
+
+function companyRelation(company: CompanyRelation) {
+  return Array.isArray(company) ? company[0] ?? null : company;
 }
 
 function TrustBadge({ trustScope }: { trustScope: TrustScope }) {
@@ -170,7 +177,7 @@ export default async function PersonDetailPage({ params }: Props) {
   const [{ data: person }, { data: entityRows }] = await Promise.all([
     supabase
       .from("people")
-      .select("id, name, role, email, affiliation, status, company_id, digest, digest_updated_at, person_projects(project_id, projects(name))")
+      .select("id, name, role, email, affiliation, status, company_id, companies(id, name), digest, digest_updated_at, person_projects(project_id, projects(name))")
       .eq("org_id", orgId)
       .eq("id", params.personId)
       .single(),
@@ -186,6 +193,7 @@ export default async function PersonDetailPage({ params }: Props) {
 
   const personRow = person as PersonDetail;
   const projectLinks = asArray(personRow.person_projects);
+  const company = companyRelation(personRow.companies);
   const evidence = ((entityRows ?? []) as EvidenceEntityRow[])
     .flatMap((row) => asArray(row.evidence))
     .filter((row): row is EvidenceMention => Boolean(row));
@@ -216,6 +224,14 @@ export default async function PersonDetailPage({ params }: Props) {
                 <p className="mt-2 text-sm text-[var(--ink-muted)]">
                   {[personRow.role, personRow.email].filter(Boolean).join(" · ")}
                 </p>
+              )}
+              {company && (
+                <Link
+                  href={`/companies/${company.id}`}
+                  className="mt-2 inline-flex text-sm font-medium text-[var(--brand)] transition-colors hover:text-[var(--ink)]"
+                >
+                  {company.name}
+                </Link>
               )}
             </div>
             {projectLinks.length > 0 && (
