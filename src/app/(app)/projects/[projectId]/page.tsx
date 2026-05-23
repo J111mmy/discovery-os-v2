@@ -44,15 +44,30 @@ export default async function ProjectPage({ params }: Props) {
     frame: string | null;
     synthesis_stale: boolean;
     last_synthesised_at: string | null;
-    gap_signals: Array<{ area: string; description: string; severity: string; suggested_action: string }> | null;
     created_at: string;
   }>(
     user.id,
     params.projectId,
-    "id, org_id, name, description, frame, synthesis_stale, last_synthesised_at, gap_signals, created_at"
+    "id, org_id, name, description, frame, synthesis_stale, last_synthesised_at, created_at"
   );
 
   if (!project) notFound();
+
+  // gap_signals is added by migration 0011 — fetch separately so a missing
+  // migration doesn't 404 the entire workspace page
+  type GapSignal = { area: string; description: string; severity: string; suggested_action: string };
+  const gapSignals = await (async (): Promise<GapSignal[] | null> => {
+    try {
+      const { data } = await supabase
+        .from("projects")
+        .select("gap_signals")
+        .eq("id", project.id)
+        .single();
+      return (data as { gap_signals: GapSignal[] | null } | null)?.gap_signals ?? null;
+    } catch {
+      return null;
+    }
+  })();
 
   const [
     { count: evidenceCount },
@@ -298,14 +313,14 @@ export default async function ProjectPage({ params }: Props) {
       )}
 
       {/* Research gaps */}
-      {project.gap_signals && project.gap_signals.length > 0 && (
+      {gapSignals && gapSignals.length > 0 && (
         <section className="mb-8 rounded-xl border border-yellow-500/20 bg-[var(--surface-1)] p-5">
           <h2 className="text-sm font-semibold text-[var(--ink)]">Research gaps</h2>
           <p className="mt-1 text-xs text-[var(--ink-muted)]">
             Areas from your project frame with little or no evidence coverage
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            {project.gap_signals.map((gap, i) => (
+            {gapSignals!.map((gap, i) => (
               <div
                 key={i}
                 className="rounded-lg border border-[var(--border)] bg-[var(--surface-0)] p-4"

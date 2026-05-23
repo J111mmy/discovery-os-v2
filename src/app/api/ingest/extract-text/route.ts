@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 import mammoth from "mammoth";
+// pdf-parse v2 exports PDFParse as a named class — no default export
 import { PDFParse } from "pdf-parse";
 
 export const runtime = "nodejs";
