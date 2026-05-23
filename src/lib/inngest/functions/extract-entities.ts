@@ -279,13 +279,13 @@ export const extractEntities = inngest.createFunction(
             .from("agent_runs")
             .update({
               status: "completed",
-              output: { people_resolved: 0, companies_resolved: 0, links_created: 0 },
+              output: { people_resolved: 0, companies_resolved: 0, competitors_resolved: 0, links_created: 0 },
               completed_at: new Date().toISOString(),
             })
             .eq("org_id", org_id)
             .eq("id", agentRunId);
         });
-        return { people: 0, companies: 0, links: 0 };
+        return { people: 0, companies: 0, competitors: 0, links: 0 };
       }
 
       const extraction = await step.run("extract-entities", async () => {
@@ -320,9 +320,10 @@ export const extractEntities = inngest.createFunction(
 
       const output = await step.run("resolve-and-link", async () => {
         const allowedEvidenceIds = new Set(evidence.map((record) => record.id));
-        const [peopleResult, companiesResult] = await Promise.all([
+        const [peopleResult, companiesResult, competitorsResult] = await Promise.all([
           supabase.from("people").select("id, name").eq("org_id", org_id),
           supabase.from("companies").select("id, name").eq("org_id", org_id),
+          supabase.from("competitors").select("id, slug").eq("org_id", org_id),
         ]);
 
         if (peopleResult.error) {
@@ -330,6 +331,9 @@ export const extractEntities = inngest.createFunction(
         }
         if (companiesResult.error) {
           throw new Error(`Failed to fetch companies: ${companiesResult.error.message}`);
+        }
+        if (competitorsResult.error) {
+          throw new Error(`Failed to fetch competitors: ${competitorsResult.error.message}`);
         }
 
         const existingPeople = new Map<string, ExistingPerson>(
@@ -344,10 +348,18 @@ export const extractEntities = inngest.createFunction(
             company,
           ])
         );
+        const existingCompetitors = new Map<string, ExistingCompetitor>(
+          ((competitorsResult.data ?? []) as ExistingCompetitor[]).map((c) => [
+            c.slug,
+            c,
+          ])
+        );
 
         const companyByName = new Map<string, string>();
+        const competitorBySlug = new Map<string, string>();
         let companiesResolved = 0;
         let peopleResolved = 0;
+        let competitorsResolved = 0;
         let linksCreated = 0;
 
         const companyInputs = [
@@ -441,9 +453,52 @@ export const extractEntities = inngest.createFunction(
           }
         }
 
+        // Resolve competitors
+        for (const competitor of extraction.extraction.competitors) {
+          const slug = competitor.slug
+            .toLowerCase()
+            .replace(/[^a-z0-9-]/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/^-|-$/g, "");
+          if (!slug) continue;
+          if (!competitorBySlug.has(slug)) {
+            const competitorId = await findOrCreateCompetitor({
+              org_id,
+              name: competitor.name,
+              slug,
+              website: competitor.website ?? null,
+              existing: existingCompetitors,
+              supabase,
+            });
+            competitorBySlug.set(slug, competitorId);
+            competitorsResolved += 1;
+          }
+
+          const competitorId = competitorBySlug.get(slug);
+          if (!competitorId) continue;
+
+          for (const evidenceId of filterEvidenceIds(
+            competitor.evidence_ids,
+            allowedEvidenceIds
+          )) {
+            await insertEvidenceEntity({
+              supabase,
+              org_id,
+              project_id,
+              evidence_id: evidenceId,
+              entity_type: "competitor",
+              entity_id: competitorId,
+              label: competitor.name,
+              competitor_id: competitorId,
+            });
+            linksCreated += 1;
+          }
+        }
+
         return {
           people_resolved: peopleResolved,
           companies_resolved: companiesResolved,
+          competitors_resolved: competitorsResolved,
           links_created: linksCreated,
         };
       });
