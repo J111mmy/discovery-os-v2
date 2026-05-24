@@ -410,6 +410,8 @@ export interface ComposeDraftResponse {
   title: string;
   sections: ComposeDraftSection[];
   evidence_ids: string[];
+  /** Maps citation number (string key, e.g. "1") → evidence record UUID */
+  citation_map: Record<string, string>;
   model_used: string;
   task_tier: TaskTier;
 }

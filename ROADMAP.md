@@ -95,9 +95,9 @@ These are not build work — they are operational steps needed right now before 
 **What:** On the evidence detail page and workspace overview, show "Signal relevant to: [Project Name] →" with a one-click route button that copies the evidence reference to the other project.
 **Size:** S
 
-### 💡 Claim citations in composed artifacts
-**Why:** Traceability is the product. Every customer quote in a composed document should show a citation chip that links back to the exact source segment. Currently artifacts are plain text.
-**What:** Artifact render component parses citation markers in Claude output. Each citation renders as a chip: "[EVD-001]" → hover/click shows the quote, source title, speaker, and timestamp. Links through to the evidence detail page.
+### 🔄 Claim citations in composed artifacts
+**Backend done:** Compose prompt updated to instruct Claude to embed `[N]` inline citation markers (same format as ask-v1). `parseCitationMap` in `draft.ts` resolves `N → evidence_id` from the ordered evidence array. `citation_map` written into `artifact.metadata` in `compose-artifact.ts`. `GET /api/artifacts/[id]/citations` returns typed citation records (content, speaker, source title) for all cited evidence, org-scoped and auth-guarded.
+**UI brief written:** `CODEX_BRIEF_ARTIFACT_CITATIONS_UI.md` — convert artifact detail page body to `ArtifactViewer` client component, render `[N]` as clickable superscript chips, popover shows quote + speaker + source title, muted "Built from N sources" footer count.
 **Size:** M
 
 ### ✅ Evidence confidence scoring improvements

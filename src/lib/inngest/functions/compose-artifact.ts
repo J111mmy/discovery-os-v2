@@ -65,6 +65,7 @@ export const composeArtifact = inngest.createFunction(
             metadata: {
               compose_status: "done",
               evidence_ids: draft.evidence_ids,
+              citation_map: draft.citation_map,
               prompt,
             },
             updated_at: new Date().toISOString(),

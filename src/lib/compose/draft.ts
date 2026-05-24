@@ -109,7 +109,9 @@ function buildSystemPrompt(
   if (problemsBlock) parts.push(problemsBlock);
 
   parts.push(`\n\nEVIDENCE-GROUNDING RULES:
-- You have ${evidenceCount} evidence records below. All factual claims must cite specific evidence.
+- You have ${evidenceCount} evidence records below, each labelled [1], [2], [3]…
+- Every factual claim, customer observation, or specific finding MUST include an inline citation in square brackets, e.g. [3] or [1][4]. Place it immediately after the relevant sentence, before the period where possible.
+- If multiple records support the same point, cite all of them: [2][5].
 - The DISCOVERED THEMES and KNOWN PROBLEMS above represent synthesised research — use them to orient your document structure.
 - Paraphrase evidence in your own words — do not copy verbatim passages.
 - Where evidence is absent or thin, flag the gap explicitly: "Evidence is limited here — treat as hypothesis."
@@ -139,6 +141,27 @@ function formatEvidenceBlock(evidence: EvidenceRecord[]): string {
       return `[${i + 1}]${metaStr}\n${content}`;
     })
     .join("\n\n");
+}
+
+// Parse [N] citation markers from composed text and build a map of N → evidence_id.
+// Uses the ordered evidence array — evidence[0] = [1], evidence[1] = [2], etc.
+function parseCitationMap(
+  text: string,
+  evidence: EvidenceRecord[]
+): Record<string, string> {
+  const re = /\[(\d+)\]/g;
+  const map: Record<string, string> = {};
+  let match: RegExpExecArray | null;
+
+  while ((match = re.exec(text)) !== null) {
+    const n = parseInt(match[1], 10);
+    const record = evidence[n - 1]; // 1-based in text, 0-based in array
+    if (record && !map[String(n)]) {
+      map[String(n)] = record.id;
+    }
+  }
+
+  return map;
 }
 
 function parseMarkdownSections(markdown: string): {
@@ -205,11 +228,13 @@ export async function composeDraft(
   });
 
   const { title, sections } = parseMarkdownSections(result.content);
+  const citation_map = parseCitationMap(result.content, evidence);
 
   return {
     title,
     sections,
     evidence_ids: evidence.map((r) => r.id),
+    citation_map,
     model_used: result.model,
     task_tier: "premium",
   };
