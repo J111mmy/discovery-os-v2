@@ -28,12 +28,20 @@ export default async function SettingsPage({ params, searchParams }: Props) {
       research_areas: string[];
     } | null;
     frame_draft_generated_at: string | null;
+    research_context: {
+      goals?: string;
+      outcomes?: string;
+      buyers?: string;
+      scope_in?: string;
+      scope_out?: string;
+      research_questions?: string[];
+    } | null;
     operating_style: string | null;
     gtm_context: string | null;
   }>(
     user.id,
     params.projectId,
-    "id, org_id, name, frame, frame_draft, frame_draft_generated_at, operating_style, gtm_context"
+    "id, org_id, name, frame, frame_draft, frame_draft_generated_at, research_context, operating_style, gtm_context"
   );
 
   if (!project) notFound();
@@ -69,6 +77,7 @@ export default async function SettingsPage({ params, searchParams }: Props) {
           frame: project.frame,
           frame_draft: project.frame_draft,
           frame_draft_generated_at: project.frame_draft_generated_at,
+          research_context: project.research_context,
           operating_style: project.operating_style,
           gtm_context: project.gtm_context,
         }}

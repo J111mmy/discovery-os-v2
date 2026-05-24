@@ -10,12 +10,22 @@ const FrameDraftSchema = z.object({
   research_areas: z.array(z.string()),
 });
 
+const ResearchContextSchema = z.object({
+  goals: z.string().max(4000).optional(),
+  outcomes: z.string().max(4000).optional(),
+  buyers: z.string().max(4000).optional(),
+  scope_in: z.string().max(4000).optional(),
+  scope_out: z.string().max(4000).optional(),
+  research_questions: z.array(z.string().max(1000)).optional(),
+});
+
 const UpdateProjectSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   description: z.string().max(4000).optional().nullable(),
   frame: z.string().max(8000).optional().nullable(),
   frame_data: z.record(z.unknown()).optional().nullable(),
   frame_draft: FrameDraftSchema.optional().nullable(),
+  research_context: ResearchContextSchema.optional().nullable(),
   operating_style: z.string().max(8000).optional().nullable(),
   gtm_context: z.string().max(12000).optional().nullable(),
 });
@@ -67,6 +77,9 @@ export async function PATCH(req: NextRequest, { params }: Props) {
       updates.frame_draft_generated_at = null;
     }
   }
+  if ("research_context" in parsed.data) {
+    updates.research_context = parsed.data.research_context ?? null;
+  }
   if ("operating_style" in parsed.data) {
     updates.operating_style = parsed.data.operating_style?.trim() || null;
   }
@@ -83,7 +96,7 @@ export async function PATCH(req: NextRequest, { params }: Props) {
     .update(updates)
     .eq("org_id", project.org_id)
     .eq("id", project.id)
-    .select("id, org_id, name, description, frame, frame_data, frame_draft, frame_draft_generated_at, operating_style, gtm_context, updated_at")
+    .select("id, org_id, name, description, frame, frame_data, frame_draft, frame_draft_generated_at, research_context, operating_style, gtm_context, updated_at")
     .single();
 
   if (error || !data) {

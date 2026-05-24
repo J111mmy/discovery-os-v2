@@ -45,10 +45,37 @@ export async function queryEvidence(
   if (error) throw new Error(`Evidence query failed: ${error.message}`);
 
   const records = (data ?? []) as EvidenceRecord[];
+  const recordIds = records.map((record) => record.id).filter(Boolean);
   const sourceIds = Array.from(new Set(records.map((record) => record.source_id).filter(Boolean)));
   const segmentIds = Array.from(
     new Set(records.map((record) => record.segment_id).filter(Boolean))
   ) as string[];
+
+  if (recordIds.length > 0) {
+    const { data: evidenceRows } = await supabase
+      .from("evidence")
+      .select("id, org_id, project_id, classification, sentiment, ai_trust_grade, ai_trust_reason, ai_graded_at")
+      .eq("org_id", org_id)
+      .eq("project_id", project_id)
+      .in("id", recordIds);
+
+    const evidenceById = new Map(
+      ((evidenceRows ?? []) as Partial<EvidenceRecord>[]).map((record) => [record.id, record])
+    );
+
+    records.forEach((record) => {
+      const fullRecord = evidenceById.get(record.id);
+      if (fullRecord) {
+        record.org_id = fullRecord.org_id ?? org_id;
+        record.project_id = fullRecord.project_id ?? project_id;
+        record.classification = fullRecord.classification ?? null;
+        record.sentiment = fullRecord.sentiment ?? null;
+        record.ai_trust_grade = fullRecord.ai_trust_grade ?? null;
+        record.ai_trust_reason = fullRecord.ai_trust_reason ?? null;
+        record.ai_graded_at = fullRecord.ai_graded_at ?? null;
+      }
+    });
+  }
 
   if (sourceIds.length > 0) {
     const { data: sources } = await supabase

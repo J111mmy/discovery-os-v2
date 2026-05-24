@@ -10,6 +10,8 @@ interface EvidenceBrowserProps {
   initialRecords: EvidenceRecord[];
   pendingCount: number;
   trustedCount: number;
+  uncertainCount: number;
+  researchContextEmpty: boolean;
 }
 
 function TrustBadge({ trustScope }: { trustScope: string }) {
@@ -66,7 +68,36 @@ function SentimentIndicator({ sentiment }: { sentiment: EvidenceRecord["sentimen
   );
 }
 
+function ConfidenceBadge({ grade }: { grade: EvidenceRecord["ai_trust_grade"] }) {
+  if (!grade || grade === "trusted") return null;
+
+  const classes =
+    grade === "uncertain"
+      ? "border-yellow-500/25 bg-yellow-500/10 text-yellow-300"
+      : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
+
+  return (
+    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}>
+      {grade === "uncertain" ? "Needs a look" : "Low signal"}
+    </span>
+  );
+}
+
 function EvidenceCard({ projectId, record }: { projectId: string; record: EvidenceRecord }) {
+  const showGradeReason =
+    (record.ai_trust_grade === "uncertain" || record.ai_trust_grade === "weak") &&
+    record.ai_trust_reason;
+  const trustLabel =
+    record.ai_trust_grade === "weak"
+      ? "Keep anyway"
+      : record.ai_trust_grade === "uncertain"
+      ? "Keep"
+      : "Trust";
+  const excludeLabel =
+    record.ai_trust_grade === "uncertain" || record.ai_trust_grade === "weak"
+      ? "Dismiss"
+      : "Exclude";
+
   return (
     <article className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5 transition-colors hover:border-white/15">
       <div className="mb-3 flex items-start justify-between gap-3">
@@ -93,6 +124,7 @@ function EvidenceCard({ projectId, record }: { projectId: string; record: Eviden
           )}
         </div>
         <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          <ConfidenceBadge grade={record.ai_trust_grade} />
           <ClassificationBadge classification={record.classification} />
           <TrustBadge trustScope={record.trust_scope} />
         </div>
@@ -101,6 +133,12 @@ function EvidenceCard({ projectId, record }: { projectId: string; record: Eviden
       <p className="whitespace-pre-wrap text-sm leading-6 text-[var(--ink)]">
         {record.content}
       </p>
+
+      {showGradeReason && (
+        <p className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-xs leading-5 text-[var(--ink-muted)]">
+          {record.ai_trust_reason}
+        </p>
+      )}
 
       <div className="mt-4 flex flex-wrap gap-2">
         <form action={updateEvidenceTrustAction}>
@@ -112,7 +150,7 @@ function EvidenceCard({ projectId, record }: { projectId: string; record: Eviden
             disabled={record.trust_scope === "trusted"}
             className="rounded-lg border border-green-500/20 px-3 py-1.5 text-xs font-medium text-green-300 transition-colors hover:border-green-400 disabled:cursor-not-allowed disabled:opacity-45"
           >
-            Trust
+            {trustLabel}
           </button>
         </form>
         <form action={updateEvidenceTrustAction}>
@@ -124,7 +162,7 @@ function EvidenceCard({ projectId, record }: { projectId: string; record: Eviden
             disabled={record.trust_scope === "excluded"}
             className="rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:border-red-400 disabled:cursor-not-allowed disabled:opacity-45"
           >
-            Exclude
+            {excludeLabel}
           </button>
         </form>
       </div>
@@ -137,13 +175,29 @@ export function EvidenceBrowser({
   initialRecords,
   pendingCount,
   trustedCount,
+  uncertainCount,
+  researchContextEmpty,
 }: EvidenceBrowserProps) {
   const [query, setQuery] = useState("");
   const [records, setRecords] = useState(initialRecords);
+  const [gradeFilter, setGradeFilter] = useState<"all" | "uncertain">("all");
+  const [showContextNudge, setShowContextNudge] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const trimmedQuery = useMemo(() => query.trim(), [query]);
+  const visibleRecords = useMemo(
+    () =>
+      gradeFilter === "uncertain"
+        ? records.filter((record) => record.ai_trust_grade === "uncertain")
+        : records,
+    [gradeFilter, records]
+  );
+
+  useEffect(() => {
+    const dismissed = window.sessionStorage.getItem(`research-context-nudge:${projectId}`) === "dismissed";
+    setShowContextNudge(researchContextEmpty && initialRecords.length > 0 && !dismissed);
+  }, [initialRecords.length, projectId, researchContextEmpty]);
 
   useEffect(() => {
     if (!trimmedQuery) {
@@ -179,9 +233,52 @@ export function EvidenceBrowser({
     return () => window.clearTimeout(timeout);
   }, [initialRecords, projectId, trimmedQuery]);
 
+  function dismissContextNudge() {
+    window.sessionStorage.setItem(`research-context-nudge:${projectId}`, "dismissed");
+    setShowContextNudge(false);
+  }
+
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)]">
       <div className="border-b border-[var(--border)] p-4 sm:p-5">
+        {uncertainCount > 5 && (
+          <div className="mb-4 flex flex-col gap-3 rounded-lg border border-yellow-500/20 bg-yellow-500/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-medium text-yellow-100">
+              {uncertainCount} pieces of evidence are waiting for your input.
+            </p>
+            <button
+              type="button"
+              onClick={() => setGradeFilter("uncertain")}
+              className="rounded-lg border border-yellow-400/30 px-3 py-1.5 text-xs font-medium text-yellow-100 transition-colors hover:border-yellow-300"
+            >
+              Review
+            </button>
+          </div>
+        )}
+
+        {showContextNudge && (
+          <div className="mb-4 flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-[var(--ink-muted)]">
+              Add your research focus to help sort what matters.
+            </p>
+            <div className="flex items-center gap-3">
+              <Link
+                href={`/projects/${projectId}/settings`}
+                className="text-xs font-medium text-[var(--brand)] transition-colors hover:text-[var(--ink)]"
+              >
+                Open settings
+              </Link>
+              <button
+                type="button"
+                onClick={dismissContextNudge}
+                className="text-xs font-medium text-[var(--ink-faint)] transition-colors hover:text-[var(--ink-muted)]"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="mb-3 flex flex-col gap-3 xl:flex-row">
           <input
             type="search"
@@ -208,8 +305,25 @@ export function EvidenceBrowser({
           </form>
           </div>
         </div>
+        {gradeFilter === "uncertain" && (
+          <div className="mb-3">
+            <button
+              type="button"
+              onClick={() => setGradeFilter("all")}
+              className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
+            >
+              Showing records that need a look x
+            </button>
+          </div>
+        )}
         <div className="text-xs text-[var(--ink-muted)]">
-          {isPending ? "Searching..." : trimmedQuery ? `${records.length} matches` : "20 most recent records"}
+          {isPending
+            ? "Searching..."
+            : trimmedQuery
+            ? `${visibleRecords.length} matches`
+            : gradeFilter === "uncertain"
+            ? `${visibleRecords.length} records need a look`
+            : "20 most recent records"}
         </div>
       </div>
 
@@ -219,13 +333,13 @@ export function EvidenceBrowser({
         </div>
       )}
 
-      {records.length === 0 ? (
+      {visibleRecords.length === 0 ? (
         <div className="p-12 text-center text-sm text-[var(--ink-muted)]">
           No evidence found.
         </div>
       ) : (
         <div className="grid gap-3 p-4 sm:p-5">
-          {records.map((record) => (
+          {visibleRecords.map((record) => (
             <EvidenceCard key={record.id} projectId={projectId} record={record} />
           ))}
         </div>

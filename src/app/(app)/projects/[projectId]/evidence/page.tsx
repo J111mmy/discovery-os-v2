@@ -12,7 +12,7 @@ async function getRecentEvidence(orgId: string, projectId: string): Promise<Evid
   const supabase = await createClient();
   const { data: evidence } = await supabase
     .from("evidence")
-    .select("id, org_id, project_id, source_id, segment_id, content, trust_scope, summary, classification, sentiment, themes, metadata, created_at")
+    .select("id, org_id, project_id, source_id, segment_id, content, trust_scope, summary, classification, sentiment, themes, metadata, ai_trust_grade, ai_trust_reason, ai_graded_at, created_at")
     .eq("org_id", orgId)
     .eq("project_id", projectId)
     .order("created_at", { ascending: false })
@@ -73,6 +73,18 @@ async function getRecentEvidence(orgId: string, projectId: string): Promise<Evid
   return records;
 }
 
+function researchContextIsEmpty(context: Record<string, unknown> | null) {
+  if (!context) return true;
+
+  return !Object.values(context).some((value) => {
+    if (typeof value === "string") return value.trim().length > 0;
+    if (Array.isArray(value)) {
+      return value.some((item) => typeof item === "string" && item.trim().length > 0);
+    }
+    return false;
+  });
+}
+
 export default async function EvidencePage({ params }: Props) {
   const supabase = await createClient();
   const {
@@ -81,15 +93,20 @@ export default async function EvidencePage({ params }: Props) {
 
   if (!user) redirect("/login");
 
-  const project = await getProjectForUser<{ id: string; org_id: string; name: string }>(
+  const project = await getProjectForUser<{
+    id: string;
+    org_id: string;
+    name: string;
+    research_context: Record<string, unknown> | null;
+  }>(
     user.id,
     params.projectId,
-    "id, org_id, name"
+    "id, org_id, name, research_context"
   );
 
   if (!project) notFound();
 
-  const [{ count: pendingCount }, { count: trustedCount }, records] = await Promise.all([
+  const [{ count: pendingCount }, { count: trustedCount }, { count: uncertainCount }, records] = await Promise.all([
     supabase
       .from("evidence")
       .select("*", { count: "exact", head: true })
@@ -102,6 +119,12 @@ export default async function EvidencePage({ params }: Props) {
       .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .eq("trust_scope", "trusted"),
+    supabase
+      .from("evidence")
+      .select("*", { count: "exact", head: true })
+      .eq("org_id", project.org_id)
+      .eq("project_id", project.id)
+      .eq("ai_trust_grade", "uncertain"),
     getRecentEvidence(project.org_id, project.id),
   ]);
 
@@ -124,6 +147,8 @@ export default async function EvidencePage({ params }: Props) {
         initialRecords={records}
         pendingCount={pendingCount ?? 0}
         trustedCount={trustedCount ?? 0}
+        uncertainCount={uncertainCount ?? 0}
+        researchContextEmpty={researchContextIsEmpty(project.research_context)}
       />
     </div>
   );

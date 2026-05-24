@@ -23,10 +23,10 @@ Each item has a rough size: **S** (one session), **M** (2–3 sessions), **L** (
 These are not build work — they are operational steps needed right now before the system works fully.
 
 - [x] Confirm migrations `0017_actions_and_requests.sql` and `0018_competitor_digest.sql` are applied locally and remotely
-- [ ] Run migration SQL: `0019_research_context_and_ai_grading.sql`
+- [x] Run migration SQL: `0019_research_context_and_ai_grading.sql`
 - [ ] Add `INNGEST_SIGNING_KEY` to Vercel environment variables — verified missing on 2026-05-24; present in `.env.local`
-- [ ] `git add -A && git commit -m "feat: AI evidence grading backend" && git push`
-- [ ] Hand `CODEX_BRIEF_PROJECT_CONTEXT_UI.md` to Codex
+- [x] `git add -A && git commit -m "feat: AI evidence grading backend" && git push`
+- [x] Hand `CODEX_BRIEF_PROJECT_CONTEXT_UI.md` to Codex
 
 ---
 
@@ -130,14 +130,11 @@ Settings are read by the LLM prompt builder at compose and ingest time. Writing 
 **UI done:** Source detail pages now show an ambient "Insights being built" card only while processing is running or needs attention. Project overview shows a compact recent-activity pulse.
 **Size:** S
 
-### 🔄 AI evidence grading (auto-trust)
+### ✅ AI evidence grading (auto-trust)
 **Why:** Users shouldn't have to manually review hundreds of evidence snippets. The AI grades each piece against the project's research context and auto-trusts what's clearly relevant — users only see the handful that need a human call.
 **Backend done:** Migration 0019 (`research_context` on projects; `ai_trust_grade`, `ai_trust_reason`, `ai_graded_at` on evidence). `grade-evidence.ts` Inngest function (batches of 20, cheap tier, idempotent). Chained from `ingest-source` after every ingest. Auto-sets `trust_scope = trusted` for 'trusted' grade when context is set. Conservative fallback: no context → everything graded 'uncertain'.
-**UI brief written:** `CODEX_BRIEF_PROJECT_CONTEXT_UI.md`
-**Remaining (Codex):**
-- Research context setup form in project settings (goals, outcomes, buyers, scope in/out, research questions)
-- Evidence list: "Needs a look" / "Low signal" badges, inline keep/dismiss controls, "N pieces waiting for your input" review nudge
-**Size:** M (backend done)
+**UI done:** Project settings now has a Research focus section (goals, outcomes, buyers, scope in/out, research questions). Evidence review shows "Needs a look" / "Low signal" recommendations, inline keep/dismiss actions, a review nudge for uncertain evidence, and a one-session prompt to add research focus when evidence exists without context.
+**Size:** M
 
 ---
 
