@@ -60,22 +60,8 @@ export function NewProjectForm() {
         />
       </div>
 
-      <div>
-        <label className="mb-2 block text-sm font-medium text-[var(--ink)]" htmlFor="slug">
-          Slug
-        </label>
-        <input
-          id="slug"
-          name="slug"
-          value={slug}
-          onChange={(event) => {
-            setSlugTouched(event.target.value !== previousAutoSlug.current);
-            setSlug(slugify(event.target.value));
-          }}
-          className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-1)] px-3 py-2 font-mono text-sm text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
-          placeholder="procurement-tracking"
-        />
-      </div>
+      {/* Slug is auto-generated from the project name — hidden from users */}
+      <input type="hidden" name="slug" value={slug} />
 
       <div>
         <label className="mb-2 block text-sm font-medium text-[var(--ink)]" htmlFor="description">

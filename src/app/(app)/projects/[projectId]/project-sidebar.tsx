@@ -17,7 +17,6 @@ const navItems = [
   { href: "sources", label: "Sources" },
   { href: "compose", label: "Compose" },
   { href: "documents", label: "Documents" },
-  { href: "ingest", label: "Add Evidence" },
 ];
 
 const secondaryNavItems = [{ href: "settings", label: "Settings" }];
@@ -71,7 +70,15 @@ export function ProjectSidebar({
           );
         })}
       </nav>
-      <nav className="border-t border-[var(--border)] p-3">
+      <div className="border-t border-[var(--border)] p-3 space-y-1">
+        {/* Add evidence CTA — visually distinct from nav items */}
+        <Link
+          href={`${basePath}/ingest`}
+          className="block w-full rounded-lg bg-[var(--brand)] px-3 py-2 text-center text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)]"
+        >
+          + Add evidence
+        </Link>
+
         {secondaryNavItems.map((item) => {
           const href = `${basePath}/${item.href}`;
           const isActive = pathname.startsWith(href);
@@ -90,7 +97,7 @@ export function ProjectSidebar({
             </Link>
           );
         })}
-      </nav>
+      </div>
     </aside>
   );
 }

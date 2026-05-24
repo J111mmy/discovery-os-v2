@@ -5,6 +5,7 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { runProjectSynthesisAction } from "./actions";
 import { computeConfidence } from "@/lib/confidence";
+import { sourceTypeLabel, trustScopeLabel, trustScopeClasses, priorityLabel, priorityClasses } from "@/lib/labels";
 
 interface Props {
   params: { projectId: string };
@@ -279,10 +280,13 @@ export default async function ProjectPage({ params }: Props) {
           <div className="text-2xl font-semibold text-green-300">{trustedCount ?? 0}</div>
           <div className="mt-1 text-sm text-[var(--ink-muted)]">Trusted</div>
         </div>
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+        <Link
+          href={`/projects/${project.id}/evidence`}
+          className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5 transition-colors hover:border-[var(--brand)]"
+        >
           <div className="text-2xl font-semibold text-yellow-300">{pendingCount ?? 0}</div>
-          <div className="mt-1 text-sm text-[var(--ink-muted)]">Pending review</div>
-        </div>
+          <div className="mt-1 text-sm text-[var(--ink-muted)]">Needs review</div>
+        </Link>
         <Link
           href={`/projects/${project.id}/documents`}
           className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5 transition-colors hover:border-[var(--brand)]"
@@ -442,16 +446,8 @@ export default async function ProjectPage({ params }: Props) {
           </div>
           <div className="grid gap-2 lg:grid-cols-2">
             {productRequestRows.map((request) => {
-              const priorityClass =
-                request.priority_signal === "critical"
-                  ? "border-red-400/40 bg-red-500/10 text-red-300"
-                  : request.priority_signal === "important"
-                  ? "border-amber-400/40 bg-amber-500/10 text-amber-300"
-                  : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
-              const priorityLabel =
-                request.priority_signal === "nice_to_have"
-                  ? "Nice to have"
-                  : request.priority_signal[0].toUpperCase() + request.priority_signal.slice(1);
+              const priorityClass = priorityClasses(request.priority_signal);
+              const priorityLabelText = priorityLabel(request.priority_signal);
 
               return (
                 <div
@@ -460,7 +456,7 @@ export default async function ProjectPage({ params }: Props) {
                 >
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${priorityClass}`}>
-                      {priorityLabel}
+                      {priorityLabelText}
                     </span>
                     <span className="text-xs capitalize text-[var(--ink-faint)]">
                       {request.status.replace("_", " ")}
@@ -532,24 +528,19 @@ export default async function ProjectPage({ params }: Props) {
         {sources && sources.length > 0 && (
           <div className="divide-y divide-[var(--border)]">
               {sources.map((s) => (
-                <div
+                <Link
                   key={s.id}
-                className="flex items-center justify-between gap-4 px-5 py-4"
+                  href={`/projects/${project.id}/sources/${s.id}`}
+                  className="flex items-center justify-between gap-4 px-5 py-4 transition-colors hover:bg-[var(--surface-2)]"
                 >
-                  <div>
-                    <div className="text-sm font-medium text-[var(--ink)]">{s.title}</div>
-                    <div className="text-xs text-[var(--ink-muted)] mt-0.5 capitalize">{s.type}</div>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-[var(--ink)]">{s.title}</div>
+                    <div className="mt-0.5 text-xs text-[var(--ink-muted)]">{sourceTypeLabel(s.type)}</div>
                   </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                    s.trust_scope === "trusted"
-                      ? "bg-green-900/30 text-green-400"
-                      : s.trust_scope === "pending"
-                      ? "bg-yellow-900/30 text-yellow-400"
-                      : "bg-red-900/30 text-red-400"
-                  }`}>
-                    {s.trust_scope}
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${trustScopeClasses(s.trust_scope)}`}>
+                    {trustScopeLabel(s.trust_scope)}
                   </span>
-                </div>
+                </Link>
               ))}
           </div>
         )}
