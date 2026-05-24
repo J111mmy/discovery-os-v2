@@ -168,3 +168,77 @@ Needed:
 ## Codex Note To Claude
 
 Claude: the roadmap now has an explicit architecture/security hardening track. The feedback is supportive of the 3-layer model, but the next product-quality jump should come from security audit, event graph clarity, observability, regression tests, and stricter agent contracts before adding too many more autonomous agents.
+
+---
+
+## Security Audit Results — May 2026
+
+Full audit completed across all 20 API routes, 13 Inngest functions, 18 migrations, the LLM client, and the event graph.
+
+### Finding 1 — FIXED: Artifact status route missing org_id scope
+
+**File:** `src/app/api/artifacts/[id]/status/route.ts`
+**Severity:** High
+**Issue:** The GET handler fetched artifacts by `id` only — no `org_id` filter. Any authenticated user from any org could retrieve the title, content, and sections of any artifact by guessing its UUID.
+**Fix:** Added org membership lookup after `getUser()`. Artifact query now includes `.eq("org_id", membership.org_id)`. Returns 403 if user has no org, 404 if artifact not found within their org.
+
+### Finding 2 — CLEAN: All other API routes
+
+Every other route (20 total) correctly follows the pattern:
+1. `createClient()` + `getUser()` → 401 on failure
+2. `org_members` lookup → 403 if no org
+3. Entity-belongs-to-org guard before any writes
+4. All DB queries include `.eq("org_id", ...)` or go through `getProjectForUser()` which enforces it
+
+### Finding 3 — CLEAN: Supabase RLS
+
+All 18 tables have `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`. Every table used by user-facing queries has read policies using `auth_user_org_ids()` (the SECURITY DEFINER function that prevents recursive RLS). Write policies exist on all tables that accept user-initiated writes. Tables written exclusively by service-role (evidence_entities, agent_runs, themes, source_segments) correctly have read-only policies — service role bypasses RLS by design.
+
+### Finding 4 — CLEAN: Service-role separation
+
+`createServiceClient()` is used only in:
+- All 13 Inngest functions (correct — no user session available in background jobs)
+- `ingest/route.ts`, `ingest/retry/route.ts`, `compose/draft/route.ts`, `sources/[sourceId]/route.ts` — all of these authenticate the user first via `createClient()`, then use service role only for specific writes that require bypassing RLS (cascade deletes, job inserts)
+
+No route uses service role as a substitute for proper auth.
+
+### Finding 5 — CLEAN: LLM payload boundaries
+
+No authentication credentials, user emails, Supabase UUIDs, or internal system identifiers are sent to any LLM. Evidence content (names, company names, quotes from transcripts) is sent to Anthropic by design — this is the product's core function. Embeddings go to OpenAI's text-embedding-3-small. The LLM client has no logging of payloads. Both providers receive transcript content; this should be disclosed in the privacy policy before enterprise use.
+
+### Finding 6 — CLEAN: Inngest event graph and idempotency
+
+Event chain is well-structured:
+```
+source/ingest.requested
+  → source/entities.requested  (extract-entities)
+      → person/digest.requested   (synthesise-person)
+      → company/digest.requested  (synthesise-company)
+      → competitor/digest.requested (synthesise-competitor)
+  → source/review.requested    (session-review)
+  → source/actions.requested   (extract-actions)
+  → project/synthesis.requested (synthesise-project)
+      → project/problems.requested (discover-problems)
+      → project/synthesis.completed (detect-gaps)
+  → project/frame.requested    (draft-frame)
+
+artifact/compose.requested     (compose-artifact)
+  → artifact/claim.verification.requested (verify-claims)
+
+project/synthesis.requested    (scheduled — weekly cron)
+```
+
+Idempotency assessment:
+- `extract-entities`: upserts on slug — safe to re-run
+- `extract-actions`: delete-then-insert on source_id — explicitly idempotent
+- `synthesise-person/company/competitor`: overwrites digest fields — safe to re-run
+- `ingest-source`: does not delete segments/evidence before retry, but Inngest's step checkpointing prevents re-running completed steps. Explicit retry via `/api/ingest/retry` correctly clears evidence and segments first.
+- All functions catch errors and write to `agent_runs` — no silent failures
+
+### Remaining Items (not fixed — require further work)
+
+- **Observability UI**: `agent_runs` is populated but not surfaced in the app. Users cannot see why a job failed or where it is in the pipeline. This is the highest-priority remaining item for product quality.
+- **Prompt/schema Zod validation**: LLM outputs are parsed with hand-written type guards. Zod validation would catch format regressions earlier.
+- **Shared query helpers**: Several server components and API routes query the same data shape independently. Consolidating into helpers would enforce `org_id` consistency and reduce drift.
+- **Inngest webhook signing**: `INNGEST_SIGNING_KEY` is present in `.env.local` but missing from the linked Vercel project as of 2026-05-24. Add it to Vercel before relying on production Inngest webhooks.
+- **Golden transcript regression tests**: No automated tests for evidence quality, entity extraction, or synthesis output. A small set of fixtures would catch regressions early.

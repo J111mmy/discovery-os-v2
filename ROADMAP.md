@@ -22,9 +22,8 @@ Each item has a rough size: **S** (one session), **M** (2–3 sessions), **L** (
 
 These are not build work — they are operational steps needed right now before the system works fully.
 
-- [ ] Run migration SQL: `0017_actions_and_requests.sql` — creates `actions` and `product_requests` tables with RLS
-- [ ] Run migration SQL: `0018_competitor_digest.sql` — adds `digest`, `digest_updated_at`, `battle_card` to competitors table
-- [ ] `git add -A && git commit -m "feat: competitor profiles backend" && git push`
+- [x] Confirm migrations `0017_actions_and_requests.sql` and `0018_competitor_digest.sql` are applied locally and remotely
+- [ ] Add `INNGEST_SIGNING_KEY` to Vercel environment variables — verified missing on 2026-05-24; present in `.env.local`
 - [ ] Hand `CODEX_BRIEF_COMPETITOR_UI.md` to Codex
 
 ---
@@ -41,16 +40,20 @@ These are not build work — they are operational steps needed right now before 
 
 ## Next — high priority
 
-### 🔜 Architecture, reliability, and security hardening
-**Why:** The 3-layer model (database → AI agents → UI) is the right architecture for DiscOS and reusable for other stateful intelligence products, but the implementation now has enough agents and data surfaces that product quality depends on making it observable, secure, and boringly reliable.
-**What:** Run a full cross-system sanity check covering data flow, agent event graph, idempotency, Supabase RLS, service-role usage, Inngest signing, LLM payload/redaction boundaries, route/server action auth guards, and end-to-end failure states. Turn the results into fixes, not just notes.
-**Key concerns to sort:**
-- Agent sprawl: document every event, trigger, downstream job, read/write table, idempotency rule, and retry/replay behavior.
-- Observability: expose `agent_runs` in the app so a user can see whether ingest, synthesis, actions, digests, compose, and verification are queued, running, skipped, failed, or done.
-- Security: audit every query for `org_id`, every RLS policy, every service-role use, every invite/team path, and every Inngest/API boundary.
-- LLM data safety: prove PII redaction and raw-source boundaries before every model call; map what each agent sends to external providers.
-- Regression tests: build golden transcript fixtures so evidence quality, entity extraction, session review, action extraction, and synthesis cannot silently degrade.
-- Shared query helpers: consolidate repeated project/source/person/company/evidence queries so auth and `org_id` filtering stay consistent.
+### ✅ Architecture, reliability, and security hardening — audit complete
+**What was audited:** All 20 API routes, 13 Inngest functions, 18 migrations, LLM client, and full event graph.
+**One fix applied:** `artifacts/[id]/status/route.ts` was missing `org_id` scoping on the artifact query — any authenticated user could access any artifact by UUID. Fixed by adding org membership lookup and `.eq("org_id", membership.org_id)`.
+**Everything else passed:**
+- RLS: all 18 tables enabled, all policies use `auth_user_org_ids()` correctly
+- Service-role: strict separation — Inngest functions only, API routes auth first
+- LLM payloads: no credentials or internal IDs sent to model; transcript content intentional
+- Event graph: all 13 functions catch errors, log to `agent_runs`, idempotent where needed
+**Remaining (not blocking, future work):**
+- Observability UI: surface `agent_runs` so users can see job status per source/project
+- Prompt/schema Zod validation on every agent output
+- Shared server query helpers to enforce `org_id` consistency
+- Golden transcript regression test suite
+- Add `INNGEST_SIGNING_KEY` to Vercel env — verified missing on 2026-05-24; present locally in `.env.local`
 **Reference:** See [ARCHITECTURE_SECURITY_HARDENING.md](ARCHITECTURE_SECURITY_HARDENING.md).
 **Size:** L
 

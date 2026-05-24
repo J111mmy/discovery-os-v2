@@ -1,6 +1,7 @@
 // GET /api/artifacts/[id]/status
 // Polling endpoint for async artifact generation (compose via Inngest).
 // Returns compose_status and parsed sections once the draft is ready.
+// Security: artifact query is scoped to the user's org_id — prevents cross-org access by UUID guessing.
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
@@ -40,10 +41,24 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Resolve user's org — required to scope the artifact query
+  const { data: membership } = await supabase
+    .from("org_members")
+    .select("org_id")
+    .eq("user_id", user.id)
+    .order("joined_at", { ascending: true })
+    .limit(1)
+    .single();
+
+  if (!membership?.org_id) {
+    return NextResponse.json({ error: "No org" }, { status: 403 });
+  }
+
   const { data: artifact, error } = await supabase
     .from("artifacts")
     .select("id, org_id, project_id, title, content_md, model_used, task_tier, metadata")
     .eq("id", params.id)
+    .eq("org_id", membership.org_id)
     .single();
 
   if (error || !artifact) {
