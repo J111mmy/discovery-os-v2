@@ -24,6 +24,13 @@ type ProductRequestPreview = {
   status: string;
 };
 
+type ActivityRun = {
+  id: string;
+  status: "running" | "completed" | "failed";
+  started_at: string;
+  completed_at: string | null;
+};
+
 function synthesisTimeLabel(value: string | null) {
   if (!value) return "not synthesised yet";
 
@@ -38,6 +45,40 @@ function synthesisTimeLabel(value: string | null) {
 
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+function activityPulse(runs: ActivityRun[]) {
+  const twoDaysAgo = Date.now() - 48 * 60 * 60 * 1000;
+  const recentRuns = runs.filter((run) => {
+    const value = run.completed_at ?? run.started_at;
+    return new Date(value).getTime() >= twoDaysAgo;
+  });
+
+  if (recentRuns.length === 0) return null;
+
+  if (recentRuns.some((run) => run.status === "failed")) {
+    return {
+      tone: "attention" as const,
+      text: "Some insights need attention - check your source pages.",
+    };
+  }
+
+  if (recentRuns.some((run) => run.status === "running")) {
+    return {
+      tone: "running" as const,
+      text: "Working through your latest session...",
+    };
+  }
+
+  const mostRecentCompleted = recentRuns
+    .map((run) => run.completed_at)
+    .filter((value): value is string => Boolean(value))
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
+
+  return {
+    tone: "quiet" as const,
+    text: `Last updated ${synthesisTimeLabel(mostRecentCompleted ?? recentRuns[0].started_at)}`,
+  };
 }
 
 export default async function ProjectPage({ params }: Props) {
@@ -90,6 +131,7 @@ export default async function ProjectPage({ params }: Props) {
     { count: runningSynthesisCount },
     { data: productRequests, count: productRequestCount },
     { data: trustedEvidenceMeta },
+    { data: activityRuns },
   ] =
     await Promise.all([
       supabase
@@ -162,6 +204,13 @@ export default async function ProjectPage({ params }: Props) {
         .eq("project_id", project.id)
         .eq("trust_scope", "trusted")
         .order("created_at", { ascending: false }),
+      supabase
+        .from("agent_runs")
+        .select("id, status, started_at, completed_at")
+        .eq("org_id", project.org_id)
+        .eq("project_id", project.id)
+        .order("started_at", { ascending: false })
+        .limit(10),
     ]);
 
   const themeRows = (themes ?? []) as ThemeRow[];
@@ -170,6 +219,7 @@ export default async function ProjectPage({ params }: Props) {
   const productRequestTotal = productRequestCount ?? productRequestRows.length;
   const trustedTotal = trustedCount ?? 0;
   const synthesisRunning = (runningSynthesisCount ?? 0) > 0;
+  const pulse = activityPulse((activityRuns ?? []) as ActivityRun[]);
 
   // Confidence scoring — weighted model via src/lib/confidence.ts
   // Signals: evidence depth (30), source diversity (30), recency (20), synthesis breadth (20)
@@ -202,6 +252,23 @@ export default async function ProjectPage({ params }: Props) {
           Add evidence
         </Link>
       </div>
+
+      {pulse && (
+        <div
+          className={`mb-5 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium ${
+            pulse.tone === "attention"
+              ? "border-red-500/20 bg-red-500/10 text-red-200"
+              : pulse.tone === "running"
+              ? "border-[var(--brand)] bg-[rgba(124,109,250,0.10)] text-[var(--ink)]"
+              : "border-[var(--border)] bg-[var(--surface-1)] text-[var(--ink-muted)]"
+          }`}
+        >
+          {pulse.tone === "running" && (
+            <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--brand)]" />
+          )}
+          <span>{pulse.text}</span>
+        </div>
+      )}
 
       <div className="mb-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">

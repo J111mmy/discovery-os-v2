@@ -4,6 +4,7 @@ import type { JobStatus, SourceType, TrustScope } from "@/types/database";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { SourceActions } from "../source-actions";
+import { InsightProgress } from "./InsightProgress";
 import { SessionExtras } from "./session-extras";
 
 interface Props {
@@ -193,6 +194,8 @@ export default async function SourceDetailPage({ params }: Props) {
           {latestJob.error}
         </div>
       )}
+
+      <InsightProgress projectId={project.id} sourceId={typedSource.id} projectName={project.name} />
 
       {latestJob?.status === "done" && (
         <div className="mb-6">
