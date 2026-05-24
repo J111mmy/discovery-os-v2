@@ -122,6 +122,15 @@ These are not build work — they are operational steps needed right now before 
 Settings are read by the LLM prompt builder at compose and ingest time. Writing style prefs go into the system prompt. Compliance mode triggers a separate anonymisation pass before evidence is stored.
 **Size:** M
 
+### 🔄 Agent observability dashboard
+**Why:** After upload, the pipeline is a black box. Users can't see whether entity extraction ran, why synthesis is slow, or what failed. The `agent_runs` table has all the data — it just needs surfacing.
+**Backend done:** `GET /api/agent-runs?source_id=&project_id=&limit=` — returns typed `AgentRunSummary[]` with human-readable `output_summary`, `duration_ms`, and error. Handles all 11 agent types.
+**UI brief written:** `CODEX_BRIEF_OBSERVABILITY_UI.md`
+**Remaining (Codex):**
+- Source detail page: processing pipeline step list with 5s auto-refresh while any run is active
+- Project overview: compact recent activity feed showing last 10 runs
+**Size:** S (backend done)
+
 ---
 
 ## Lower priority / future
