@@ -103,9 +103,9 @@ These are not build work — they are operational steps needed right now before 
 ### ✅ Evidence confidence scoring improvements
 **What was built:** `src/lib/confidence.ts` utility with four weighted signals: evidence depth (30pts), source diversity (30pts — 4 sources from different sessions > 30 records from 1 source), recency (20pts — decays from 30→60→90→180 days), synthesis breadth (20pts — themes + problems). Project overview updated to use the new model. Weakest signal drives the "Next:" coaching hint.
 
-### 💡 Ask / query interface improvements
-**Why:** The `/ask` page exists but the query pipeline isn't sophisticated. Natural language questions should produce sourced answers with cited evidence, not just retrieved records.
-**What:** Improve the RAG pipeline — retrieve semantically relevant evidence, pass to Claude with the question, get a sourced narrative answer with inline citations. Show sources as collapsible evidence cards below the answer.
+### ✅ Ask / query interface improvements
+**What was built:** `POST /api/ask` route replaces the raw `/api/query` endpoint for the ask page. Retrieves up to 20 semantically relevant evidence records via pgvector, passes them to Claude (standard tier) with the question and project frame/research context, returns a sourced narrative answer with inline `[N]` citations. `ask-interface.tsx` updated: answer renders at the top with superscript citation chips that scroll and auto-expand the corresponding source card. Sources shown as collapsible cards below — only cited records, in citation order. Trust scope toggle retained. Graceful handling for no-evidence and no-citation edge cases.
+**Prompt version:** `ask-v1` in `src/lib/llm/prompts/ask.ts`.
 **Size:** M
 
 ### 💡 Org settings — output preferences and compliance controls
