@@ -105,6 +105,12 @@ export default async function DocumentsPage({ params }: Props) {
           <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--ink-muted)]">
             Draft from trusted evidence and saved artifacts will appear here.
           </p>
+          <Link
+            href={`/projects/${project.id}/compose`}
+            className="mt-5 inline-flex rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)]"
+          >
+            Draft your first document →
+          </Link>
         </div>
       ) : (
         <div className="grid gap-3">

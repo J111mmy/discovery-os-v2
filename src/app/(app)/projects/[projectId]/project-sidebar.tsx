@@ -7,6 +7,7 @@ interface ProjectSidebarProps {
   projectId: string;
   projectName: string;
   projectDescription: string | null;
+  onNavigate?: () => void;
 }
 
 const navItems = [
@@ -25,6 +26,7 @@ export function ProjectSidebar({
   projectId,
   projectName,
   projectDescription,
+  onNavigate,
 }: ProjectSidebarProps) {
   const pathname = usePathname();
   const basePath = `/projects/${projectId}`;
@@ -34,11 +36,12 @@ export function ProjectSidebar({
       <div className="border-b border-[var(--border)] p-5">
         <Link
           href="/projects"
+          onClick={onNavigate}
           className="mb-5 inline-flex text-xs font-medium text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
         >
           Back to all projects
         </Link>
-        <Link href={basePath} className="block">
+        <Link href={basePath} onClick={onNavigate} className="block">
           <div className="text-base font-semibold leading-6 text-[var(--ink)]">
             {projectName}
           </div>
@@ -59,6 +62,7 @@ export function ProjectSidebar({
             <Link
               key={item.label}
               href={href}
+              onClick={onNavigate}
               className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                 isActive
                   ? "bg-[var(--brand)] text-white"
@@ -74,6 +78,7 @@ export function ProjectSidebar({
         {/* Add evidence CTA — visually distinct from nav items */}
         <Link
           href={`${basePath}/ingest`}
+          onClick={onNavigate}
           className="block w-full rounded-lg bg-[var(--brand)] px-3 py-2 text-center text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)]"
         >
           + Add evidence
@@ -87,6 +92,7 @@ export function ProjectSidebar({
             <Link
               key={item.label}
               href={href}
+              onClick={onNavigate}
               className={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                 isActive
                   ? "bg-[var(--brand)] text-white"

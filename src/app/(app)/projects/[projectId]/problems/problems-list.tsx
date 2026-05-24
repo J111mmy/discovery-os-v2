@@ -31,6 +31,12 @@ const statusLabels: Record<ProblemStatus, string> = {
   dismissed: "Dismissed",
 };
 
+const severityLabels: Record<ProblemSeverity, string> = {
+  high: "High priority",
+  medium: "Medium priority",
+  low: "Low priority",
+};
+
 const transitions: Record<ProblemStatus, Array<{ status: ProblemStatus; label: string }>> = {
   surfaced: [
     { status: "acknowledged", label: "Acknowledge" },
@@ -67,7 +73,7 @@ function SeverityPill({ severity }: { severity: ProblemSeverity }) {
 
   return (
     <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}>
-      {severity}
+      {severityLabels[severity]}
     </span>
   );
 }

@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import type { EvidenceRecord } from "@/types/database";
+import { trustScopeClasses, trustScopeLabel } from "@/lib/labels";
 import Link from "next/link";
-import { updateEvidenceTrustAction } from "./actions";
+import { loadEvidenceRecordsAction, updateEvidenceTrustAction } from "./actions";
 
 interface EvidenceBrowserProps {
   projectId: string;
@@ -15,16 +16,9 @@ interface EvidenceBrowserProps {
 }
 
 function TrustBadge({ trustScope }: { trustScope: string }) {
-  const classes =
-    trustScope === "trusted"
-      ? "border-green-500/20 bg-green-500/10 text-green-300"
-      : trustScope === "pending"
-      ? "border-yellow-500/20 bg-yellow-500/10 text-yellow-300"
-      : "border-red-500/20 bg-red-500/10 text-red-300";
-
   return (
-    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}>
-      {trustScope}
+    <span className={`rounded-full border border-transparent px-2 py-0.5 text-xs font-medium ${trustScopeClasses(trustScope)}`}>
+      {trustScopeLabel(trustScope)}
     </span>
   );
 }
@@ -183,6 +177,8 @@ export function EvidenceBrowser({
   const [gradeFilter, setGradeFilter] = useState<"all" | "uncertain">("all");
   const [showContextNudge, setShowContextNudge] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(initialRecords.length === 20);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const trimmedQuery = useMemo(() => query.trim(), [query]);
@@ -202,6 +198,7 @@ export function EvidenceBrowser({
   useEffect(() => {
     if (!trimmedQuery) {
       setRecords(initialRecords);
+      setHasMore(initialRecords.length === 20);
       setError(null);
       return;
     }
@@ -227,11 +224,36 @@ export function EvidenceBrowser({
 
         setError(null);
         setRecords(payload.records ?? []);
+        setHasMore(false);
       });
     }, 400);
 
     return () => window.clearTimeout(timeout);
   }, [initialRecords, projectId, trimmedQuery]);
+
+  async function loadMoreRecords() {
+    setIsLoadingMore(true);
+    setError(null);
+
+    try {
+      const nextRecords = await loadEvidenceRecordsAction({
+        projectId,
+        offset: records.length,
+        limit: 20,
+      });
+
+      setRecords((currentRecords) => {
+        const seen = new Set(currentRecords.map((record) => record.id));
+        const uniqueNext = nextRecords.filter((record) => !seen.has(record.id));
+        return [...currentRecords, ...uniqueNext];
+      });
+      setHasMore(nextRecords.length === 20);
+    } catch {
+      setError("Could not load more evidence.");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }
 
   function dismissContextNudge() {
     window.sessionStorage.setItem(`research-context-nudge:${projectId}`, "dismissed");
@@ -289,20 +311,20 @@ export function EvidenceBrowser({
           />
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-xs font-medium text-[var(--ink-muted)]">
-              <span className="text-yellow-300">{pendingCount}</span> pending review
+              <span className="text-yellow-300">{pendingCount}</span> needs review
               <span className="px-2 text-[var(--ink-faint)]">/</span>
               <span className="text-green-300">{trustedCount}</span> trusted
             </div>
-          <form action={updateEvidenceTrustAction}>
-            <input type="hidden" name="project_id" value={projectId} />
-            <input type="hidden" name="trust_scope" value="trusted" />
-            <button
-              type="submit"
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)] sm:w-auto"
-            >
-              Trust all
-            </button>
-          </form>
+            <form action={updateEvidenceTrustAction}>
+              <input type="hidden" name="project_id" value={projectId} />
+              <input type="hidden" name="trust_scope" value="trusted" />
+              <button
+                type="submit"
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)] sm:w-auto"
+              >
+                Trust all
+              </button>
+            </form>
           </div>
         </div>
         {gradeFilter === "uncertain" && (
@@ -334,15 +356,44 @@ export function EvidenceBrowser({
       )}
 
       {visibleRecords.length === 0 ? (
-        <div className="p-12 text-center text-sm text-[var(--ink-muted)]">
-          No evidence found.
+        <div className="p-12 text-center">
+          <div className="text-sm font-medium text-[var(--ink)]">
+            {trimmedQuery ? "No evidence found." : "No evidence yet"}
+          </div>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--ink-muted)]">
+            {trimmedQuery
+              ? "Try a broader search or clear the search field."
+              : "Add a session to start building source-backed evidence."}
+          </p>
+          {!trimmedQuery && (
+            <Link
+              href={`/projects/${projectId}/ingest`}
+              className="mt-5 inline-flex rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)]"
+            >
+              Add your first transcript →
+            </Link>
+          )}
         </div>
       ) : (
-        <div className="grid gap-3 p-4 sm:p-5">
-          {visibleRecords.map((record) => (
-            <EvidenceCard key={record.id} projectId={projectId} record={record} />
-          ))}
-        </div>
+        <>
+          <div className="grid gap-3 p-4 sm:p-5">
+            {visibleRecords.map((record) => (
+              <EvidenceCard key={record.id} projectId={projectId} record={record} />
+            ))}
+          </div>
+          {!trimmedQuery && hasMore && (
+            <div className="border-t border-[var(--border)] p-5 text-center">
+              <button
+                type="button"
+                onClick={loadMoreRecords}
+                disabled={isLoadingMore}
+                className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isLoadingMore ? "Loading..." : "Load more"}
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

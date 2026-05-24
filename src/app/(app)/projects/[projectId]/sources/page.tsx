@@ -1,4 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import { sourceTypeLabel, trustScopeClasses, trustScopeLabel } from "@/lib/labels";
 import { createClient } from "@/lib/supabase/server";
 import type { JobStatus, SourceType, TrustScope } from "@/types/database";
 import Link from "next/link";
@@ -154,10 +155,16 @@ export default async function SourcesPage({ params }: Props) {
 
       {sources.length === 0 ? (
         <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-12 text-center">
-          <div className="text-sm font-medium text-[var(--ink)]">No sources yet</div>
+          <div className="text-sm font-medium text-[var(--ink)]">No sessions yet</div>
           <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--ink-muted)]">
             Add a transcript, document, or note to start creating source-backed evidence.
           </p>
+          <Link
+            href={`/projects/${project.id}/ingest`}
+            className="mt-5 inline-flex rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)]"
+          >
+            Add your first transcript →
+          </Link>
         </div>
       ) : (
         <div className="grid gap-3">
@@ -179,7 +186,12 @@ export default async function SourcesPage({ params }: Props) {
                   <div className="min-w-0">
                     <div className="mb-2 flex flex-wrap items-center gap-2">
                       <StatusBadge status={jobStatus} />
-                      <span className="text-xs capitalize text-[var(--ink-muted)]">{source.type}</span>
+                      <span className="text-xs text-[var(--ink-muted)]">
+                        {sourceTypeLabel(source.type)}
+                      </span>
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${trustScopeClasses(source.trust_scope)}`}>
+                        {trustScopeLabel(source.trust_scope)}
+                      </span>
                       <span className="text-xs text-[var(--ink-faint)]">{dateLabel(source.ingested_at)}</span>
                     </div>
                     <Link
@@ -201,7 +213,7 @@ export default async function SourcesPage({ params }: Props) {
                       href={`/projects/${project.id}/sources/${source.id}`}
                       className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
                     >
-                      View evidence
+                      View source
                     </Link>
                     <SourceActions
                       projectId={project.id}

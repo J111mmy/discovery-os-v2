@@ -545,8 +545,17 @@ export default async function ProjectPage({ params }: Props) {
           </div>
         )}
         {(!sources || sources.length === 0) && (
-          <div className="px-5 py-12 text-center text-sm text-[var(--ink-muted)]">
-            No sources yet. Add a transcript or note to start building evidence.
+          <div className="px-5 py-12 text-center">
+            <div className="text-sm font-medium text-[var(--ink)]">No sessions yet</div>
+            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--ink-muted)]">
+              Add a transcript or note to start building evidence.
+            </p>
+            <Link
+              href={`/projects/${project.id}/ingest`}
+              className="mt-5 inline-flex rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)]"
+            >
+              Add your first transcript →
+            </Link>
           </div>
         )}
       </section>

@@ -1,6 +1,7 @@
 import { getProjectForUser } from "@/lib/auth/org";
 import { createClient } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
+import { ProjectMobileDrawer } from "./project-mobile-drawer";
 import { ProjectSidebar } from "./project-sidebar";
 
 interface ProjectLayoutProps {
@@ -39,13 +40,11 @@ export default async function ProjectLayout({
           />
         </div>
 
-        <div className="border-b border-[var(--border)] bg-[var(--surface-1)] p-4 lg:hidden">
-          <ProjectSidebar
-            projectId={project.id}
-            projectName={project.name}
-            projectDescription={project.description}
-          />
-        </div>
+        <ProjectMobileDrawer
+          projectId={project.id}
+          projectName={project.name}
+          projectDescription={project.description}
+        />
 
         <main className="min-w-0 px-5 py-6 sm:px-8 lg:px-10 lg:py-8">
           {children}

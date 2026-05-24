@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { SOURCE_TYPE_LABELS } from "@/lib/labels";
+import type { SourceType } from "@/types/database";
 
 type JobStatus = "idle" | "queued" | "pending" | "processing" | "done" | "failed";
 
@@ -14,15 +16,29 @@ interface IngestFormProps {
   projectId: string;
 }
 
+const INGEST_SOURCE_TYPES: SourceType[] = [
+  "customer_interview",
+  "sales_call",
+  "usability_study",
+  "internal_meeting",
+  "transcript",
+  "document",
+  "note",
+  "survey",
+  "support_ticket",
+  "other",
+];
+
 export function IngestForm({ projectId }: IngestFormProps) {
   const router = useRouter();
   const [title, setTitle] = useState("");
-  const [type, setType] = useState("customer_interview");
+  const [type, setType] = useState<SourceType>("customer_interview");
   const [rawText, setRawText] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [extractingFile, setExtractingFile] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [sourceId, setSourceId] = useState<string | null>(null);
   const [status, setStatus] = useState<JobStatus>("idle");
   const [result, setResult] = useState<IngestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -55,8 +71,12 @@ export function IngestForm({ projectId }: IngestFormProps) {
       setPollCount((c) => c + 1);
       setStatus(payload.status);
       if (payload.status === "done") {
+        const completedSourceId = typeof payload.source_id === "string" ? payload.source_id : sourceId;
         setResult(payload.result ?? { segments_created: 0, evidence_created: 0 });
         router.refresh();
+        if (completedSourceId) {
+          router.push(`/projects/${projectId}/sources/${completedSourceId}`);
+        }
       }
       if (payload.status === "failed") {
         setError(payload.error ?? "Ingest failed.");
@@ -64,12 +84,13 @@ export function IngestForm({ projectId }: IngestFormProps) {
     }, 1800);
 
     return () => window.clearInterval(interval);
-  }, [jobId, router, status, pollCount]);
+  }, [jobId, projectId, router, sourceId, status, pollCount]);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setResult(null);
+    setSourceId(null);
     setStatus("queued");
 
     const response = await fetch("/api/ingest", {
@@ -91,6 +112,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
     }
 
     setJobId(payload.job_id);
+    setSourceId(payload.source_id ?? null);
     setStatus("pending");
   }
 
@@ -185,7 +207,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
-              placeholder="Customer interview transcript"
+              placeholder="Q1 call with Sarah K., Acme Corp"
             />
           </div>
 
@@ -196,18 +218,14 @@ export function IngestForm({ projectId }: IngestFormProps) {
             <select
               id="type"
               value={type}
-              onChange={(event) => setType(event.target.value)}
+              onChange={(event) => setType(event.target.value as SourceType)}
               className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors focus:border-[var(--brand)]"
             >
-              <option value="customer_interview">Customer interview</option>
-              <option value="sales_call">Sales call</option>
-              <option value="usability_study">Usability study</option>
-              <option value="internal_meeting">Internal meeting</option>
-              <option value="document">Document</option>
-              <option value="note">Note</option>
-              <option value="survey">Survey</option>
-              <option value="support_ticket">Support ticket</option>
-              <option value="other">Other</option>
+              {INGEST_SOURCE_TYPES.map((sourceType) => (
+                <option key={sourceType} value={sourceType}>
+                  {SOURCE_TYPE_LABELS[sourceType]}
+                </option>
+              ))}
             </select>
           </div>
         </div>
