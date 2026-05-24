@@ -3,7 +3,7 @@
 // Reads citation_map from artifact.metadata and fetches the linked evidence records.
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import type { EvidenceRecord } from "@/types/database";
 
 export interface CitationRecord {
@@ -11,6 +11,7 @@ export interface CitationRecord {
   evidence_id: string;
   content: string;
   summary: string | null;
+  source_id: string | null;
   source_title: string | null;
   source_type: string | null;
   segment_speaker: string | null;
@@ -52,8 +53,7 @@ export async function GET(
   }
 
   // Fetch the artifact — must belong to this org
-  const serviceSupabase = createServiceClient();
-  const { data: artifact, error: artifactError } = await serviceSupabase
+  const { data: artifact, error: artifactError } = await supabase
     .from("artifacts")
     .select("id, org_id, metadata")
     .eq("id", artifactId)
@@ -85,7 +85,7 @@ export async function GET(
 
   // Fetch all cited evidence records in one query
   const evidenceIds = entries.map(([, id]) => id);
-  const { data: evidenceRows } = await serviceSupabase
+  const { data: evidenceRows } = await supabase
     .from("evidence")
     .select("id, content, summary, source_id, segment_id, classification, sentiment")
     .eq("org_id", membership.org_id)
@@ -108,14 +108,14 @@ export async function GET(
 
   const [sourcesResult, segmentsResult] = await Promise.all([
     sourceIds.length > 0
-      ? serviceSupabase
+      ? supabase
           .from("sources")
           .select("id, title, type")
           .eq("org_id", membership.org_id)
           .in("id", sourceIds)
       : Promise.resolve({ data: [] }),
     segmentIds.length > 0
-      ? serviceSupabase
+      ? supabase
           .from("source_segments")
           .select("id, speaker")
           .eq("org_id", membership.org_id)
@@ -149,6 +149,7 @@ export async function GET(
         evidence_id: evidenceId,
         content: ev.content,
         summary: ev.summary ?? null,
+        source_id: ev.source_id,
         source_title: source?.title ?? null,
         source_type: source?.type ?? null,
         segment_speaker: segment?.speaker ?? null,
