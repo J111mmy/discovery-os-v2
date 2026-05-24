@@ -24,7 +24,7 @@ These are not build work — they are operational steps needed right now before 
 
 - [x] Confirm migrations `0017_actions_and_requests.sql` and `0018_competitor_digest.sql` are applied locally and remotely
 - [x] Run migration SQL: `0019_research_context_and_ai_grading.sql`
-- [ ] Add `INNGEST_SIGNING_KEY` to Vercel environment variables — verified missing on 2026-05-24; present in `.env.local`
+- [x] Add `INNGEST_SIGNING_KEY` to Vercel environment variables — confirmed present 2026-05-24
 - [x] `git add -A && git commit -m "feat: AI evidence grading backend" && git push`
 - [x] Hand `CODEX_BRIEF_PROJECT_CONTEXT_UI.md` to Codex
 
@@ -55,7 +55,7 @@ These are not build work — they are operational steps needed right now before 
 - Prompt/schema Zod validation on every agent output
 - Shared server query helpers to enforce `org_id` consistency
 - Golden transcript regression test suite
-- Add `INNGEST_SIGNING_KEY` to Vercel env — verified missing on 2026-05-24; present locally in `.env.local`
+- `INNGEST_SIGNING_KEY` now present in Vercel env — confirmed 2026-05-24
 **Reference:** See [ARCHITECTURE_SECURITY_HARDENING.md](ARCHITECTURE_SECURITY_HARDENING.md).
 **Size:** L
 
@@ -66,12 +66,9 @@ These are not build work — they are operational steps needed right now before 
 **What was built:** `synthesise-company.ts` Inngest function, `company-digest-v1` prompt, migration 0016. UI shipped by Codex (a0e2e4b + 139da19): company detail page with digest, people roster, project links, evidence mentions, Refresh digest button. Person detail pages now link company names through to the company profile.
 **Architecture note:** Company detail page fetches via `GET /api/companies/[companyId]` (API route + server component both query the same shape). Fine for now; worth consolidating into a shared server helper once this layer settles.
 
-### 🔄 Rich competitor profiles + battle cards
-**Backend done:** `synthesise-competitor.ts` Inngest function, `competitor-digest-v1` prompt, migration 0018, `POST /api/competitors/[competitorId]/synthesise`. Auto-triggered from `extract-entities` after each ingest. Battle card AI-fills `their_pitch`, `where_they_win`, `their_gap`; user fills `your_counter` and `one_proof_point` in the UI.
-**UI brief written:** `CODEX_BRIEF_COMPETITOR_UI.md`
-**Remaining:**
-- Competitor detail page (digest, battle card with editable counter/proof fields, evidence list, customers who mentioned them)
-- Win/loss records: after a deal involving a competitor, log why you won or lost and which gap was decisive
+### ✅ Rich competitor profiles + battle cards
+**What was built:** `synthesise-competitor.ts` Inngest function, `competitor-digest-v1` prompt, migration 0018, `POST /api/competitors/[competitorId]/synthesise`, competitor list/detail pages, digest refresh button, evidence mentions, and a battle card with AI-filled fields plus editable `your_counter` and `one_proof_point`.
+**Still future:** Win/loss records after deals involving a competitor — log why you won or lost and which gap was decisive.
 **Size:** M
 
 ### ✅ Compose via Inngest
@@ -85,11 +82,9 @@ These are not build work — they are operational steps needed right now before 
 
 ## Medium priority
 
-### 🔄 Action extraction
-**Why:** Every interview contains personal commitments ("I'll send you X") and product backlog requests ("I wish it could do Y"). These should be captured automatically, not lost in the transcript.
-**Backend done:** `extract-actions.ts` Inngest function, `action-extraction-v1` prompt, migration 0017 (`actions` + `product_requests` tables with RLS). Chained from ingest — fires `source/actions.requested` after every ingest with evidence. Idempotent (deletes existing rows for source before re-inserting). Uses `cheap` LLM tier.
-**UI brief:** `CODEX_BRIEF_ACTION_EXTRACTION_UI.md` — actions checklist on source detail page + product requests list on project overview.
-**Size:** S (backend done)
+### ✅ Action extraction
+**What was built:** `extract-actions.ts` Inngest function, `action-extraction-v1` prompt, migration 0017 (`actions` + `product_requests` tables with RLS), `GET /api/sources/[sourceId]/actions`, `PATCH /api/actions/[actionId]`, source detail actions checklist with optimistic status updates, and product requests on both source detail and project overview.
+**Size:** S
 
 ### ✅ Frame auto-generation from first transcript
 **What was built:** `draft-frame.ts` Inngest function, `frame-draft-v1` prompt, migration 0015 (`frame_draft` jsonb + `frame_draft_generated_at` on projects), chained from `ingest-source`. UI shipped by Codex (8b19ede): draft banner in project settings (the app's frame surface) with Accept/Discard controls. `PATCH /api/projects/[projectId]` updated to accept partial updates safely, fixing a latent bug where omitted fields could null settings.
