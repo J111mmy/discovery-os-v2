@@ -37,6 +37,7 @@ const STEP_LABELS: Record<string, string> = {
   "company-digest":      "Building a company profile",
   "competitor-digest":   "Building a competitor profile",
   "claim-verification":  "Checking the evidence",
+  "evidence-grading":    "Sorting what matters",
   "compose":             "Drafting your document",
 };
 ```

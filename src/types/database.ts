@@ -81,6 +81,15 @@ export interface Project {
   frame_draft_generated_at: string | null;
   gtm_context: string | null;
   operating_style: string | null;
+  /** Structured research context used by AI to grade evidence relevance. Set before first ingest for best results. */
+  research_context: {
+    goals?: string;
+    outcomes?: string;
+    buyers?: string;
+    scope_in?: string;
+    scope_out?: string;
+    research_questions?: string[];
+  } | null;
   settings: Record<string, unknown>;
   archived: boolean;
   synthesis_stale: boolean;
@@ -137,6 +146,9 @@ export interface Evidence {
   sentiment: EvidenceSentiment | null;
   themes: string[];
   metadata: Record<string, unknown>;
+  ai_trust_grade: "trusted" | "uncertain" | "weak" | null;
+  ai_trust_reason: string | null;
+  ai_graded_at: string | null;
   created_at: string;
 }
 

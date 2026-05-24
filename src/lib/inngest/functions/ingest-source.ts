@@ -778,6 +778,17 @@ export const ingestSource = inngest.createFunction(
         });
       }
 
+      // Always queue evidence grading — runs even without research context
+      // (conservatively marks everything 'uncertain' when context is missing)
+      if (evidenceRecords.length > 0) {
+        await step.run("queue-evidence-grading", async () => {
+          await inngest.send({
+            name: "source/evidence.grading.requested",
+            data: { org_id, project_id, source_id },
+          });
+        });
+      }
+
       return {
         source_id,
         segments_created: segments.length,
