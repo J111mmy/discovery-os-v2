@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getImpersonatedOrgName } from "@/lib/auth/super-admin";
+import { getImpersonatedOrgName, isSuperAdmin } from "@/lib/auth/super-admin";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -22,8 +22,8 @@ export default async function AppLayout({ children }: AppLayoutProps) {
 
   if (!user) redirect("/login");
 
-  // Check if super admin is browsing as a specific org
-  const impersonation = await getImpersonatedOrgName(user.id);
+  const superAdmin = await isSuperAdmin(user.id);
+  const impersonation = superAdmin ? await getImpersonatedOrgName(user.id) : null;
 
   return (
     <div className="min-h-screen bg-[var(--surface-0)] text-[var(--ink)]">
@@ -60,7 +60,7 @@ export default async function AppLayout({ children }: AppLayoutProps) {
                 {item.label}
               </Link>
             ))}
-            {impersonation && (
+            {superAdmin && (
               <Link
                 href="/admin"
                 className="ml-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20"
