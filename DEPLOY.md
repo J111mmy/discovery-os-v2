@@ -26,7 +26,8 @@ git push -u origin main
 1. Go to vercel.com → New Project → Import from GitHub → select `discovery-os-v2`
 2. Framework: Next.js (auto-detected)
 3. Root directory: `.` (the repo root is already the Next.js project)
-4. Add environment variables:
+4. Set Node.js Version to **20.x** in Vercel → Project Settings → General.
+5. Add environment variables for **Production**, **Preview**, and **Development**:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY`
@@ -36,7 +37,7 @@ git push -u origin main
    - `INNGEST_SIGNING_KEY` (from Inngest dashboard → project → Signing key)
    - `NEXT_PUBLIC_APP_URL` (set to your Vercel URL, e.g. https://discovery-os.vercel.app)
 
-5. Deploy
+6. Deploy
 
 ## Inngest production sync
 
@@ -48,4 +49,16 @@ After deploy, register the production app with Inngest:
 
 Add your Vercel URL to Supabase allowed redirects:
 - Supabase Dashboard → Authentication → URL Configuration
-- Add: `https://YOUR_VERCEL_URL/auth/callback`
+- Site URL: `https://YOUR_VERCEL_URL`
+- Redirect URLs:
+  - `https://YOUR_VERCEL_URL/auth/callback`
+  - `https://YOUR_VERCEL_URL/reset-password`
+  - `https://YOUR_VERCEL_URL/**`
+
+## Post-deploy verification
+
+- `/login` loads and accepts credentials.
+- Sign out redirects to `/login`.
+- `/admin` loads for users in `super_admins`.
+- Uploading a source queues and completes in Inngest.
+- Evidence, sources, documents, people, companies, and competitors pages render without server errors.
