@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [mode, setMode] = useState<"magic" | "password">("password");
+  const [mode, setMode] = useState<"magic" | "password" | "reset">("password");
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -20,7 +20,13 @@ function LoginForm() {
     setLoading(true);
     setError("");
 
-    if (mode === "magic") {
+    if (mode === "reset") {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
+      });
+      if (error) setError(error.message);
+      else setSent(true);
+    } else if (mode === "magic") {
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
@@ -54,17 +60,24 @@ function LoginForm() {
 
         {sent ? (
           <div className="text-center">
-            <div className="text-2xl mb-3">✉️</div>
+            <div className="text-2xl mb-3">Email sent</div>
             <h2 className="text-lg font-semibold text-[var(--ink)] mb-2">Check your email</h2>
             <p className="text-[var(--ink-muted)] text-sm">
-              We sent a sign-in link to <strong>{email}</strong>
+              {mode === "reset" ? "We sent a password reset link to " : "We sent a sign-in link to "}
+              <strong>{email}</strong>
             </p>
           </div>
         ) : (
           <>
-            <h1 className="text-xl font-semibold text-[var(--ink)] mb-1">Sign in</h1>
+            <h1 className="text-xl font-semibold text-[var(--ink)] mb-1">
+              {mode === "reset" ? "Reset password" : "Sign in"}
+            </h1>
             <p className="text-sm text-[var(--ink-muted)] mb-6">
-              {mode === "password" ? "Sign in with email and password." : "We'll send you a magic link."}
+              {mode === "reset"
+                ? "We'll send you a link to choose a new password."
+                : mode === "password"
+                ? "Sign in with email and password."
+                : "We'll send you a magic link."}
             </p>
 
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -95,7 +108,13 @@ function LoginForm() {
                 disabled={loading || !email}
                 className="w-full py-2.5 rounded-lg bg-[var(--brand)] text-white font-medium text-sm hover:bg-[var(--brand-dim)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {loading ? "Signing in…" : mode === "password" ? "Sign in" : "Send magic link"}
+                {loading
+                  ? "Working..."
+                  : mode === "reset"
+                  ? "Send reset link"
+                  : mode === "password"
+                  ? "Sign in"
+                  : "Send magic link"}
               </button>
             </form>
 
@@ -105,6 +124,23 @@ function LoginForm() {
             >
               {mode === "password" ? "Use magic link instead" : "Use password instead"}
             </button>
+            {mode !== "reset" ? (
+              <button
+                type="button"
+                onClick={() => { setMode("reset"); setError(""); setSent(false); }}
+                className="mt-3 text-xs text-[var(--ink-muted)] hover:text-[var(--ink)] w-full text-center"
+              >
+                Forgot your password?
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => { setMode("password"); setError(""); setSent(false); }}
+                className="mt-3 text-xs text-[var(--ink-muted)] hover:text-[var(--ink)] w-full text-center"
+              >
+                Back to sign in
+              </button>
+            )}
           </>
         )}
       </div>
