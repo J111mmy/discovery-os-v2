@@ -24,6 +24,14 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.formData();
+  const intent = body.get("intent");
+
+  if (intent === "exit") {
+    const response = NextResponse.redirect(new URL("/admin", req.url));
+    response.cookies.delete(IMPERSONATE_COOKIE);
+    return response;
+  }
+
   const orgId = body.get("org_id");
 
   if (!orgId || typeof orgId !== "string") {

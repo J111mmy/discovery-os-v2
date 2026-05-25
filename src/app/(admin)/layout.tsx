@@ -25,12 +25,22 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               DiscOS Admin
             </Link>
           </div>
-          <Link
-            href="/projects"
-            className="text-xs font-medium text-red-300 transition-colors hover:text-white"
-          >
-            ← Back to app
-          </Link>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/projects"
+              className="text-xs font-medium text-red-300 transition-colors hover:text-white"
+            >
+              ← Back to app
+            </Link>
+            <form method="POST" action="/api/auth/sign-out">
+              <button
+                type="submit"
+                className="rounded-lg border border-red-400/40 px-3 py-1.5 text-xs font-medium text-red-200 transition-colors hover:border-red-200 hover:text-white"
+              >
+                Sign out
+              </button>
+            </form>
+          </div>
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-5 py-8 sm:px-8">

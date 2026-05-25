@@ -33,7 +33,8 @@ export default async function AppLayout({ children }: AppLayoutProps) {
           <span>
             🛟 Support mode — viewing as <strong>{impersonation.orgName}</strong>
           </span>
-          <form method="DELETE" action="/api/admin/impersonate">
+          <form method="POST" action="/api/admin/impersonate">
+            <input type="hidden" name="intent" value="exit" />
             <button
               type="submit"
               className="rounded border border-white/40 px-2.5 py-1 text-xs font-semibold transition-colors hover:bg-white/20"
@@ -49,7 +50,7 @@ export default async function AppLayout({ children }: AppLayoutProps) {
           <Link href="/projects" className="text-sm font-semibold text-[var(--ink)]">
             DiscOS
           </Link>
-          <nav className="flex items-center gap-1">
+          <nav className="flex flex-wrap items-center justify-end gap-1">
             {navItems.map((item) => (
               <Link
                 key={item.href}
@@ -67,6 +68,14 @@ export default async function AppLayout({ children }: AppLayoutProps) {
                 Admin ↗
               </Link>
             )}
+            <form method="POST" action="/api/auth/sign-out">
+              <button
+                type="submit"
+                className="ml-1 rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--ink-muted)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
+              >
+                Sign out
+              </button>
+            </form>
           </nav>
         </div>
       </header>
