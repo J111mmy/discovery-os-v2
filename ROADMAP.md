@@ -27,6 +27,9 @@ These are not build work — they are operational steps needed right now before 
 - [x] Add `INNGEST_SIGNING_KEY` to Vercel environment variables — confirmed present 2026-05-24
 - [x] `git add -A && git commit -m "feat: AI evidence grading backend" && git push`
 - [x] Hand `CODEX_BRIEF_PROJECT_CONTEXT_UI.md` to Codex
+- [ ] Apply migration `0020_super_admins.sql` in Supabase SQL editor (local + remote)
+- [ ] Grant super admin: `INSERT INTO super_admins (user_id, granted_by) VALUES ('<your_user_uuid>', '<your_user_uuid>');` — run via service role key
+- [ ] `git add -A && git commit -m "feat: super admin — cross-org dashboard, org detail, impersonation" && git push`
 
 ---
 
@@ -95,9 +98,8 @@ These are not build work — they are operational steps needed right now before 
 **What:** On the evidence detail page and workspace overview, show "Signal relevant to: [Project Name] →" with a one-click route button that copies the evidence reference to the other project.
 **Size:** S
 
-### 🔄 Claim citations in composed artifacts
-**Backend done:** Compose prompt updated to instruct Claude to embed `[N]` inline citation markers (same format as ask-v1). `parseCitationMap` in `draft.ts` resolves `N → evidence_id` from the ordered evidence array. `citation_map` written into `artifact.metadata` in `compose-artifact.ts`. `GET /api/artifacts/[id]/citations` returns typed citation records (content, speaker, source title) for all cited evidence, org-scoped and auth-guarded.
-**UI brief written:** `CODEX_BRIEF_ARTIFACT_CITATIONS_UI.md` — convert artifact detail page body to `ArtifactViewer` client component, render `[N]` as clickable superscript chips, popover shows quote + speaker + source title, muted "Built from N sources" footer count.
+### ✅ Claim citations in composed artifacts
+**What was built:** Compose prompt updated to instruct Claude to embed `[N]` inline citation markers. `parseCitationMap` in `draft.ts` resolves `N → evidence_id`. `citation_map` stored in `artifact.metadata`. `GET /api/artifacts/[id]/citations` returns citation records with content, speaker, source title. UI shipped by Codex (8bbd577): `ArtifactViewer` client component renders `[N]` as superscript chips, click opens a popover showing the quote + speaker + source. Clicking outside or pressing Escape closes the popover. "Built from N sources" footer. Server component outer page preserved.
 **Size:** M
 
 ### ✅ Evidence confidence scoring improvements
@@ -134,6 +136,18 @@ Settings are read by the LLM prompt builder at compose and ingest time. Writing 
 ---
 
 ## Lower priority / future
+
+### ✅ Super admin system
+**What was built:** Full cross-org support layer for Jimmy as operator.
+- **Migration 0020** — `super_admins(user_id, granted_at, granted_by)` table. RLS enabled but no policies — accessible only via service role key. Zero blast radius: no regular user queries can touch it.
+- **`src/lib/auth/super-admin.ts`** — `isSuperAdmin()`, `getImpersonatedOrgId()`, `getImpersonatedOrgName()`, `getAllOrgsWithStats()`, `getOrgDetail()`. All cross-org queries go through the service client.
+- **`src/lib/auth/org.ts`** updated — `getUserOrgIds()` and `getProjectForUser()` check impersonation state first, so super admin browsing as an org sees exactly what that org sees.
+- **Admin layout + pages** — `/admin` (org table: name, member count, sources, last activity, last run status), `/admin/orgs/[orgId]` (members, projects, recent agent runs). Protected by `isSuperAdmin()` check on every page.
+- **Impersonation route** — `POST /api/admin/impersonate` sets HttpOnly `disco_impersonate_org` cookie (session-scoped, secure in prod). `DELETE` clears it. Super admin status re-verified on both endpoints.
+- **Support banner** — sticky red banner in the main app layout when impersonating: "🛟 Support mode — viewing as [Org Name]" with an Exit button. "Admin ↗" link added to nav.
+**Security:** Cookie is never trusted without first verifying `super_admins` table. Impersonation is always session-scoped (no persistent impersonation across browser closes).
+**To activate:** Apply migration 0020 in Supabase, then `INSERT INTO super_admins (user_id, granted_by) VALUES ('<jimmy_uuid>', '<jimmy_uuid>')` via service role.
+**Size:** M
 
 ### ⏸ GTM cascade
 **Why:** After each ingest, beta candidate signals and outreach gaps should propagate automatically to GTM artifacts. Important for closing the loop from discovery to sales motion.

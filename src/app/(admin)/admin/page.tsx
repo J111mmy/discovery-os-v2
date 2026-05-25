@@ -1,0 +1,110 @@
+// /admin — super admin dashboard: all orgs with stats and impersonation entry
+import { createClient } from "@/lib/supabase/server";
+import { isSuperAdmin, getAllOrgsWithStats } from "@/lib/auth/super-admin";
+import { redirect } from "next/navigation";
+
+function relativeTime(value: string | null): string {
+  if (!value) return "never";
+  const diffMs = Date.now() - new Date(value).getTime();
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+export default async function AdminPage() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+  if (!(await isSuperAdmin(user.id))) redirect("/projects");
+
+  const orgs = await getAllOrgsWithStats();
+
+  return (
+    <div>
+      <div className="mb-8">
+        <h1 className="text-2xl font-semibold text-[var(--ink)]">All organisations</h1>
+        <p className="mt-2 text-sm text-[var(--ink-muted)]">
+          {orgs.length} organisation{orgs.length === 1 ? "" : "s"} · Enter any workspace to browse as support
+        </p>
+      </div>
+
+      {orgs.length === 0 ? (
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-12 text-center text-sm text-[var(--ink-muted)]">
+          No organisations yet.
+        </div>
+      ) : (
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] overflow-hidden">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border)]">
+                <th className="px-5 py-3 font-semibold text-[var(--ink)]">Organisation</th>
+                <th className="px-5 py-3 font-semibold text-[var(--ink)] text-right">Members</th>
+                <th className="px-5 py-3 font-semibold text-[var(--ink)] text-right">Sources</th>
+                <th className="px-5 py-3 font-semibold text-[var(--ink)]">Last activity</th>
+                <th className="px-5 py-3 font-semibold text-[var(--ink)]">Last run</th>
+                <th className="px-5 py-3"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--border)]">
+              {orgs.map((org) => (
+                <tr key={org.id} className="hover:bg-[var(--surface-2)] transition-colors">
+                  <td className="px-5 py-4">
+                    <div className="font-medium text-[var(--ink)]">{org.name}</div>
+                    <div className="text-xs text-[var(--ink-faint)] mt-0.5">{org.slug}</div>
+                  </td>
+                  <td className="px-5 py-4 text-right text-[var(--ink-muted)]">
+                    {org.member_count}
+                  </td>
+                  <td className="px-5 py-4 text-right text-[var(--ink-muted)]">
+                    {org.source_count}
+                  </td>
+                  <td className="px-5 py-4 text-[var(--ink-muted)]">
+                    {relativeTime(org.last_source_at)}
+                  </td>
+                  <td className="px-5 py-4">
+                    {org.last_run ? (
+                      <span className={`text-xs font-medium ${
+                        org.last_run.status === "failed"
+                          ? "text-red-400"
+                          : org.last_run.status === "running"
+                          ? "text-yellow-400"
+                          : "text-[var(--ink-muted)]"
+                      }`}>
+                        {org.last_run.status === "failed" ? "⚠ failed" : relativeTime(org.last_run.started_at)}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-[var(--ink-faint)]">—</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-4 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <a
+                        href={`/admin/orgs/${org.id}`}
+                        className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
+                      >
+                        Detail
+                      </a>
+                      <form method="POST" action="/api/admin/impersonate">
+                        <input type="hidden" name="org_id" value={org.id} />
+                        <button
+                          type="submit"
+                          className="rounded-lg bg-[var(--brand)] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[var(--brand-dim)]"
+                        >
+                          Enter workspace
+                        </button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}

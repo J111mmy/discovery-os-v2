@@ -1,4 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/server";
+import { getImpersonatedOrgId, isSuperAdmin } from "./super-admin";
 
 export interface AuthUser {
   id: string;
@@ -32,6 +33,11 @@ export function projectSlugFromName(name: string) {
 }
 
 export async function getUserOrgIds(userId: string): Promise<string[]> {
+  // Super admin impersonation: if they have an active impersonation cookie,
+  // return just that org so the rest of the app behaves as if they're a member.
+  const impersonatedOrgId = await getImpersonatedOrgId(userId);
+  if (impersonatedOrgId) return [impersonatedOrgId];
+
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("org_members")
@@ -94,10 +100,27 @@ export async function getProjectForUser<T = Record<string, unknown>>(
   projectId: string,
   select: string
 ): Promise<T | null> {
-  const orgIds = await getUserOrgIds(userId);
-  if (orgIds.length === 0) return null;
+  // Super admin with no impersonation cookie: allow access to any project
+  // by skipping the org membership check entirely.
+  const admin = await isSuperAdmin(userId);
+  const impersonatedOrgId = await getImpersonatedOrgId(userId);
 
   const supabase = createServiceClient();
+
+  if (admin && !impersonatedOrgId) {
+    // Unrestricted super admin access — no org_id filter
+    const { data, error } = await supabase
+      .from("projects")
+      .select(select)
+      .eq("id", projectId)
+      .single();
+    if (error) return null;
+    return data as T;
+  }
+
+  const orgIds = impersonatedOrgId ? [impersonatedOrgId] : await getUserOrgIds(userId);
+  if (orgIds.length === 0) return null;
+
   const { data, error } = await supabase
     .from("projects")
     .select(select)
