@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getUserOrgIds } from "@/lib/auth/org";
 import { NextRequest, NextResponse } from "next/server";
 
 type JoinedEvidence = {
@@ -52,19 +53,12 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: membership } = await supabase
-    .from("org_members")
-    .select("org_id")
-    .eq("user_id", user.id)
-    .order("joined_at", { ascending: true })
-    .limit(1)
-    .single();
+  const orgIds = await getUserOrgIds(user.id);
+  const orgId = orgIds[0] ?? null;
 
-  if (!membership?.org_id) {
+  if (!orgId) {
     return NextResponse.json({ error: "Org not found" }, { status: 404 });
   }
-
-  const orgId = membership.org_id;
   const [companyResult, peopleResult, projectsResult, evidenceResult] = await Promise.all([
     supabase
       .from("companies")

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getUserOrgIds } from "@/lib/auth/org";
 import type {
   Affiliation,
   EvidenceClassification,
@@ -163,17 +164,10 @@ export default async function PersonDetailPage({ params }: Props) {
 
   if (!user) redirect("/login");
 
-  const { data: membership } = await supabase
-    .from("org_members")
-    .select("org_id")
-    .eq("user_id", user.id)
-    .order("joined_at", { ascending: true })
-    .limit(1)
-    .single();
+  const orgIds = await getUserOrgIds(user.id);
+  const orgId = orgIds[0] ?? null;
 
-  if (!membership?.org_id) notFound();
-
-  const orgId = membership.org_id;
+  if (!orgId) notFound();
   const [{ data: person }, { data: entityRows }] = await Promise.all([
     supabase
       .from("people")

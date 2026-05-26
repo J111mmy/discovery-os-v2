@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getUserOrgIds } from "@/lib/auth/org";
 import type { Affiliation, PersonStatus } from "@/types/database";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -56,15 +57,9 @@ export default async function PeoplePage() {
 
   if (!user) redirect("/login");
 
-  const { data: membership } = await supabase
-    .from("org_members")
-    .select("org_id")
-    .eq("user_id", user.id)
-    .order("joined_at", { ascending: true })
-    .limit(1)
-    .single();
+  const orgIds = await getUserOrgIds(user.id);
+  const orgId = orgIds[0] ?? null;
 
-  const orgId = membership?.org_id;
   const { data: people } = orgId
     ? await supabase
         .from("people")

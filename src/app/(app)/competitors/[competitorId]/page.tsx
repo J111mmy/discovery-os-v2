@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getUserOrgIds } from "@/lib/auth/org";
 import type {
   CompetitorBattleCard,
   EvidenceClassification,
@@ -305,17 +306,12 @@ export default async function CompetitorDetailPage({ params }: Props) {
 
   if (!user) redirect("/login");
 
-  const { data: membership } = await supabase
-    .from("org_members")
-    .select("org_id")
-    .eq("user_id", user.id)
-    .order("joined_at", { ascending: true })
-    .limit(1)
-    .single();
+  const orgIds = await getUserOrgIds(user.id);
+  const orgId = orgIds[0] ?? null;
 
-  if (!membership?.org_id) notFound();
+  if (!orgId) notFound();
 
-  const detail = await loadCompetitorDetail(membership.org_id, params.competitorId);
+  const detail = await loadCompetitorDetail(orgId, params.competitorId);
 
   if (!detail) notFound();
 
