@@ -82,7 +82,7 @@ export function AffiliationToggle({
       {error && <div className="mt-2 text-xs text-red-300">{error}</div>}
       {current === "internal" && (
         <p className="mt-2 text-xs leading-5 text-[var(--ink-faint)]">
-          Claude will treat this person's speech as context, not customer evidence, during ingest.
+          This person's speech will be treated as context during ingest, not as customer evidence.
         </p>
       )}
     </div>
