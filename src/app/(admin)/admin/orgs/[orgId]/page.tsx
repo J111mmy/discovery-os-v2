@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { isSuperAdmin, getOrgDetail } from "@/lib/auth/super-admin";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
+import { BackfillButton } from "./backfill-button";
 
 interface Props {
   params: { orgId: string };
@@ -157,6 +158,8 @@ export default async function OrgDetailPage({ params }: Props) {
           ))}
         </div>
       </section>
+
+      <BackfillButton orgId={org.id} />
     </div>
   );
 }

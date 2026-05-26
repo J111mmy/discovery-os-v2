@@ -177,8 +177,11 @@ export const gradeEvidence = inngest.createFunction(
               ai_graded_at: now,
             };
 
-            // Auto-trust: only promote to 'trusted' if we have real context to judge against
-            if (grade.grade === "trusted" && hasContext) {
+            const original = batch.find((record) => record.id === grade.id);
+
+            // Auto-trust: only promote pending records when we have real context.
+            // Never override evidence a user has already trusted, excluded, or disputed.
+            if (grade.grade === "trusted" && hasContext && original?.trust_scope === "pending") {
               updates.trust_scope = "trusted";
             }
 
