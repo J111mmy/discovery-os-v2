@@ -443,11 +443,44 @@ function extractJsonArray(content: string) {
     .replace(/\s*```$/i, "")
     .trim();
   const start = unfenced.indexOf("[");
-  const end = unfenced.lastIndexOf("]");
-  if (start === -1 || end === -1 || end < start) {
+  if (start === -1) {
     throw new Error("Ingest extraction returned no JSON array");
   }
-  return JSON.parse(unfenced.slice(start, end + 1)) as unknown;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < unfenced.length; i++) {
+    const char = unfenced[i];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (char === "[") depth += 1;
+    if (char === "]") {
+      depth -= 1;
+      if (depth === 0) {
+        return JSON.parse(unfenced.slice(start, i + 1)) as unknown;
+      }
+    }
+  }
+
+  throw new Error("Ingest extraction returned incomplete JSON array");
 }
 
 function normalizeClaim(value: unknown): ExtractedClaim | null {
@@ -615,6 +648,7 @@ export const ingestSource = inngest.createFunction(
       const extractedClaims = await step.run("extract-evidence", async () => {
         const units = buildConversationUnits(segments);
         const claims: Array<ExtractedClaim & { segment_id: string; unit_id: string }> = [];
+        const extractionErrors: string[] = [];
 
         for (const unit of units) {
           if (!unit.content.trim()) continue;
@@ -640,7 +674,21 @@ export const ingestSource = inngest.createFunction(
             timeoutMs: 120_000,
           });
 
-          const parsed = extractJsonArray(result.content);
+          let parsed: unknown;
+          try {
+            parsed = extractJsonArray(result.content);
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "Unknown JSON parse error";
+            extractionErrors.push(`${unit.id}: ${message}`);
+            console.warn("Skipping malformed ingest extraction response", {
+              source_id,
+              unit_id: unit.id,
+              message,
+            });
+            continue;
+          }
+
           const array = Array.isArray(parsed) ? parsed : [];
           const primarySegmentId = unit.segments[0]?.id;
           if (!primarySegmentId) continue;
@@ -654,6 +702,12 @@ export const ingestSource = inngest.createFunction(
               unit_id: unit.id,
             });
           }
+        }
+
+        if (claims.length === 0 && extractionErrors.length > 0) {
+          throw new Error(
+            `Ingest extraction failed for all conversation units: ${extractionErrors[0]}`
+          );
         }
 
         return claims;
