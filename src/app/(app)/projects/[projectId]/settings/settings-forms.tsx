@@ -1,7 +1,11 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { generateFrameAction } from "./actions";
+import {
+  generateFrameAction,
+  suggestProjectSettingsAction,
+  type SuggestedProjectSettings,
+} from "./actions";
 import { FrameDraftBanner, type FrameDraft } from "./frame-draft-banner";
 
 type ResearchContext = {
@@ -102,6 +106,7 @@ export function SettingsForms({
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingResearchContext, setIsSavingResearchContext] = useState(false);
   const [isGeneratingFrame, setIsGeneratingFrame] = useState(false);
+  const [isSuggestingSettings, setIsSuggestingSettings] = useState(false);
   const researchSaveTimeout = useRef<number | null>(null);
 
   const [email, setEmail] = useState("");
@@ -253,6 +258,40 @@ export function SettingsForms({
     }
   }
 
+  function applySuggestedSettings(suggestion: SuggestedProjectSettings) {
+    const questions = suggestion.research_context.research_questions.length
+      ? suggestion.research_context.research_questions
+      : [""];
+
+    setResearchContext({
+      ...suggestion.research_context,
+      research_questions: questions,
+    });
+    setFrame(suggestion.frame);
+    setOperatingStyle(suggestion.operating_style);
+    setGtmContext(suggestion.gtm_context);
+  }
+
+  async function suggestProjectSettings() {
+    setSettingsMessage(null);
+    setSettingsError(null);
+    setIsSuggestingSettings(true);
+
+    try {
+      const formData = new FormData();
+      formData.set("project_id", projectId);
+      const suggestion = await suggestProjectSettingsAction(formData);
+      applySuggestedSettings(suggestion);
+      setSettingsMessage("AI suggested project settings from evidence. Review and save when ready.");
+    } catch (error) {
+      setSettingsError(
+        error instanceof Error ? error.message : "Could not suggest project settings."
+      );
+    } finally {
+      setIsSuggestingSettings(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="inline-flex rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-1">
@@ -266,8 +305,21 @@ export function SettingsForms({
 
       {tab === "project" && (
         <form onSubmit={saveProjectSettings} className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)]">
-          <div className="border-b border-[var(--border)] px-5 py-4">
-            <h2 className="text-sm font-semibold text-[var(--ink)]">Project context</h2>
+          <div className="flex flex-col gap-3 border-b border-[var(--border)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-[var(--ink)]">Project context</h2>
+              <p className="mt-1 text-xs leading-5 text-[var(--ink-muted)]">
+                Let AI draft this from evidence, then edit before saving.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={suggestProjectSettings}
+              disabled={isSuggestingSettings}
+              className="inline-flex rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSuggestingSettings ? "Suggesting..." : "Suggest settings from evidence"}
+            </button>
           </div>
           <div className="grid gap-5 p-5">
             {frameDraft && frame.trim().length === 0 && (
