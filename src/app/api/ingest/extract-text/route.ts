@@ -7,6 +7,7 @@ import { PDFParse } from "pdf-parse";
 export const runtime = "nodejs";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const TEXT_FILE_EXTENSIONS = new Set(["txt", "md", "markdown"]);
 
 function fileExtension(name: string) {
   const match = name.toLowerCase().match(/\.([a-z0-9]+)$/);
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
   try {
     let text = "";
 
-    if (extension === "txt") {
+    if (TEXT_FILE_EXTENSIONS.has(extension)) {
       text = cleanExtractedText(new TextDecoder("utf-8").decode(buffer));
     } else if (extension === "pdf") {
       text = await extractPdfText(buffer);
@@ -79,7 +80,7 @@ export async function POST(req: NextRequest) {
       );
     } else {
       return NextResponse.json(
-        { error: "Unsupported file type. Upload a .pdf, .docx, or .txt file." },
+        { error: "Unsupported file type. Upload a .pdf, .docx, .txt, .md, or .markdown file." },
         { status: 400 }
       );
     }

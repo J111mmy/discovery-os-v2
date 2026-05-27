@@ -29,6 +29,17 @@ const INGEST_SOURCE_TYPES: SourceType[] = [
   "other",
 ];
 
+const TEXT_FILE_EXTENSIONS = new Set(["txt", "md", "markdown"]);
+const DOCUMENT_FILE_EXTENSIONS = new Set(["pdf", "doc", "docx", "md", "markdown"]);
+const ALLOWED_FILE_EXTENSIONS = new Set([
+  "pdf",
+  "doc",
+  "docx",
+  "txt",
+  "md",
+  "markdown",
+]);
+
 export function IngestForm({ projectId }: IngestFormProps) {
   const router = useRouter();
   const [title, setTitle] = useState("");
@@ -138,8 +149,8 @@ export function IngestForm({ projectId }: IngestFormProps) {
     }
 
     const extension = file.name.split(".").pop()?.toLowerCase();
-    if (!["pdf", "doc", "docx", "txt"].includes(extension ?? "")) {
-      setFileError("Upload a .pdf, .doc, .docx, or .txt file.");
+    if (!ALLOWED_FILE_EXTENSIONS.has(extension ?? "")) {
+      setFileError("Upload a .pdf, .doc, .docx, .txt, .md, or .markdown file.");
       return;
     }
 
@@ -153,7 +164,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
     try {
       let text = "";
 
-      if (extension === "txt") {
+      if (TEXT_FILE_EXTENSIONS.has(extension ?? "")) {
         text = await readTextFile(file);
       } else {
         const formData = new FormData();
@@ -177,7 +188,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
       }
 
       setRawText(text.trim());
-      if (extension === "pdf" || extension === "doc" || extension === "docx") {
+      if (DOCUMENT_FILE_EXTENSIONS.has(extension ?? "")) {
         setType("document");
       }
     } catch (extractError) {
@@ -237,7 +248,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
           <input
             id="sourceFile"
             type="file"
-            accept=".pdf,.doc,.docx,.txt"
+            accept=".pdf,.doc,.docx,.txt,.md,.markdown"
             disabled={isWorking || extractingFile}
             onChange={onFileChange}
             className="block w-full rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-sm text-[var(--ink-muted)] file:mr-4 file:rounded-md file:border-0 file:bg-[var(--surface-2)] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-[var(--ink)] hover:border-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-60"
