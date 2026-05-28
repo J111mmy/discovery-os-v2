@@ -141,15 +141,17 @@ evidence_entities (evidence_id, entity_id, entity_type, relationship)
 The agent layer is not locked to Anthropic. Anthropic (Claude) and OpenAI (GPT-4o, o3, etc.) are both valid providers. The abstraction layer in `src/lib/llm/` must support either. New providers can be added without changing product logic.
 
 ```
-task_tier    | examples                                         | current default
+task_tier    | examples                                         | recommended default
 -------------|--------------------------------------------------|---------------------------
-cheap        | classify, theme_tag, entity_detect, pii_scan    | claude-haiku-* or gpt-4o-mini
-standard     | ingest, segment, entity_enrich, compose         | claude-sonnet-* or gpt-4o
-premium      | synthesise, opportunity_detect                  | claude-opus-* or o3
-eval         | claim_verify, citation_check                    | claude-sonnet-* or gpt-4o
+cheap        | classify, theme_tag, entity_detect, pii_scan    | Claude Haiku 4.5
+standard     | ingest, segment, entity_enrich, session review  | Claude Sonnet 4.6
+premium      | compose, synthesise, opportunity_detect         | Claude Sonnet 4.6 first; Opus/GPT-5.5 only for rare expensive jobs
+eval         | claim_verify, citation_check, evidence grading  | GPT-5.4
 ```
 
-Model and provider assignments live in `src/lib/llm/models.ts`. The product code calls `llm(task_tier, prompt)` — it does not know or care which provider runs it. One config change swaps provider or model for the entire system.
+`eval` is **not** a higher creative tier than `premium`. It is the strict reviewer lane: low-temperature, conservative, and sceptical. The preferred architecture is model diversity: Anthropic for most research/writing work, OpenAI for verification and challenge.
+
+Model and provider assignments live in `src/lib/llm/models.ts`. Runtime routing is super-admin controlled per tier from `platform_settings`. The product code calls `llm(task_tier, prompt)` — it does not know or care which provider runs it. One config change swaps provider or model for each tier.
 
 **Rules:**
 - Never write a model name (`"claude-sonnet-4-6"`, `"gpt-4o"`, etc.) anywhere in product code outside `src/lib/llm/models.ts`

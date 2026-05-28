@@ -1,13 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { AIProviderSettings } from "@/lib/llm/settings";
-import type { LLMProvider } from "@/lib/llm/models";
+import type { LLMProvider, ModelRouting, TierModelRoute } from "@/lib/llm/models";
+import type { TaskTier } from "@/types/database";
 
 const PROVIDER_LABELS: Record<LLMProvider, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
 };
+
+const WORK_TIERS: TaskTier[] = ["cheap", "standard", "premium"];
+const REVIEW_TIERS: TaskTier[] = ["eval"];
+const TIERS: TaskTier[] = [...WORK_TIERS, ...REVIEW_TIERS];
+
+function sameRouting(a: ModelRouting, b: ModelRouting) {
+  return TIERS.every(
+    (tier) => a[tier].provider === b[tier].provider && a[tier].model === b[tier].model
+  );
+}
+
+function routeLabel(route: TierModelRoute) {
+  return `${PROVIDER_LABELS[route.provider]} · ${route.model}`;
+}
 
 export function AIProviderSettingsPanel({
   initialSettings,
@@ -15,15 +30,43 @@ export function AIProviderSettingsPanel({
   initialSettings: AIProviderSettings;
 }) {
   const [settings, setSettings] = useState(initialSettings);
-  const [pendingProvider, setPendingProvider] = useState<LLMProvider>(
-    initialSettings.provider
-  );
+  const [routes, setRoutes] = useState<ModelRouting>(initialSettings.routes);
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [message, setMessage] = useState<string | null>(null);
 
-  const providerConfigured = settings.configured[pendingProvider];
+  const missingProviders = useMemo(() => {
+    const providers = Array.from(new Set(TIERS.map((tier) => routes[tier].provider)));
+    return providers.filter((provider) => !settings.configured[provider]);
+  }, [routes, settings.configured]);
 
-  async function saveProvider() {
+  const dirty = !sameRouting(routes, settings.routes);
+  const recommendedActive = sameRouting(routes, settings.recommended_routes);
+
+  function updateRoute(tier: TaskTier, next: Partial<TierModelRoute>) {
+    setStatus("idle");
+    setMessage(null);
+    setRoutes((current) => {
+      const provider = next.provider ?? current[tier].provider;
+      const choices = settings.choices[provider];
+      const providerChanged = next.provider && next.provider !== current[tier].provider;
+      const defaultModel = settings.provider_routes[provider][tier].model;
+      const currentModelStillValid = choices.some((choice) => choice.model === current[tier].model);
+      const model =
+        next.model ??
+        (providerChanged
+          ? defaultModel
+          : currentModelStillValid
+          ? current[tier].model
+          : defaultModel);
+
+      return {
+        ...current,
+        [tier]: { provider, model },
+      };
+    });
+  }
+
+  async function patchSettings(body: Record<string, unknown>, successMessage: string) {
     setStatus("saving");
     setMessage(null);
 
@@ -31,7 +74,7 @@ export function AIProviderSettingsPanel({
       const response = await fetch("/api/admin/ai-settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: pendingProvider }),
+        body: JSON.stringify(body),
       });
       const payload = await response.json();
 
@@ -39,108 +82,203 @@ export function AIProviderSettingsPanel({
         throw new Error(payload.hint ? `${payload.error} ${payload.hint}` : payload.error);
       }
 
-      setSettings(payload as AIProviderSettings);
-      setPendingProvider((payload as AIProviderSettings).provider);
+      const nextSettings = payload as AIProviderSettings;
+      setSettings(nextSettings);
+      setRoutes(nextSettings.routes);
       setStatus("saved");
-      setMessage(`AI generation now uses ${PROVIDER_LABELS[pendingProvider]}.`);
+      setMessage(successMessage);
     } catch (error) {
       setStatus("error");
-      setMessage(error instanceof Error ? error.message : "Could not update provider.");
+      setMessage(error instanceof Error ? error.message : "Could not update model routing.");
     }
+  }
+
+  function saveRoutes() {
+    void patchSettings(
+      { routes },
+      `Model routing saved. Eval now uses ${routeLabel(routes.eval)}.`
+    );
+  }
+
+  function applyRecommended() {
+    void patchSettings(
+      { use_recommended: true },
+      "Recommended split applied: Anthropic for work tiers, OpenAI for eval."
+    );
   }
 
   return (
     <section className="mb-8 rounded-xl border border-red-900/30 bg-red-950/20 p-5">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-xs font-bold uppercase tracking-wide text-red-300">
             Platform AI
           </div>
           <h2 className="mt-2 text-lg font-semibold text-[var(--ink)]">
-            Generation provider
+            Model routing
           </h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-muted)]">
-            Super admin-only control for AI generation. Embeddings still use OpenAI for
-            vector search compatibility.
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--ink-muted)]">
+            Choose the model for each job type. Cheap, standard, and premium create or
+            transform work. Eval is the reviewer lane: strict checks for evidence,
+            citations, and unsupported claims.
           </p>
-          <p className="mt-2 text-xs text-[var(--ink-faint)]">
-            Current source: {settings.source}. Active provider:{" "}
-            {PROVIDER_LABELS[settings.provider]}.
-          </p>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full border border-[var(--border)] bg-[var(--surface-1)] px-2.5 py-1 text-[var(--ink-muted)]">
+              Source: {settings.source}
+            </span>
+            <span className="rounded-full border border-[var(--border)] bg-[var(--surface-1)] px-2.5 py-1 text-[var(--ink-muted)]">
+              Standard: {routeLabel(routes.standard)}
+            </span>
+            <span className="rounded-full border border-[var(--border)] bg-[var(--surface-1)] px-2.5 py-1 text-[var(--ink-muted)]">
+              Eval: {routeLabel(routes.eval)}
+            </span>
+          </div>
         </div>
 
-        <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-4">
-          <div className="grid grid-cols-2 gap-2">
-            {(["anthropic", "openai"] as LLMProvider[]).map((provider) => {
-              const selected = pendingProvider === provider;
-              const configured = settings.configured[provider];
-              return (
-                <button
-                  key={provider}
-                  type="button"
-                  onClick={() => setPendingProvider(provider)}
-                  className={`rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
-                    selected
-                      ? "border-[var(--brand)] bg-[var(--brand)]/15 text-[var(--ink)]"
-                      : "border-[var(--border)] text-[var(--ink-muted)] hover:border-[var(--brand)] hover:text-[var(--ink)]"
-                  }`}
-                >
-                  <span className="block font-semibold">{PROVIDER_LABELS[provider]}</span>
-                  <span className={configured ? "text-green-300" : "text-red-300"}>
-                    {configured ? "API key configured" : "API key missing"}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface-0)] p-3">
-            <div className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-faint)]">
-              Active model map
-            </div>
-            <dl className="mt-2 grid grid-cols-[80px_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
-              {Object.entries(settings.models).map(([tier, model]) => (
-                <div key={tier} className="contents">
-                  <dt className="capitalize text-[var(--ink-muted)]">{tier}</dt>
-                  <dd className="truncate text-[var(--ink)]" title={model}>
-                    {model}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-
-          {!providerConfigured && (
-            <p className="mt-3 text-xs leading-5 text-red-300">
-              Add the {pendingProvider === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY"}{" "}
-              environment variable before switching to this provider.
-            </p>
-          )}
-
+        <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
           <button
             type="button"
-            onClick={saveProvider}
-            disabled={
-              status === "saving" ||
-              pendingProvider === settings.provider ||
-              !providerConfigured
-            }
-            className="mt-4 w-full rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)] disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={applyRecommended}
+            disabled={status === "saving" || recommendedActive}
+            className="rounded-lg border border-[var(--brand)] px-4 py-2 text-sm font-medium text-[var(--brand)] transition-colors hover:bg-[var(--brand)] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {status === "saving" ? "Saving..." : `Use ${PROVIDER_LABELS[pendingProvider]}`}
+            Use recommended split
           </button>
-
-          {message && (
-            <p
-              className={`mt-3 text-sm ${
-                status === "error" ? "text-red-300" : "text-green-300"
-              }`}
-            >
-              {message}
-            </p>
-          )}
+          <button
+            type="button"
+            onClick={saveRoutes}
+            disabled={status === "saving" || !dirty || missingProviders.length > 0}
+            className="rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {status === "saving" ? "Saving..." : "Save routing"}
+          </button>
         </div>
       </div>
+
+      <div className="grid gap-3 xl:grid-cols-2">
+        {TIERS.map((tier) => {
+          const detail = settings.tier_details[tier];
+          const route = routes[tier];
+          const providerConfigured = settings.configured[route.provider];
+          const choices = settings.choices[route.provider];
+
+          return (
+            <article
+              key={tier}
+              className={`rounded-xl border bg-[var(--surface-1)] p-4 ${
+                detail.role === "review"
+                  ? "border-yellow-500/25"
+                  : "border-[var(--border)]"
+              }`}
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-sm font-semibold text-[var(--ink)]">
+                      {detail.label}
+                    </h3>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
+                        detail.role === "review"
+                          ? "border-yellow-500/20 bg-yellow-500/10 text-yellow-300"
+                          : "border-[var(--border)] bg-[var(--surface-0)] text-[var(--ink-muted)]"
+                      }`}
+                    >
+                      {detail.role === "review" ? "Reviewer tier" : "Work tier"}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-[var(--ink-muted)]">
+                    {detail.description}
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--ink-faint)]">
+                    {detail.examples}
+                  </p>
+                </div>
+
+                <div
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
+                    providerConfigured
+                      ? "bg-green-500/10 text-green-300"
+                      : "bg-red-500/10 text-red-300"
+                  }`}
+                >
+                  {providerConfigured ? "API key ready" : "API key missing"}
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-[170px_minmax(0,1fr)]">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-[var(--ink-muted)]">
+                    Provider
+                  </label>
+                  <div className="grid grid-cols-2 gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface-0)] p-1">
+                    {(["anthropic", "openai"] as LLMProvider[]).map((provider) => {
+                      const selected = route.provider === provider;
+                      return (
+                        <button
+                          key={provider}
+                          type="button"
+                          onClick={() => updateRoute(tier, { provider })}
+                          className={`rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                            selected
+                              ? "bg-[var(--brand)] text-white"
+                              : "text-[var(--ink-muted)] hover:text-[var(--ink)]"
+                          }`}
+                        >
+                          {PROVIDER_LABELS[provider]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor={`model-${tier}`} className="mb-1 block text-xs font-medium text-[var(--ink-muted)]">
+                    Model
+                  </label>
+                  <select
+                    id={`model-${tier}`}
+                    value={route.model}
+                    onChange={(event) => updateRoute(tier, { model: event.target.value })}
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-sm text-[var(--ink)] outline-none transition-colors focus:border-[var(--brand)]"
+                  >
+                    {!choices.some((choice) => choice.model === route.model) && (
+                      <option value={route.model}>{route.model}</option>
+                    )}
+                    {choices.map((choice) => (
+                      <option key={`${choice.provider}-${choice.model}`} value={choice.model}>
+                        {choice.label} · {choice.model}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <p className="mt-3 text-xs leading-5 text-[var(--ink-faint)]">
+                {choices.find((choice) => choice.model === route.model)?.description ??
+                  "Custom model from the saved platform configuration."}
+              </p>
+            </article>
+          );
+        })}
+      </div>
+
+      {missingProviders.length > 0 && (
+        <p className="mt-4 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+          Add {missingProviders.map((provider) => PROVIDER_LABELS[provider]).join(" and ")} API
+          keys before saving this routing.
+        </p>
+      )}
+
+      {message && (
+        <p
+          className={`mt-4 text-sm ${
+            status === "error" ? "text-red-300" : "text-green-300"
+          }`}
+        >
+          {message}
+        </p>
+      )}
     </section>
   );
 }

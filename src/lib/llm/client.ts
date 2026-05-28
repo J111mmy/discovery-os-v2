@@ -1,8 +1,8 @@
 // LLM client — wraps Anthropic SDK with task_tier abstraction
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import { getModelConfig, EMBEDDING_MODEL } from "./models";
-import { getAIProvider } from "./settings";
+import { EMBEDDING_MODEL } from "./models";
+import { getAIModelConfig } from "./settings";
 import type { TaskTier } from "@/types/database";
 
 let _anthropic: Anthropic | null = null;
@@ -37,8 +37,7 @@ export interface LLMCallResult {
 }
 
 export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
-  const provider = await getAIProvider();
-  const config = getModelConfig(opts.tier, provider);
+  const config = await getAIModelConfig(opts.tier);
 
   if (config.provider === "anthropic") {
     const response = await getAnthropic().messages.create(
