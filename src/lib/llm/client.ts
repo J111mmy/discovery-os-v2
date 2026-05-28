@@ -22,6 +22,16 @@ function getOpenAI(): OpenAI {
   return _openai;
 }
 
+function supportsOpenAITemperature(model: string) {
+  const normalized = model.toLowerCase();
+  return !(
+    normalized.startsWith("gpt-5") ||
+    normalized.startsWith("o1") ||
+    normalized.startsWith("o3") ||
+    normalized.startsWith("o4")
+  );
+}
+
 export interface LLMCallOptions {
   tier: TaskTier;
   system: string;
@@ -63,19 +73,26 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
   }
 
   if (config.provider === "openai") {
+    const messages = [
+      { role: "system" as const, content: opts.system },
+      ...opts.messages.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+    ];
+
+    const request: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming = {
+      model: config.model,
+      max_completion_tokens: config.maxTokens,
+      messages,
+    };
+
+    if (supportsOpenAITemperature(config.model)) {
+      request.temperature = config.temperature;
+    }
+
     const response = await getOpenAI().chat.completions.create(
-      {
-        model: config.model,
-        max_tokens: config.maxTokens,
-        temperature: config.temperature,
-        messages: [
-          { role: "system", content: opts.system },
-          ...opts.messages.map((message) => ({
-            role: message.role,
-            content: message.content,
-          })),
-        ],
-      },
+      request,
       { timeout: opts.timeoutMs ?? 120_000 }
     );
 
