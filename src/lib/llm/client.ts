@@ -2,6 +2,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { getModelConfig, EMBEDDING_MODEL } from "./models";
+import { getAIProvider } from "./settings";
 import type { TaskTier } from "@/types/database";
 
 let _anthropic: Anthropic | null = null;
@@ -36,7 +37,8 @@ export interface LLMCallResult {
 }
 
 export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
-  const config = getModelConfig(opts.tier);
+  const provider = await getAIProvider();
+  const config = getModelConfig(opts.tier, provider);
 
   if (config.provider === "anthropic") {
     const response = await getAnthropic().messages.create(
@@ -58,6 +60,31 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
       model: config.model,
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
+    };
+  }
+
+  if (config.provider === "openai") {
+    const response = await getOpenAI().chat.completions.create(
+      {
+        model: config.model,
+        max_tokens: config.maxTokens,
+        temperature: config.temperature,
+        messages: [
+          { role: "system", content: opts.system },
+          ...opts.messages.map((message) => ({
+            role: message.role,
+            content: message.content,
+          })),
+        ],
+      },
+      { timeout: opts.timeoutMs ?? 120_000 }
+    );
+
+    return {
+      content: response.choices[0]?.message?.content ?? "",
+      model: config.model,
+      inputTokens: response.usage?.prompt_tokens ?? 0,
+      outputTokens: response.usage?.completion_tokens ?? 0,
     };
   }
 

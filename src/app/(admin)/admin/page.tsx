@@ -1,7 +1,9 @@
 // /admin — super admin dashboard: all orgs with stats and impersonation entry
 import { createClient } from "@/lib/supabase/server";
 import { isSuperAdmin, getAllOrgsWithStats } from "@/lib/auth/super-admin";
+import { getAIProviderSettings } from "@/lib/llm/settings";
 import { redirect } from "next/navigation";
+import { AIProviderSettingsPanel } from "./ai-provider-settings";
 
 function relativeTime(value: string | null): string {
   if (!value) return "never";
@@ -21,7 +23,10 @@ export default async function AdminPage() {
   if (!user) redirect("/login");
   if (!(await isSuperAdmin(user.id))) redirect("/projects");
 
-  const orgs = await getAllOrgsWithStats();
+  const [orgs, aiSettings] = await Promise.all([
+    getAllOrgsWithStats(),
+    getAIProviderSettings(),
+  ]);
 
   return (
     <div>
@@ -31,6 +36,8 @@ export default async function AdminPage() {
           {orgs.length} organisation{orgs.length === 1 ? "" : "s"} · Enter any workspace to browse as support
         </p>
       </div>
+
+      <AIProviderSettingsPanel initialSettings={aiSettings} />
 
       {orgs.length === 0 ? (
         <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-12 text-center text-sm text-[var(--ink-muted)]">
