@@ -38,6 +38,8 @@ export type PersonStatus =
   | "beta-participant"
   | "customer";
 export type AgentRunStatus = "running" | "completed" | "failed";
+export type ProjectOpportunityStatus = "suggested" | "watching" | "accepted" | "dismissed";
+export type ProjectOpportunityConfidence = "low" | "medium" | "high";
 
 export interface Org {
   id: string;
@@ -97,6 +99,37 @@ export interface Project {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProjectOpportunity {
+  id: string;
+  org_id: string;
+  title: string;
+  slug: string;
+  description: string | null;
+  suggested_frame: string | null;
+  confidence: ProjectOpportunityConfidence;
+  status: ProjectOpportunityStatus;
+  supporting_evidence_count: number;
+  source_project_count: number;
+  created_project_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectOpportunityEvidence {
+  org_id: string;
+  opportunity_id: string;
+  evidence_id: string;
+  created_at: string;
+}
+
+export interface ProjectOpportunityProject {
+  org_id: string;
+  opportunity_id: string;
+  project_id: string;
+  relationship: "source" | "created" | "linked";
+  created_at: string;
 }
 
 export interface Source {

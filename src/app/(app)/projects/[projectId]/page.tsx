@@ -3,9 +3,14 @@ import { createClient } from "@/lib/supabase/server";
 import { getProjectForUser } from "@/lib/auth/org";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
-import { runProjectSynthesisAction } from "./actions";
+import {
+  createProjectFromOpportunityAction,
+  runProjectSynthesisAction,
+  updateProjectOpportunityStatusAction,
+} from "./actions";
 import { computeConfidence } from "@/lib/confidence";
 import { sourceTypeLabel, trustScopeLabel, trustScopeClasses, priorityLabel, priorityClasses } from "@/lib/labels";
+import type { ProjectOpportunityConfidence, ProjectOpportunityStatus } from "@/types/database";
 
 interface Props {
   params: { projectId: string };
@@ -30,6 +35,17 @@ type ActivityRun = {
   status: "running" | "completed" | "failed";
   started_at: string;
   completed_at: string | null;
+};
+
+type OpportunityPreview = {
+  id: string;
+  title: string;
+  description: string | null;
+  suggested_frame: string | null;
+  confidence: ProjectOpportunityConfidence;
+  status: ProjectOpportunityStatus;
+  supporting_evidence_count: number;
+  source_project_count: number;
 };
 
 function synthesisTimeLabel(value: string | null) {
@@ -80,6 +96,27 @@ function activityPulse(runs: ActivityRun[]) {
     tone: "quiet" as const,
     text: `Last updated ${synthesisTimeLabel(mostRecentCompleted ?? recentRuns[0].started_at)}`,
   };
+}
+
+function confidenceClasses(confidence: ProjectOpportunityConfidence) {
+  if (confidence === "high") return "border-green-500/20 bg-green-500/10 text-green-300";
+  if (confidence === "medium") return "border-yellow-500/20 bg-yellow-500/10 text-yellow-300";
+  return "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
+}
+
+function opportunityStatusLabel(status: ProjectOpportunityStatus) {
+  if (status === "watching") return "Watching";
+  if (status === "accepted") return "Created";
+  if (status === "dismissed") return "Dismissed";
+  return "Suggested project";
+}
+
+function firstFrameLine(frame: string | null) {
+  if (!frame) return null;
+  return frame
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line && !["Problem", "Hypothesis", "Research Areas", "Success Metrics"].includes(line));
 }
 
 export default async function ProjectPage({ params }: Props) {
@@ -221,6 +258,35 @@ export default async function ProjectPage({ params }: Props) {
   const trustedTotal = trustedCount ?? 0;
   const synthesisRunning = (runningSynthesisCount ?? 0) > 0;
   const pulse = activityPulse((activityRuns ?? []) as ActivityRun[]);
+
+  const opportunityRows = await (async (): Promise<OpportunityPreview[]> => {
+    try {
+      const { data } = await supabase
+        .from("project_opportunity_projects")
+        .select(
+          "project_opportunities(id, title, description, suggested_frame, confidence, status, supporting_evidence_count, source_project_count, created_at)"
+        )
+        .eq("org_id", project.org_id)
+        .eq("project_id", project.id)
+        .eq("relationship", "source");
+
+      return ((data ?? []) as Array<{ project_opportunities: OpportunityPreview | OpportunityPreview[] | null }>)
+        .flatMap((row) => {
+          if (!row.project_opportunities) return [];
+          return Array.isArray(row.project_opportunities)
+            ? row.project_opportunities
+            : [row.project_opportunities];
+        })
+        .filter((opportunity) => opportunity.status === "suggested" || opportunity.status === "watching")
+        .sort((a, b) => {
+          const score = { high: 3, medium: 2, low: 1 };
+          return score[b.confidence] - score[a.confidence];
+        })
+        .slice(0, 3);
+    } catch {
+      return [];
+    }
+  })();
 
   // Confidence scoring — weighted model via src/lib/confidence.ts
   // Signals: evidence depth (30), source diversity (30), recency (20), synthesis breadth (20)
@@ -424,6 +490,106 @@ export default async function ProjectPage({ params }: Props) {
                 </div>
               </div>
             ))}
+          </div>
+        </section>
+      )}
+
+      {opportunityRows.length > 0 && (
+        <section className="mb-8 rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-[var(--ink)]">
+                Signals for new workspaces
+              </h2>
+              <p className="mt-1 max-w-2xl text-xs leading-5 text-[var(--ink-muted)]">
+                Evidence in this project is pointing at adjacent discovery areas. Review before creating
+                a new project so the workspace stays intentional.
+              </p>
+            </div>
+            <span className="rounded-full border border-[var(--border)] bg-[var(--surface-0)] px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)]">
+              {opportunityRows.length} active
+            </span>
+          </div>
+
+          <div className="grid gap-3">
+            {opportunityRows.map((opportunity) => {
+              const frameLine = firstFrameLine(opportunity.suggested_frame);
+
+              return (
+                <article
+                  key={opportunity.id}
+                  className="rounded-xl border border-[var(--border)] bg-[var(--surface-0)] p-4"
+                >
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                        <span className="rounded-full border border-[var(--border)] bg-[var(--surface-1)] px-2 py-0.5 text-xs font-medium text-[var(--ink-muted)]">
+                          {opportunityStatusLabel(opportunity.status)}
+                        </span>
+                        <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${confidenceClasses(opportunity.confidence)}`}>
+                          {opportunity.confidence} confidence
+                        </span>
+                      </div>
+                      <h3 className="text-base font-semibold text-[var(--ink)]">
+                        {opportunity.title}
+                      </h3>
+                      {opportunity.description && (
+                        <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--ink-muted)]">
+                          {opportunity.description}
+                        </p>
+                      )}
+                      {frameLine && (
+                        <p className="mt-2 max-w-3xl text-xs leading-5 text-[var(--ink-faint)]">
+                          Suggested frame: {frameLine}
+                        </p>
+                      )}
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--ink-faint)]">
+                        <span>{opportunity.supporting_evidence_count} evidence record{opportunity.supporting_evidence_count === 1 ? "" : "s"}</span>
+                        <span>·</span>
+                        <span>{opportunity.source_project_count} source project{opportunity.source_project_count === 1 ? "" : "s"}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
+                      <form action={createProjectFromOpportunityAction}>
+                        <input type="hidden" name="project_id" value={project.id} />
+                        <input type="hidden" name="opportunity_id" value={opportunity.id} />
+                        <button
+                          type="submit"
+                          className="rounded-lg bg-[var(--brand)] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[var(--brand-dim)]"
+                        >
+                          Create project
+                        </button>
+                      </form>
+                      {opportunity.status !== "watching" && (
+                        <form action={updateProjectOpportunityStatusAction}>
+                          <input type="hidden" name="project_id" value={project.id} />
+                          <input type="hidden" name="opportunity_id" value={opportunity.id} />
+                          <input type="hidden" name="status" value="watching" />
+                          <button
+                            type="submit"
+                            className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--ink-muted)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
+                          >
+                            Keep watching
+                          </button>
+                        </form>
+                      )}
+                      <form action={updateProjectOpportunityStatusAction}>
+                        <input type="hidden" name="project_id" value={project.id} />
+                        <input type="hidden" name="opportunity_id" value={opportunity.id} />
+                        <input type="hidden" name="status" value="dismissed" />
+                        <button
+                          type="submit"
+                          className="rounded-lg border border-red-500/20 px-3 py-2 text-xs font-medium text-red-300 transition-colors hover:border-red-400/50 hover:bg-red-500/10"
+                        >
+                          Dismiss
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </section>
       )}

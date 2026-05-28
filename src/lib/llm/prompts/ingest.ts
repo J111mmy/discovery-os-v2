@@ -12,7 +12,8 @@ For each claim return:
 - sentiment: one of positive | negative | neutral | mixed
 - speaker: the speaker's name or label, or null if unknown
 - themes: an array of short theme labels, preferring the existing themes where relevant
-- adjacent_project_hint: if the claim is more relevant to one of the OTHER ACTIVE PROJECTS listed below than to the current project, include that project's name here; otherwise omit or return null
+- adjacent_project_hint: if the claim is more relevant to one of the OTHER ACTIVE PROJECTS listed below than to the current project, include that exact project name. If it suggests a distinct project that does not exist yet, include a concise suggested project name. Otherwise omit or return null.
+- adjacent_project_reason: one short sentence explaining why this claim points outside the current project, or null
 
 Return only a JSON array. Do not include markdown fences or explanatory text.
 Extract as many claims as the content supports. If there are no citable claims, return [].
@@ -33,6 +34,8 @@ KNOWN PROBLEMS IN THIS PROJECT (flag if evidence supports or contradicts any of 
 
 OTHER ACTIVE PROJECTS (flag signals that belong here instead of or in addition to the current project):
 {otherProjects}
+
+If a signal points to a new project not listed above, name the smallest coherent project area, not a vague theme. Example: use "Delivery Inspections" rather than "QC".
 
 CONVERSATION UNIT:
 {content}

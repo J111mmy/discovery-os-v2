@@ -60,6 +60,7 @@ type ConversationUnit = {
 };
 
 type ProjectContext = {
+  id?: string;
   name: string;
   frame: string | null;
   frame_data: Record<string, unknown> | null;
@@ -84,6 +85,8 @@ const ExtractedClaimSchema = z.object({
   sentiment: z.enum(["positive", "negative", "neutral", "mixed"]),
   speaker: z.string().trim().nullable().optional(),
   themes: z.array(z.string().trim().min(1)).optional().default([]),
+  adjacent_project_hint: z.string().trim().nullable().optional(),
+  adjacent_project_reason: z.string().trim().nullable().optional(),
 });
 
 type ExtractedClaim = z.infer<typeof ExtractedClaimSchema>;
@@ -94,6 +97,23 @@ function normalizedText(text: string) {
 
 function wordCount(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+}
+
+function titleFromHint(value: string) {
+  return value
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/[.!?]+$/g, "")
+    .slice(0, 120);
 }
 
 function tokenEstimate(text: string) {
@@ -495,6 +515,25 @@ function normalizeClaim(value: unknown): ExtractedClaim | null {
   return parsed.data;
 }
 
+function resolveAdjacentProject(
+  hint: string | null | undefined,
+  otherProjects: Array<{ id: string; name: string; frame: string | null }>
+) {
+  const hintSlug = slugify(hint ?? "");
+  if (!hintSlug) return null;
+
+  return (
+    otherProjects.find((project) => {
+      const projectSlug = slugify(project.name);
+      return (
+        projectSlug === hintSlug ||
+        hintSlug.includes(projectSlug) ||
+        projectSlug.includes(hintSlug)
+      );
+    }) ?? null
+  );
+}
+
 function buildConversationUnits(segments: StoredSegment[]): ConversationUnit[] {
   const byUnit = new Map<string, StoredSegment[]>();
 
@@ -554,7 +593,7 @@ export const ingestSource = inngest.createFunction(
         const [projectResult, themesResult, problemsResult, otherProjectsResult, internalPeopleResult] = await Promise.all([
           supabase
             .from("projects")
-            .select("name, frame, frame_data")
+            .select("id, name, frame, frame_data")
             .eq("org_id", org_id)
             .eq("id", project_id)
             .single(),
@@ -575,9 +614,10 @@ export const ingestSource = inngest.createFunction(
           // Other active projects — for adjacent signal detection
           supabase
             .from("projects")
-            .select("name, frame")
+            .select("id, name, frame")
             .eq("org_id", org_id)
             .neq("id", project_id)
+            .eq("archived", false)
             .limit(10),
           // Internal speakers — their turns are context, not customer evidence
           supabase
@@ -598,7 +638,7 @@ export const ingestSource = inngest.createFunction(
           projectResult.data as ProjectContext,
           (themesResult.data ?? []) as ThemeContext[],
           (problemsResult.data ?? []) as Array<{ title: string }>,
-          (otherProjectsResult.data ?? []) as Array<{ name: string; frame: string | null }>,
+          (otherProjectsResult.data ?? []) as Array<{ id: string; name: string; frame: string | null }>,
           (internalPeopleResult.data ?? []) as InternalSpeaker[],
         ] as const;
       });
@@ -717,41 +757,219 @@ export const ingestSource = inngest.createFunction(
         if (extractedClaims.length === 0) return [];
 
         const batchSize = 20;
-        const stored: Array<{ id: string }> = [];
+        const stored: Array<{ id: string; metadata: Record<string, unknown> | null }> = [];
 
         for (let i = 0; i < extractedClaims.length; i += batchSize) {
           const batch = extractedClaims.slice(i, i + batchSize);
           const embeddings = await embedBatch(batch.map((claim) => claim.content));
 
-          const evidenceBatch = batch.map((claim, idx) => ({
-            org_id,
-            project_id,
-            source_id,
-            segment_id: claim.segment_id,
-            content: claim.content,
-            summary: claim.summary ?? null,
-            classification: claim.classification as EvidenceClassification,
-            sentiment: claim.sentiment as EvidenceSentiment,
-            themes: claim.themes,
-            metadata: {
-              speaker: claim.speaker ?? null,
-              conversation_unit_id: claim.unit_id,
-              prompt_version: INGEST_EXTRACTION_PROMPT_VERSION,
-            },
-            embedding: `[${embeddings[idx].join(",")}]`,
-            trust_scope: "pending" as const,
-          }));
+          const evidenceBatch = batch.map((claim, idx) => {
+            const adjacentHint = titleFromHint(claim.adjacent_project_hint ?? "");
+            const adjacentProject = resolveAdjacentProject(adjacentHint, otherProjects);
+
+            return {
+              org_id,
+              project_id,
+              source_id,
+              segment_id: claim.segment_id,
+              content: claim.content,
+              summary: claim.summary ?? null,
+              classification: claim.classification as EvidenceClassification,
+              sentiment: claim.sentiment as EvidenceSentiment,
+              themes: claim.themes,
+              metadata: {
+                speaker: claim.speaker ?? null,
+                conversation_unit_id: claim.unit_id,
+                prompt_version: INGEST_EXTRACTION_PROMPT_VERSION,
+                adjacent_project_hint: adjacentHint || null,
+                adjacent_project_reason: claim.adjacent_project_reason ?? null,
+                adjacent_project_id: adjacentProject?.id ?? null,
+                adjacent_project_name: adjacentProject?.name ?? null,
+                adjacent_project_status: adjacentHint
+                  ? adjacentProject
+                    ? "matched_existing"
+                    : "suggested_new"
+                  : null,
+              },
+              embedding: `[${embeddings[idx].join(",")}]`,
+              trust_scope: "pending" as const,
+            };
+          });
 
           const { data, error } = await supabase
             .from("evidence")
             .insert(evidenceBatch)
-            .select("id");
+            .select("id, metadata");
 
           if (error) throw new Error(`Failed to store evidence: ${error.message}`);
-          stored.push(...((data ?? []) as Array<{ id: string }>));
+          stored.push(...((data ?? []) as Array<{ id: string; metadata: Record<string, unknown> | null }>));
         }
 
         return stored;
+      });
+
+      await step.run("record-project-opportunities", async () => {
+        try {
+          type OpportunityEvidenceCandidate = {
+            evidence_id: string;
+            hint: string;
+            reason: string | null;
+            matchedProjectId: string | null;
+          };
+
+          const candidateEvidence: OpportunityEvidenceCandidate[] = evidenceRecords
+            .map((record) => {
+              const metadata = record.metadata ?? {};
+              const hint = titleFromHint(
+                typeof metadata.adjacent_project_hint === "string"
+                  ? metadata.adjacent_project_hint
+                  : ""
+              );
+              const reason =
+                typeof metadata.adjacent_project_reason === "string"
+                  ? metadata.adjacent_project_reason
+                  : null;
+              const matchedProjectId =
+                typeof metadata.adjacent_project_id === "string"
+                  ? metadata.adjacent_project_id
+                  : null;
+
+              return { evidence_id: record.id, hint, reason, matchedProjectId };
+            })
+            .filter(
+              (record): record is OpportunityEvidenceCandidate =>
+                Boolean(record.hint) && !record.matchedProjectId
+            );
+
+          if (candidateEvidence.length === 0) return;
+
+          const grouped = new Map<string, OpportunityEvidenceCandidate[]>();
+          for (const record of candidateEvidence) {
+            const slug = slugify(record.hint);
+            if (!slug) continue;
+            const records = grouped.get(slug) ?? [];
+            records.push(record);
+            grouped.set(slug, records);
+          }
+
+          for (const [slug, records] of Array.from(grouped.entries())) {
+            const firstRecord = records[0];
+            if (!firstRecord) continue;
+
+            const title = firstRecord.hint;
+            const evidenceCount = records.length;
+            const confidence =
+              evidenceCount >= 5 ? "high" : evidenceCount >= 2 ? "medium" : "low";
+            const description =
+              records.find((record) => record.reason)?.reason ??
+              `Evidence in ${project.name} is pointing at a distinct discovery area around ${title}.`;
+            const suggestedFrame = [
+              "Problem",
+              `Understand whether ${title} is a distinct problem area worth investigating.`,
+              "",
+              "Hypothesis",
+              `Signals from ${project.name} suggest ${title} may deserve its own discovery workspace.`,
+              "",
+              "Research Areas",
+              `- When and why ${title} appears in real workflows`,
+              "- Which roles are affected",
+              "- What evidence would confirm this is a separate project",
+              "",
+              "Success Metrics",
+              "- Evidence from multiple sources supports a clear problem statement",
+              "- The team can decide whether to create a dedicated solution or keep monitoring",
+            ].join("\n");
+
+            const { data: existing } = await supabase
+              .from("project_opportunities")
+              .select("id, status")
+              .eq("org_id", org_id)
+              .eq("slug", slug)
+              .maybeSingle();
+
+            if (existing?.status === "dismissed" || existing?.status === "accepted") {
+              continue;
+            }
+
+            let opportunityId = existing?.id as string | undefined;
+            if (opportunityId) {
+              await supabase
+                .from("project_opportunities")
+                .update({
+                  title,
+                  description,
+                  suggested_frame: suggestedFrame,
+                  confidence,
+                })
+                .eq("org_id", org_id)
+                .eq("id", opportunityId);
+            } else {
+              const { data, error } = await supabase
+                .from("project_opportunities")
+                .insert({
+                  org_id,
+                  title,
+                  slug,
+                  description,
+                  suggested_frame: suggestedFrame,
+                  confidence,
+                  status: "suggested",
+                })
+                .select("id")
+                .single();
+
+              if (error || !data) {
+                throw new Error(`Failed to create project opportunity: ${error?.message}`);
+              }
+              opportunityId = data.id as string;
+            }
+
+            await supabase.from("project_opportunity_projects").upsert(
+              {
+                org_id,
+                opportunity_id: opportunityId,
+                project_id,
+                relationship: "source",
+              },
+              { onConflict: "opportunity_id,project_id,relationship" }
+            );
+
+            await supabase.from("project_opportunity_evidence").upsert(
+              records.map((record) => ({
+                org_id,
+                opportunity_id: opportunityId,
+                evidence_id: record.evidence_id,
+              })),
+              { onConflict: "opportunity_id,evidence_id" }
+            );
+
+            const [{ count: linkedEvidenceCount }, { count: sourceProjectCount }] =
+              await Promise.all([
+                supabase
+                  .from("project_opportunity_evidence")
+                  .select("*", { count: "exact", head: true })
+                  .eq("org_id", org_id)
+                  .eq("opportunity_id", opportunityId),
+                supabase
+                  .from("project_opportunity_projects")
+                  .select("*", { count: "exact", head: true })
+                  .eq("org_id", org_id)
+                  .eq("opportunity_id", opportunityId)
+                  .eq("relationship", "source"),
+              ]);
+
+            await supabase
+              .from("project_opportunities")
+              .update({
+                supporting_evidence_count: linkedEvidenceCount ?? records.length,
+                source_project_count: sourceProjectCount ?? 1,
+              })
+              .eq("org_id", org_id)
+              .eq("id", opportunityId);
+          }
+        } catch (error) {
+          console.warn("Skipping project opportunity recording", error);
+        }
       });
 
       await step.run("mark-complete", async () => {
