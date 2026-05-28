@@ -79,14 +79,23 @@ function TrustBadge({ trustScope }: { trustScope: TrustScope | "missing" }) {
 }
 
 function StatusBadge({ status }: { status: JobStatus | "not_started" }) {
-  const label = status === "failed" ? "check needed" : status;
+  const label =
+    status === "failed"
+      ? "check needed"
+      : status === "pending"
+      ? "queued"
+      : status === "processing"
+      ? "analyzing"
+      : status;
   const classes =
     status === "done"
       ? "border-green-500/20 bg-green-500/10 text-green-300"
       : status === "failed"
       ? "border-red-500/20 bg-red-500/10 text-red-300"
-      : status === "processing" || status === "pending"
+      : status === "processing"
       ? "border-yellow-500/20 bg-yellow-500/10 text-yellow-300"
+      : status === "pending"
+      ? "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]"
       : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
 
   return (
@@ -174,6 +183,8 @@ export default async function SourceDetailPage({ params }: Props) {
     latestJob?.status === "done" && evidenceRows.length === 0 && segments.length > 0;
   const staleJob = isStaleIngestJob(latestJob?.status, latestJob?.created_at);
   const displayStatus = zeroEvidenceDone || staleJob ? "failed" : latestJob?.status ?? "not_started";
+  const isQueued = displayStatus === "pending";
+  const isAnalyzing = displayStatus === "processing";
   const sourceLooksLikeMarker = looksLikeProcessedMarker(
     segments.map((segment) => segment.raw_content).join("\n\n")
   );
@@ -210,6 +221,26 @@ export default async function SourceDetailPage({ params }: Props) {
       {latestJob?.error && (
         <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
           {latestJob.error}
+        </div>
+      )}
+
+      {isQueued && (
+        <div className="mb-6 rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-4 text-sm leading-6 text-[var(--ink-muted)]">
+          <div className="font-semibold text-[var(--ink)]">Queued for ingest.</div>
+          <p className="mt-1">
+            DiscOS processes one source at a time for better extraction quality, lower cost, and fewer
+            provider rate-limit failures. This source will start automatically.
+          </p>
+        </div>
+      )}
+
+      {isAnalyzing && (
+        <div className="mb-6 rounded-xl border border-yellow-500/20 bg-yellow-500/10 p-4 text-sm leading-6 text-yellow-100">
+          <div className="font-semibold">Analyzing source.</div>
+          <p className="mt-1">
+            The ingest agent is segmenting the source and extracting citable evidence. Long transcripts
+            can take several minutes.
+          </p>
         </div>
       )}
 
@@ -310,7 +341,11 @@ export default async function SourceDetailPage({ params }: Props) {
 
       {segments.length === 0 && (
         <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-12 text-center text-sm text-[var(--ink-muted)]">
-          No segments have been created yet. Retry the source after Inngest is running.
+          {isQueued
+            ? "No segments yet. This source is queued and will start automatically."
+            : isAnalyzing
+            ? "No segments yet. The ingest agent is preparing this source."
+            : "No segments have been created yet. Retry the source if processing did not complete."}
         </div>
       )}
     </div>

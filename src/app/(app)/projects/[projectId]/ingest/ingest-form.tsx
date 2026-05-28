@@ -57,10 +57,11 @@ export function IngestForm({ projectId }: IngestFormProps) {
   useEffect(() => {
     if (!jobId || status === "done" || status === "failed") return;
 
-    // Give up after ~3 minutes (100 polls × 1800ms) and show a helpful message
-    if (pollCount > 100) {
+    // Give up after ~25 minutes (850 polls × 1800ms). Long transcripts can
+    // legitimately queue behind another source, so this is intentionally generous.
+    if (pollCount > 850) {
       setError(
-        "Still processing after 3 minutes. Check that Inngest is running — locally run: npx inngest-cli@latest dev -u http://localhost:3000/api/inngest. On Vercel make sure INNGEST_EVENT_KEY and INNGEST_SIGNING_KEY are set."
+        "This is taking longer than expected. You can leave this page and check the source from the Sources page. If it shows check needed, use Retry."
       );
       setStatus("failed");
       return;
@@ -207,6 +208,8 @@ export function IngestForm({ projectId }: IngestFormProps) {
   }
 
   const isWorking = status === "queued" || status === "pending" || status === "processing";
+  const isQueued = status === "queued" || status === "pending";
+  const statusTitle = isQueued ? "Queued" : status === "processing" ? "Analyzing" : "Ingest status";
 
   return (
     <form onSubmit={onSubmit} className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
@@ -294,14 +297,17 @@ export function IngestForm({ projectId }: IngestFormProps) {
       </div>
 
       <aside className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
-        <div className="text-sm font-semibold text-[var(--ink)]">Ingest status</div>
+        <div className="text-sm font-semibold text-[var(--ink)]">{statusTitle}</div>
         <p className="mt-2 text-sm leading-6 text-[var(--ink-muted)]">
-          Evidence creation usually starts within a few seconds after submission.
+          DiscOS queues sources and processes one at a time so extraction stays reliable,
+          cheaper, and easier on provider limits.
         </p>
 
         {isWorking && (
           <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink-muted)]">
-            Processing... {status === "processing" ? "Evidence is being generated." : "The job is queued."}
+            {isQueued
+              ? "Queued — this will start automatically when the current source finishes. You can leave this page."
+              : "Analyzing — extracting citable evidence from the source."}
           </div>
         )}
 
@@ -326,7 +332,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
             disabled={isWorking || extractingFile}
             className="w-full rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {extractingFile ? "Extracting..." : isWorking ? "Processing..." : "Start ingest"}
+            {extractingFile ? "Extracting..." : isQueued ? "Queued" : status === "processing" ? "Analyzing..." : "Start ingest"}
           </button>
         </div>
       </aside>

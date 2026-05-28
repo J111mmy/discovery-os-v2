@@ -36,15 +36,18 @@ function StatusBadge({ status }: { status: JobStatus | "not_started" }) {
   const label =
     status === "done" ? "ready" :
     status === "failed" ? "check needed" :
-    status === "processing" || status === "pending" ? "analyzing" :
+    status === "processing" ? "analyzing" :
+    status === "pending" ? "queued" :
     "not started";
   const classes =
     status === "done"
       ? "border-green-500/20 bg-green-500/10 text-green-300"
       : status === "failed"
       ? "border-red-500/20 bg-red-500/10 text-red-300"
-      : status === "processing" || status === "pending"
+      : status === "processing"
       ? "border-yellow-500/20 bg-yellow-500/10 text-yellow-300"
+      : status === "pending"
+      ? "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]"
       : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
 
   return (
@@ -178,7 +181,8 @@ export default async function SourcesPage({ params }: Props) {
             const isStale = isStaleIngestJob(jobStatus, job?.created_at ?? null);
             const needsCheck = jobStatus === "done" && evidenceCount === 0 && segmentCount > 0;
             const displayStatus = needsCheck || isStale ? "failed" : jobStatus;
-            const isAnalyzing = !isStale && (jobStatus === "processing" || jobStatus === "pending");
+            const isQueued = !isStale && jobStatus === "pending";
+            const isAnalyzing = !isStale && jobStatus === "processing";
             const hasFailed = jobStatus === "failed" || needsCheck || isStale;
 
             return (
@@ -206,7 +210,9 @@ export default async function SourcesPage({ params }: Props) {
                     </Link>
                     <div className="mt-2 text-xs text-[var(--ink-muted)]">
                       {isAnalyzing
-                        ? "Extracting evidence — this may take a minute for long transcripts."
+                        ? "Analyzing — extracting citable evidence from the source."
+                        : isQueued
+                        ? "Queued — sources run one at a time for better quality and lower cost."
                         : hasFailed
                         ? needsCheck
                           ? "Processing completed but produced no evidence. Check the source text, then retry."
