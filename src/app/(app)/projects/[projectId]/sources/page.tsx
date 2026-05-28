@@ -1,4 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import { isStaleIngestJob } from "@/lib/ingest/quality";
 import { sourceTypeLabel, trustScopeClasses, trustScopeLabel } from "@/lib/labels";
 import { createClient } from "@/lib/supabase/server";
 import type { JobStatus, SourceType, TrustScope } from "@/types/database";
@@ -174,10 +175,11 @@ export default async function SourcesPage({ params }: Props) {
             const segmentCount = segmentCountBySource.get(source.id) ?? 0;
 
             const jobStatus = job?.status ?? "not_started";
+            const isStale = isStaleIngestJob(jobStatus, job?.created_at ?? null);
             const needsCheck = jobStatus === "done" && evidenceCount === 0 && segmentCount > 0;
-            const displayStatus = needsCheck ? "failed" : jobStatus;
-            const isAnalyzing = jobStatus === "processing" || jobStatus === "pending";
-            const hasFailed = jobStatus === "failed" || needsCheck;
+            const displayStatus = needsCheck || isStale ? "failed" : jobStatus;
+            const isAnalyzing = !isStale && (jobStatus === "processing" || jobStatus === "pending");
+            const hasFailed = jobStatus === "failed" || needsCheck || isStale;
 
             return (
               <article
@@ -208,6 +210,8 @@ export default async function SourcesPage({ params }: Props) {
                         : hasFailed
                         ? needsCheck
                           ? "Processing completed but produced no evidence. Check the source text, then retry."
+                          : isStale
+                          ? "Processing took too long. Use Retry to run it again."
                           : "Processing did not complete. Use Retry to try again."
                         : `${evidenceCount} evidence record${evidenceCount === 1 ? "" : "s"}`}
                     </div>

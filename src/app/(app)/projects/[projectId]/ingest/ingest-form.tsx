@@ -30,7 +30,6 @@ const INGEST_SOURCE_TYPES: SourceType[] = [
 ];
 
 const TEXT_FILE_EXTENSIONS = new Set(["txt", "md", "markdown"]);
-const DOCUMENT_FILE_EXTENSIONS = new Set(["pdf", "doc", "docx"]);
 const ALLOWED_FILE_EXTENSIONS = new Set([
   "pdf",
   "doc",
@@ -196,9 +195,6 @@ export function IngestForm({ projectId }: IngestFormProps) {
       }
 
       setRawText(text.trim());
-      if (DOCUMENT_FILE_EXTENSIONS.has(extension ?? "")) {
-        setType("document");
-      }
     } catch (extractError) {
       const message =
         extractError instanceof Error
@@ -246,6 +242,10 @@ export function IngestForm({ projectId }: IngestFormProps) {
                 </option>
               ))}
             </select>
+            <p className="mt-2 text-xs leading-5 text-[var(--ink-muted)]">
+              Choose what the source is, not the file format. A PDF transcript should still be a
+              customer interview.
+            </p>
           </div>
         </div>
 

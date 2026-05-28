@@ -386,9 +386,15 @@ function assignConversationUnits(turns: TranscriptTurn[]): RawSegment[] {
   });
 }
 
-function segmentTranscript(text: string): RawSegment[] {
-  const turns = parseTranscriptTurns(text);
-  return assignConversationUnits(turns);
+function looksLikeTranscriptTurns(turns: TranscriptTurn[]) {
+  if (turns.length < 4) return false;
+
+  const speakerCounts = new Map<string, number>();
+  for (const turn of turns) {
+    speakerCounts.set(turn.speaker, (speakerCounts.get(turn.speaker) ?? 0) + 1);
+  }
+
+  return speakerCounts.size >= 2 && Array.from(speakerCounts.values()).some((count) => count >= 2);
 }
 
 function segmentDocument(text: string): RawSegment[] {
@@ -427,10 +433,17 @@ const TRANSCRIPT_LIKE_TYPES = new Set<SourceType>([
 ]);
 
 function segmentText(text: string, type: SourceType): RawSegment[] {
+  const transcriptTurns = parseTranscriptTurns(text);
+
   if (TRANSCRIPT_LIKE_TYPES.has(type)) {
-    const transcriptSegments = segmentTranscript(text);
+    const transcriptSegments = assignConversationUnits(transcriptTurns);
     if (transcriptSegments.length > 0) return transcriptSegments;
   }
+
+  if (looksLikeTranscriptTurns(transcriptTurns)) {
+    return assignConversationUnits(transcriptTurns);
+  }
+
   return segmentDocument(text);
 }
 
@@ -563,7 +576,12 @@ function buildConversationUnits(segments: StoredSegment[]): ConversationUnit[] {
 }
 
 export const ingestSource = inngest.createFunction(
-  { id: "ingest-source", name: "Ingest Source", retries: 3 },
+  {
+    id: "ingest-source",
+    name: "Ingest Source",
+    retries: 3,
+    concurrency: { limit: 1, key: "event.data.org_id", scope: "env" },
+  },
   { event: "source/ingest.requested" },
   async ({ event, step }) => {
     const { org_id, project_id, source_id, job_id } = event.data;
@@ -689,73 +707,83 @@ export const ingestSource = inngest.createFunction(
         return (data ?? []) as StoredSegment[];
       });
 
-      const extractedClaims = await step.run("extract-evidence", async () => {
-        const units = buildConversationUnits(segments);
-        const claims: Array<ExtractedClaim & { segment_id: string; unit_id: string }> = [];
-        const extractionErrors: string[] = [];
+      const units = await step.run("build-conversation-units", async () =>
+        buildConversationUnits(segments).filter((unit) => unit.content.trim())
+      );
 
-        for (const unit of units) {
-          if (!unit.content.trim()) continue;
+      const extractedClaims: Array<ExtractedClaim & { segment_id: string; unit_id: string }> = [];
+      const extractionErrors: string[] = [];
 
-          const prompt = buildIngestExtractionPrompt({
-            content: unit.content,
-            frame: formatFrame(project),
-            themes: formatThemes(themes),
-            problems: problems.length > 0
-              ? problems.map((p) => `- ${p.title}`).join("\n")
-              : "No problems identified yet.",
-            otherProjects: otherProjects.length > 0
-              ? otherProjects.map((p) => `- ${p.name}${p.frame ? `: ${p.frame.slice(0, 120)}` : ""}`).join("\n")
-              : "No other active projects.",
-            internalSpeakers: formatInternalSpeakers(internalSpeakers),
-          });
+      for (let unitIndex = 0; unitIndex < units.length; unitIndex++) {
+        const unit = units[unitIndex];
+        if (!unit) continue;
 
-          const result = await callLLM({
-            tier: "standard",
-            system:
-              "You extract structured customer evidence. Return strict JSON only.",
-            messages: [{ role: "user", content: prompt }],
-            timeoutMs: 120_000,
-          });
-
-          let parsed: unknown;
-          try {
-            parsed = extractJsonArray(result.content);
-          } catch (error) {
-            const message =
-              error instanceof Error ? error.message : "Unknown JSON parse error";
-            extractionErrors.push(`${unit.id}: ${message}`);
-            console.warn("Skipping malformed ingest extraction response", {
-              source_id,
-              unit_id: unit.id,
-              message,
+        const unitResult = await step.run(
+          `extract-evidence-${String(unitIndex + 1).padStart(4, "0")}`,
+          async () => {
+            const prompt = buildIngestExtractionPrompt({
+              content: unit.content,
+              frame: formatFrame(project),
+              themes: formatThemes(themes),
+              problems: problems.length > 0
+                ? problems.map((p) => `- ${p.title}`).join("\n")
+                : "No problems identified yet.",
+              otherProjects: otherProjects.length > 0
+                ? otherProjects.map((p) => `- ${p.name}${p.frame ? `: ${p.frame.slice(0, 120)}` : ""}`).join("\n")
+                : "No other active projects.",
+              internalSpeakers: formatInternalSpeakers(internalSpeakers),
             });
-            continue;
-          }
 
-          const array = Array.isArray(parsed) ? parsed : [];
-          const primarySegmentId = unit.segments[0]?.id;
-          if (!primarySegmentId) continue;
-
-          for (const item of array) {
-            const claim = normalizeClaim(item);
-            if (!claim) continue;
-            claims.push({
-              ...claim,
-              segment_id: primarySegmentId,
-              unit_id: unit.id,
+            const result = await callLLM({
+              tier: "standard",
+              system:
+                "You extract structured customer evidence. Return strict JSON only.",
+              messages: [{ role: "user", content: prompt }],
+              timeoutMs: 120_000,
             });
+
+            let parsed: unknown;
+            try {
+              parsed = extractJsonArray(result.content);
+            } catch (error) {
+              const message =
+                error instanceof Error ? error.message : "Unknown JSON parse error";
+              console.warn("Skipping malformed ingest extraction response", {
+                source_id,
+                unit_id: unit.id,
+                message,
+              });
+              return { claims: [], error: `${unit.id}: ${message}` };
+            }
+
+            const array = Array.isArray(parsed) ? parsed : [];
+            const primarySegmentId = unit.segments[0]?.id;
+            if (!primarySegmentId) return { claims: [], error: null };
+
+            const claims: Array<ExtractedClaim & { segment_id: string; unit_id: string }> = [];
+            for (const item of array) {
+              const claim = normalizeClaim(item);
+              if (!claim) continue;
+              claims.push({ ...claim, segment_id: primarySegmentId, unit_id: unit.id });
+            }
+
+            return { claims, error: null };
           }
-        }
+        );
 
-        if (claims.length === 0 && extractionErrors.length > 0) {
-          throw new Error(
-            `Ingest extraction failed for all conversation units: ${extractionErrors[0]}`
-          );
-        }
+        extractedClaims.push(
+          ...(unitResult.claims.filter(Boolean) as Array<
+            ExtractedClaim & { segment_id: string; unit_id: string }
+          >)
+        );
+        if (unitResult.error) extractionErrors.push(unitResult.error);
+      }
 
-        return claims;
-      });
+      if (extractedClaims.length === 0 && extractionErrors.length > 0) {
+        throw new Error(
+          `Ingest extraction failed for all conversation units: ${extractionErrors[0]}`
+        );
+      }
 
       const evidenceRecords = await step.run("embed-and-store", async () => {
         if (extractedClaims.length === 0) return [];

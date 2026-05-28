@@ -1,5 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
-import { looksLikeProcessedMarker } from "@/lib/ingest/quality";
+import { isStaleIngestJob, looksLikeProcessedMarker } from "@/lib/ingest/quality";
 import { createClient } from "@/lib/supabase/server";
 import type { JobStatus, SourceType, TrustScope } from "@/types/database";
 import Link from "next/link";
@@ -157,7 +157,12 @@ export default async function SourceDetailPage({ params }: Props) {
   const segments = (segmentsResult.data ?? []) as SegmentRow[];
   const evidenceRows = (evidenceResult.data ?? []) as EvidenceRow[];
   const latestJob = jobResult.data?.[0] as
-    | { status: JobStatus; error: string | null; result: Record<string, number> | null }
+    | {
+        status: JobStatus;
+        error: string | null;
+        result: Record<string, number> | null;
+        created_at: string;
+      }
     | undefined;
   const sessionBrief = (briefResult.data?.[0] as SessionBriefRow | undefined) ?? null;
 
@@ -167,7 +172,8 @@ export default async function SourceDetailPage({ params }: Props) {
   });
   const zeroEvidenceDone =
     latestJob?.status === "done" && evidenceRows.length === 0 && segments.length > 0;
-  const displayStatus = zeroEvidenceDone ? "failed" : latestJob?.status ?? "not_started";
+  const staleJob = isStaleIngestJob(latestJob?.status, latestJob?.created_at);
+  const displayStatus = zeroEvidenceDone || staleJob ? "failed" : latestJob?.status ?? "not_started";
   const sourceLooksLikeMarker = looksLikeProcessedMarker(
     segments.map((segment) => segment.raw_content).join("\n\n")
   );
@@ -204,6 +210,15 @@ export default async function SourceDetailPage({ params }: Props) {
       {latestJob?.error && (
         <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
           {latestJob.error}
+        </div>
+      )}
+
+      {staleJob && !latestJob?.error && (
+        <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm leading-6 text-red-200">
+          <div className="font-semibold text-red-100">Processing took too long.</div>
+          <p className="mt-1">
+            This source appears to be stuck. Use Retry to clear the partial segments and run ingest again.
+          </p>
         </div>
       )}
 
