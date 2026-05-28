@@ -174,8 +174,10 @@ export default async function SourcesPage({ params }: Props) {
             const segmentCount = segmentCountBySource.get(source.id) ?? 0;
 
             const jobStatus = job?.status ?? "not_started";
+            const needsCheck = jobStatus === "done" && evidenceCount === 0 && segmentCount > 0;
+            const displayStatus = needsCheck ? "failed" : jobStatus;
             const isAnalyzing = jobStatus === "processing" || jobStatus === "pending";
-            const hasFailed = jobStatus === "failed";
+            const hasFailed = jobStatus === "failed" || needsCheck;
 
             return (
               <article
@@ -185,7 +187,7 @@ export default async function SourcesPage({ params }: Props) {
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">
                     <div className="mb-2 flex flex-wrap items-center gap-2">
-                      <StatusBadge status={jobStatus} />
+                      <StatusBadge status={displayStatus} />
                       <span className="text-xs text-[var(--ink-muted)]">
                         {sourceTypeLabel(source.type)}
                       </span>
@@ -204,7 +206,9 @@ export default async function SourcesPage({ params }: Props) {
                       {isAnalyzing
                         ? "Extracting evidence — this may take a minute for long transcripts."
                         : hasFailed
-                        ? "Processing did not complete. Use Retry to try again."
+                        ? needsCheck
+                          ? "Processing completed but produced no evidence. Check the source text, then retry."
+                          : "Processing did not complete. Use Retry to try again."
                         : `${evidenceCount} evidence record${evidenceCount === 1 ? "" : "s"}`}
                     </div>
                   </div>

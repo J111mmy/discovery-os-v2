@@ -5,6 +5,7 @@ import { z } from "zod";
 import { inngest } from "../client";
 import { createServiceClient } from "@/lib/supabase/server";
 import { callLLM, embedBatch } from "@/lib/llm/client";
+import { PROCESSED_MARKER_ERROR, looksLikeProcessedMarker } from "@/lib/ingest/quality";
 import { redactPII } from "@/lib/llm/pii";
 import {
   buildIngestExtractionPrompt,
@@ -648,6 +649,9 @@ export const ingestSource = inngest.createFunction(
         if (!text || text.trim().length < 20) {
           throw new Error("Source has no extractable text");
         }
+        if (looksLikeProcessedMarker(text)) {
+          throw new Error(PROCESSED_MARKER_ERROR);
+        }
         return text;
       });
 
@@ -973,6 +977,24 @@ export const ingestSource = inngest.createFunction(
       });
 
       await step.run("mark-complete", async () => {
+        if (evidenceRecords.length === 0) {
+          await supabase
+            .from("ingest_jobs")
+            .update({
+              status: "failed",
+              error:
+                "No evidence was created. Check that this is the original source text, then retry.",
+              completed_at: new Date().toISOString(),
+              result: {
+                segments_created: segments.length,
+                evidence_created: 0,
+              },
+            })
+            .eq("org_id", org_id)
+            .eq("id", job_id);
+          return;
+        }
+
         await supabase
           .from("ingest_jobs")
           .update({
@@ -993,6 +1015,14 @@ export const ingestSource = inngest.createFunction(
           .eq("project_id", project_id)
           .eq("id", source_id);
       });
+
+      if (evidenceRecords.length === 0) {
+        return {
+          source_id,
+          segments_created: segments.length,
+          evidence_created: 0,
+        };
+      }
 
       await step.run("queue-entity-extraction", async () => {
         await inngest.send({

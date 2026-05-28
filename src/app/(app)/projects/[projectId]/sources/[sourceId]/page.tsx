@@ -1,4 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import { looksLikeProcessedMarker } from "@/lib/ingest/quality";
 import { createClient } from "@/lib/supabase/server";
 import type { JobStatus, SourceType, TrustScope } from "@/types/database";
 import Link from "next/link";
@@ -78,7 +79,7 @@ function TrustBadge({ trustScope }: { trustScope: TrustScope | "missing" }) {
 }
 
 function StatusBadge({ status }: { status: JobStatus | "not_started" }) {
-  const label = status === "failed" ? "error" : status;
+  const label = status === "failed" ? "check needed" : status;
   const classes =
     status === "done"
       ? "border-green-500/20 bg-green-500/10 text-green-300"
@@ -164,6 +165,12 @@ export default async function SourceDetailPage({ params }: Props) {
   evidenceRows.forEach((record) => {
     if (record.segment_id) evidenceBySegment.set(record.segment_id, record);
   });
+  const zeroEvidenceDone =
+    latestJob?.status === "done" && evidenceRows.length === 0 && segments.length > 0;
+  const displayStatus = zeroEvidenceDone ? "failed" : latestJob?.status ?? "not_started";
+  const sourceLooksLikeMarker = looksLikeProcessedMarker(
+    segments.map((segment) => segment.raw_content).join("\n\n")
+  );
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -177,7 +184,7 @@ export default async function SourceDetailPage({ params }: Props) {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="mb-2 flex flex-wrap items-center gap-2">
-              <StatusBadge status={latestJob?.status ?? "not_started"} />
+              <StatusBadge status={displayStatus} />
               <span className="text-xs capitalize text-[var(--ink-muted)]">{typedSource.type}</span>
             </div>
             <h1 className="text-2xl font-semibold text-[var(--ink)]">{typedSource.title}</h1>
@@ -185,7 +192,12 @@ export default async function SourceDetailPage({ params }: Props) {
               Review the source chunks created during ingest and see which evidence records they produced.
             </p>
           </div>
-          <SourceActions projectId={project.id} sourceId={typedSource.id} variant="detail" />
+          <SourceActions
+            projectId={project.id}
+            sourceId={typedSource.id}
+            variant="detail"
+            showRetry={displayStatus === "failed"}
+          />
         </div>
       </div>
 
@@ -195,9 +207,20 @@ export default async function SourceDetailPage({ params }: Props) {
         </div>
       )}
 
+      {zeroEvidenceDone && (
+        <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm leading-6 text-red-200">
+          <div className="font-semibold text-red-100">No evidence was created from this source.</div>
+          <p className="mt-1">
+            {sourceLooksLikeMarker
+              ? "This looks like a processed marker file rather than the original transcript. Delete this source and upload the original transcript text."
+              : "The job completed but did not extract any citable claims. Check the source text below, then retry if it is the original transcript or document."}
+          </p>
+        </div>
+      )}
+
       <InsightProgress projectId={project.id} sourceId={typedSource.id} projectName={project.name} />
 
-      {latestJob?.status === "done" && (
+      {latestJob?.status === "done" && !zeroEvidenceDone && (
         <div className="mb-6">
           {sessionBrief ? (
             <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">

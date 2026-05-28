@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getProjectForUser } from "@/lib/auth/org";
 import { inngest } from "@/lib/inngest/client";
+import { PROCESSED_MARKER_ERROR, looksLikeProcessedMarker } from "@/lib/ingest/quality";
 import { z } from "zod";
 
 const IngestSchema = z.object({
@@ -42,6 +43,10 @@ export async function POST(req: NextRequest) {
   }
 
   const { project_id, type, title, description, raw_text, metadata } = parsed.data;
+
+  if (looksLikeProcessedMarker(raw_text)) {
+    return NextResponse.json({ error: PROCESSED_MARKER_ERROR }, { status: 422 });
+  }
 
   const project = await getProjectForUser<{ id: string; org_id: string }>(
     user.id,

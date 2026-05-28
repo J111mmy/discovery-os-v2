@@ -30,7 +30,7 @@ const INGEST_SOURCE_TYPES: SourceType[] = [
 ];
 
 const TEXT_FILE_EXTENSIONS = new Set(["txt", "md", "markdown"]);
-const DOCUMENT_FILE_EXTENSIONS = new Set(["pdf", "doc", "docx", "md", "markdown"]);
+const DOCUMENT_FILE_EXTENSIONS = new Set(["pdf", "doc", "docx"]);
 const ALLOWED_FILE_EXTENSIONS = new Set([
   "pdf",
   "doc",
@@ -82,8 +82,16 @@ export function IngestForm({ projectId }: IngestFormProps) {
       setPollCount((c) => c + 1);
       setStatus(payload.status);
       if (payload.status === "done") {
+        const ingestResult = payload.result ?? { segments_created: 0, evidence_created: 0 };
+        if ((ingestResult.evidence_created ?? 0) === 0) {
+          setResult(ingestResult);
+          setError("No evidence was created. Check the extracted text, then retry with the original source.");
+          setStatus("failed");
+          return;
+        }
+
         const completedSourceId = typeof payload.source_id === "string" ? payload.source_id : sourceId;
-        setResult(payload.result ?? { segments_created: 0, evidence_created: 0 });
+        setResult(ingestResult);
         router.refresh();
         if (completedSourceId) {
           router.push(`/projects/${projectId}/sources/${completedSourceId}`);
