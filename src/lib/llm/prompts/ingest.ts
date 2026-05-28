@@ -1,4 +1,4 @@
-export const INGEST_EXTRACTION_PROMPT_VERSION = "ingest-extraction-v3";
+export const INGEST_EXTRACTION_PROMPT_VERSION = "ingest-extraction-v4";
 
 export const INGEST_EXTRACTION_PROMPT = `
 You are a senior research analyst reviewing customer discovery material.
@@ -21,7 +21,7 @@ Do not extract greetings, filler acknowledgements, backchannels, or standalone f
 
 IMPORTANT — INTERNAL SPEAKERS:
 {internalSpeakers}
-Do NOT extract claims made by internal speakers as customer evidence. Their turns provide context for understanding what the external participant is responding to, but their own words are not evidence. Only extract claims from external participants (customers, prospects, or any unlisted speaker).
+Do NOT extract claims made by known or detected internal speakers as customer evidence. Their turns provide context for understanding what the external participant is responding to, but their own words are not evidence. Only extract claims from external participants (customers, prospects, or third parties who are not listed as internal).
 
 PROJECT FRAME (what this project is investigating):
 {frame}

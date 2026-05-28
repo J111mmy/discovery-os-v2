@@ -12,6 +12,7 @@ import {
   INGEST_EXTRACTION_PROMPT_VERSION,
 } from "@/lib/llm/prompts/ingest";
 import type {
+  Affiliation,
   EvidenceClassification,
   EvidenceSentiment,
   SourceType,
@@ -77,6 +78,13 @@ type InternalSpeaker = {
   role: string | null;
 };
 
+type SourceSpeaker = {
+  id: string;
+  name: string;
+  role: string | null;
+  affiliation: Affiliation;
+};
+
 const MAX_TURN_TOKENS = 800;
 
 const ExtractedClaimSchema = z.object({
@@ -115,6 +123,14 @@ function titleFromHint(value: string) {
     .replace(/\s+/g, " ")
     .replace(/[.!?]+$/g, "")
     .slice(0, 120);
+}
+
+function normalizeName(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function tokenEstimate(text: string) {
@@ -432,6 +448,55 @@ const TRANSCRIPT_LIKE_TYPES = new Set<SourceType>([
   "internal_meeting",
 ]);
 
+function uniqueSpeakerNames(segments: RawSegment[]) {
+  const speakers = new Map<string, string>();
+
+  for (const segment of segments) {
+    const speaker = segment.speaker?.trim();
+    if (!speaker) continue;
+
+    const normalized = normalizeName(speaker);
+    if (!normalized) continue;
+    if (!speakers.has(normalized)) speakers.set(normalized, speaker);
+  }
+
+  return Array.from(speakers.values());
+}
+
+function inferInternalSpeakerNames(segments: RawSegment[], type: SourceType) {
+  const speakers = uniqueSpeakerNames(segments);
+  if (speakers.length === 0) return [];
+  if (type === "internal_meeting") return speakers;
+
+  const scores = new Map<string, { questions: number; turns: number; firstIndex: number; name: string }>();
+
+  segments.forEach((segment, index) => {
+    if (!segment.speaker) return;
+    const key = normalizeName(segment.speaker);
+    if (!key) return;
+    const current = scores.get(key) ?? {
+      questions: 0,
+      turns: 0,
+      firstIndex: index,
+      name: segment.speaker.trim(),
+    };
+    current.questions += (segment.content.match(/\?/g) ?? []).length;
+    current.turns += 1;
+    scores.set(key, current);
+  });
+
+  const ranked = Array.from(scores.values()).sort((a, b) => {
+    const questionDelta = b.questions - a.questions;
+    if (questionDelta !== 0) return questionDelta;
+    const turnDelta = b.turns - a.turns;
+    if (turnDelta !== 0) return turnDelta;
+    return a.firstIndex - b.firstIndex;
+  });
+
+  const facilitator = ranked[0];
+  return facilitator && facilitator.questions > 0 ? [facilitator.name] : [];
+}
+
 function segmentText(text: string, type: SourceType): RawSegment[] {
   const transcriptTurns = parseTranscriptTurns(text);
 
@@ -468,6 +533,121 @@ function formatInternalSpeakers(speakers: InternalSpeaker[]) {
   return speakers
     .map((s) => (s.role ? `- ${s.name} (${s.role})` : `- ${s.name}`))
     .join("\n");
+}
+
+function mergeInternalSpeakers(
+  knownInternalSpeakers: InternalSpeaker[],
+  sourceSpeakers: SourceSpeaker[]
+): InternalSpeaker[] {
+  const byName = new Map<string, InternalSpeaker>();
+
+  for (const speaker of knownInternalSpeakers) {
+    byName.set(normalizeName(speaker.name), speaker);
+  }
+
+  for (const speaker of sourceSpeakers) {
+    if (speaker.affiliation !== "internal") continue;
+    const key = normalizeName(speaker.name);
+    if (!byName.has(key)) {
+      byName.set(key, { name: speaker.name, role: speaker.role });
+    }
+  }
+
+  return Array.from(byName.values());
+}
+
+async function syncSourceSpeakers(input: {
+  supabase: ReturnType<typeof createServiceClient>;
+  org_id: string;
+  project_id: string;
+  segments: RawSegment[];
+  inferredInternalSpeakerNames: string[];
+}) {
+  const speakerNames = uniqueSpeakerNames(input.segments);
+  if (speakerNames.length === 0) return [];
+
+  const inferredInternal = new Set(input.inferredInternalSpeakerNames.map(normalizeName));
+
+  const { data: existingPeople, error } = await input.supabase
+    .from("people")
+    .select("id, name, role, affiliation")
+    .eq("org_id", input.org_id);
+
+  if (error) throw new Error(`Failed to fetch source speakers: ${error.message}`);
+
+  const existingByName = new Map<string, SourceSpeaker>(
+    ((existingPeople ?? []) as SourceSpeaker[]).map((person) => [
+      normalizeName(person.name),
+      person,
+    ])
+  );
+  const synced: SourceSpeaker[] = [];
+
+  for (const speakerName of speakerNames) {
+    const key = normalizeName(speakerName);
+    if (!key) continue;
+
+    const desiredAffiliation: Affiliation = inferredInternal.has(key) ? "internal" : "unknown";
+    const existing = existingByName.get(key);
+    let person: SourceSpeaker;
+
+    if (existing) {
+      person = existing;
+      if (desiredAffiliation === "internal" && existing.affiliation === "unknown") {
+        const { data: updated, error: updateError } = await input.supabase
+          .from("people")
+          .update({
+            affiliation: "internal",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("org_id", input.org_id)
+          .eq("id", existing.id)
+          .select("id, name, role, affiliation")
+          .single();
+
+        if (updateError || !updated) {
+          throw new Error(`Failed to update speaker ${speakerName}: ${updateError?.message}`);
+        }
+
+        person = updated as SourceSpeaker;
+        existingByName.set(key, person);
+      }
+    } else {
+      const { data: inserted, error: insertError } = await input.supabase
+        .from("people")
+        .insert({
+          org_id: input.org_id,
+          name: speakerName,
+          role: null,
+          status: "interviewed",
+          affiliation: desiredAffiliation,
+        })
+        .select("id, name, role, affiliation")
+        .single();
+
+      if (insertError || !inserted) {
+        throw new Error(`Failed to create speaker ${speakerName}: ${insertError?.message}`);
+      }
+
+      person = inserted as SourceSpeaker;
+      existingByName.set(key, person);
+    }
+
+    await input.supabase
+      .from("person_projects")
+      .upsert(
+        {
+          person_id: person.id,
+          project_id: input.project_id,
+          status: person.affiliation === "internal" ? "facilitator" : "interviewed",
+        },
+        { onConflict: "person_id,project_id" }
+      );
+
+    synced.push(person);
+  }
+
+  return synced;
 }
 
 function extractJsonArray(content: string) {
@@ -681,6 +861,10 @@ export const ingestSource = inngest.createFunction(
         return segments;
       });
 
+      const inferredInternalSpeakerNames = await step.run("infer-internal-speakers", async () =>
+        inferInternalSpeakerNames(rawSegments, source.type)
+      );
+
       const segments = await step.run("store-segments", async () => {
         const records = rawSegments.map((segment) => ({
           org_id,
@@ -707,6 +891,17 @@ export const ingestSource = inngest.createFunction(
         return (data ?? []) as StoredSegment[];
       });
 
+      const sourceSpeakers = await step.run("sync-source-speakers", async () =>
+        syncSourceSpeakers({
+          supabase,
+          org_id,
+          project_id,
+          segments: rawSegments,
+          inferredInternalSpeakerNames,
+        })
+      );
+      const sourceInternalSpeakers = mergeInternalSpeakers(internalSpeakers, sourceSpeakers);
+
       const units = await step.run("build-conversation-units", async () =>
         buildConversationUnits(segments).filter((unit) => unit.content.trim())
       );
@@ -731,7 +926,7 @@ export const ingestSource = inngest.createFunction(
               otherProjects: otherProjects.length > 0
                 ? otherProjects.map((p) => `- ${p.name}${p.frame ? `: ${p.frame.slice(0, 120)}` : ""}`).join("\n")
                 : "No other active projects.",
-              internalSpeakers: formatInternalSpeakers(internalSpeakers),
+              internalSpeakers: formatInternalSpeakers(sourceInternalSpeakers),
             });
 
             const result = await callLLM({
