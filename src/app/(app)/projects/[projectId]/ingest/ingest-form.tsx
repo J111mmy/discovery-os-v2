@@ -144,6 +144,27 @@ export function IngestForm({ projectId }: IngestFormProps) {
     });
   }
 
+  async function readExtractionResponse(response: Response) {
+    const body = await response.text();
+    let payload: { text?: string; error?: string };
+
+    try {
+      payload = body ? JSON.parse(body) : {};
+    } catch {
+      throw new Error(
+        response.ok
+          ? "The extraction service returned an unreadable response."
+          : "The extraction service returned an error page instead of text. Try again in a moment, or paste the text manually."
+      );
+    }
+
+    if (!response.ok) {
+      throw new Error(payload.error ?? "Could not extract text from this file.");
+    }
+
+    return payload;
+  }
+
   async function onFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -182,11 +203,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
           method: "POST",
           body: formData,
         });
-        const payload = await response.json();
-
-        if (!response.ok) {
-          throw new Error(payload.error ?? "Could not extract text from this file.");
-        }
+        const payload = await readExtractionResponse(response);
 
         text = payload.text ?? "";
       }

@@ -1,10 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
-import mammoth from "mammoth";
-// pdf-parse v2 exports PDFParse as a named class — no default export
-import { PDFParse } from "pdf-parse";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const TEXT_FILE_EXTENSIONS = new Set(["txt", "md", "markdown"]);
@@ -19,6 +17,10 @@ function cleanExtractedText(text: string) {
 }
 
 async function extractPdfText(buffer: Buffer) {
+  // Load PDF tooling only when needed. Some runtimes fail while evaluating
+  // pdf-parse, and keeping it inside the handler lets us return JSON instead
+  // of leaking a generic HTML error page to the client.
+  const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: buffer });
   try {
     const result = await parser.getText();
@@ -29,6 +31,7 @@ async function extractPdfText(buffer: Buffer) {
 }
 
 async function extractDocxText(buffer: Buffer) {
+  const mammoth = await import("mammoth");
   const result = await mammoth.extractRawText({ buffer });
   return cleanExtractedText(result.value ?? "");
 }
