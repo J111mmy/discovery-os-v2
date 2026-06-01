@@ -132,7 +132,16 @@ export const gradeEvidence = inngest.createFunction(
       for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
         const batch = batches[batchIdx];
 
-        await step.run(`grade-batch-${batchIdx}`, async () => {
+        // Counts are RETURNED from the step (not mutated in outer scope). On Inngest
+        // replay a completed step.run returns its memoized value without re-executing
+        // the callback, so outer-scope mutation inside the callback would be lost. The
+        // returned object is persisted and replays deterministically — accumulate from it.
+        const batchCounts = await step.run(`grade-batch-${batchIdx}`, async () => {
+          let trusted = 0;
+          let uncertain = 0;
+          let weak = 0;
+          let autoExcluded = 0;
+
           const prompt = buildGradeEvidencePrompt({
             researchContext: contextText,
             evidence: batch.map((e) => ({
@@ -164,8 +173,8 @@ export const gradeEvidence = inngest.createFunction(
               })
               .eq("org_id", org_id)
               .in("id", batch.map((e) => e.id));
-            totalUncertain += batch.length;
-            return;
+            uncertain += batch.length;
+            return { trusted, uncertain, weak, autoExcluded };
           }
 
           const now = new Date().toISOString();
@@ -198,14 +207,21 @@ export const gradeEvidence = inngest.createFunction(
               .eq("org_id", org_id)
               .eq("id", grade.id);
 
-            if (grade.grade === "trusted") totalTrusted++;
-            else if (grade.grade === "uncertain") totalUncertain++;
+            if (grade.grade === "trusted") trusted++;
+            else if (grade.grade === "uncertain") uncertain++;
             else {
-              totalWeak++;
-              if (original?.trust_scope === "pending" && hasContext) totalAutoExcluded++;
+              weak++;
+              if (original?.trust_scope === "pending" && hasContext) autoExcluded++;
             }
           }
+
+          return { trusted, uncertain, weak, autoExcluded };
         });
+
+        totalTrusted += batchCounts.trusted;
+        totalUncertain += batchCounts.uncertain;
+        totalWeak += batchCounts.weak;
+        totalAutoExcluded += batchCounts.autoExcluded;
       }
 
       await step.run("complete-agent-run", async () => {
