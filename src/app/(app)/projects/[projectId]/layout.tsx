@@ -32,7 +32,7 @@ export default async function ProjectLayout({
   return (
     <div className="min-h-screen bg-[var(--surface-0)] text-[var(--ink)]">
       <div className="grid min-h-screen lg:grid-cols-[260px_minmax(0,1fr)]">
-        <div className="hidden lg:block">
+        <div className="hidden lg:block lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)] lg:self-start lg:overflow-y-auto">
           <ProjectSidebar
             projectId={project.id}
             projectName={project.name}

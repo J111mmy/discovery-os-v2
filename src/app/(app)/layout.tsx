@@ -45,8 +45,8 @@ export default async function AppLayout({ children }: AppLayoutProps) {
         </div>
       )}
 
-      <header className="sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--surface-0)]/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-3 sm:px-8">
+      <header className="sticky top-0 z-30 flex h-14 items-center border-b border-[var(--border)] bg-[var(--surface-0)]/95 backdrop-blur">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-5 sm:px-8">
           <Link href="/projects" className="text-sm font-semibold text-[var(--ink)]">
             DiscOS
           </Link>

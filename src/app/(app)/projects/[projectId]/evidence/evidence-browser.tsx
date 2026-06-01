@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { EvidenceRecord, TrustScope } from "@/types/database";
 import Link from "next/link";
 import {
@@ -250,6 +250,9 @@ export function EvidenceBrowser({
   // Whether the pending bucket still holds its server-seeded initial page.
   const [pendingSeeded, setPendingSeeded] = useState(true);
 
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const loadingMoreRef = useRef(false);
+
   const trimmedQuery = useMemo(() => query.trim(), [query]);
   const activeBucket = BUCKETS.find((b) => b.key === activeTab)!;
 
@@ -336,7 +339,9 @@ export function EvidenceBrowser({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trimmedQuery]);
 
-  async function loadMore() {
+  const loadMore = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMore) return;
+    loadingMoreRef.current = true;
     setIsLoadingMore(true);
     setError(null);
     try {
@@ -355,8 +360,23 @@ export function EvidenceBrowser({
       setError("Could not load more evidence.");
     } finally {
       setIsLoadingMore(false);
+      loadingMoreRef.current = false;
     }
-  }
+  }, [activeTab, hasMore, projectId, records.length]);
+
+  // Infinite scroll: load the next page when the sentinel scrolls into view.
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || trimmedQuery || !hasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) void loadMore();
+      },
+      { rootMargin: "300px" }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [trimmedQuery, hasMore, loadMore]);
 
   function toggleOne(id: string) {
     setSelected((current) => {
@@ -516,7 +536,7 @@ export function EvidenceBrowser({
 
       {/* Bulk action bar */}
       {selected.size > 0 && (
-        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 sm:px-5">
+        <div className="sticky top-14 z-10 flex flex-wrap items-center gap-3 border-b border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 sm:px-5">
           <span className="text-sm font-medium text-[var(--ink)]">{selected.size} selected</span>
           <span className="flex-1" />
           {bulkTargets.map((action) => (
@@ -583,15 +603,19 @@ export function EvidenceBrowser({
             ))}
           </div>
           {!trimmedQuery && hasMore && (
-            <div className="border-t border-[var(--border)] p-5 text-center">
-              <button
-                type="button"
-                onClick={loadMore}
-                disabled={isLoadingMore}
-                className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isLoadingMore ? "Loading..." : "Load more"}
-              </button>
+            <div
+              ref={sentinelRef}
+              className="border-t border-[var(--border)] p-5 text-center text-sm text-[var(--ink-muted)]"
+            >
+              {isLoadingMore ? "Loading more…" : (
+                <button
+                  type="button"
+                  onClick={() => void loadMore()}
+                  className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
+                >
+                  Load more
+                </button>
+              )}
             </div>
           )}
         </>
