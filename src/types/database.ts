@@ -4,6 +4,7 @@
 
 export type OrgRole = "owner" | "admin" | "member" | "viewer";
 export type TrustScope = "pending" | "trusted" | "disputed" | "excluded";
+export type TrustScopeSource = "ai" | "human" | "pending";
 export type SourceType =
   | "transcript"
   | "document"
@@ -174,6 +175,7 @@ export interface Evidence {
   content: string;
   // embedding is vector(1536) — not returned by default, only for similarity queries
   trust_scope: TrustScope;
+  trust_scope_source: TrustScopeSource;
   summary: string | null;
   classification: EvidenceClassification | null;
   sentiment: EvidenceSentiment | null;
@@ -182,6 +184,19 @@ export interface Evidence {
   ai_trust_grade: "trusted" | "uncertain" | "weak" | null;
   ai_trust_reason: string | null;
   ai_graded_at: string | null;
+  created_at: string;
+}
+
+export interface EvidenceGradeFeedback {
+  id: string;
+  org_id: string;
+  project_id: string;
+  user_id: string;
+  evidence_id: string;
+  model_grade: "trusted" | "uncertain" | "weak" | null;
+  from_scope: TrustScope;
+  to_scope: TrustScope;
+  from_source: TrustScopeSource;
   created_at: string;
 }
 

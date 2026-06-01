@@ -3,9 +3,163 @@
 import { getProjectForUser } from "@/lib/auth/org";
 import { inngest } from "@/lib/inngest/client";
 import { createClient } from "@/lib/supabase/server";
-import type { EvidenceRecord, TrustScope } from "@/types/database";
+import type { EvidenceRecord, TrustScope, TrustScopeSource } from "@/types/database";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+
+type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
+
+type EvidenceFeedbackState = {
+  id: string;
+  org_id: string;
+  project_id: string;
+  ai_trust_grade: "trusted" | "uncertain" | "weak" | null;
+  trust_scope: TrustScope;
+  trust_scope_source: TrustScopeSource;
+};
+
+function isMissingTrustScopeSourceColumn(error: { message?: string } | null) {
+  return Boolean(error?.message?.includes("trust_scope_source"));
+}
+
+function normalizeTrustScopeSource(value: unknown): TrustScopeSource {
+  return value === "ai" || value === "human" || value === "pending" ? value : "pending";
+}
+
+async function fetchEvidenceFeedbackStates({
+  supabase,
+  orgId,
+  projectId,
+  evidenceIds,
+  pendingOnly = false,
+}: {
+  supabase: SupabaseClient;
+  orgId: string;
+  projectId: string;
+  evidenceIds?: string[];
+  pendingOnly?: boolean;
+}): Promise<{ rows: EvidenceFeedbackState[]; error?: string }> {
+  const selectWithSource =
+    "id, org_id, project_id, ai_trust_grade, trust_scope, trust_scope_source";
+  const selectWithoutSource = "id, org_id, project_id, ai_trust_grade, trust_scope";
+
+  async function runSelect(columns: string) {
+    let query = supabase
+      .from("evidence")
+      .select(columns)
+      .eq("org_id", orgId)
+      .eq("project_id", projectId);
+
+    if (evidenceIds && evidenceIds.length > 0) {
+      query = query.in("id", evidenceIds);
+    }
+
+    if (pendingOnly) {
+      query = query.eq("trust_scope", "pending");
+    }
+
+    return query;
+  }
+
+  const { data, error } = await runSelect(selectWithSource);
+  if (error && isMissingTrustScopeSourceColumn(error)) {
+    const { data: fallbackData, error: fallbackError } = await runSelect(selectWithoutSource);
+    if (fallbackError) return { rows: [], error: fallbackError.message };
+
+    return {
+      rows: ((fallbackData ?? []) as unknown as Omit<
+        EvidenceFeedbackState,
+        "trust_scope_source"
+      >[]).map((row) => ({ ...row, trust_scope_source: "pending" })),
+    };
+  }
+
+  if (error) return { rows: [], error: error.message };
+
+  return {
+    rows: ((data ?? []) as unknown as Array<
+      EvidenceFeedbackState & { trust_scope_source?: unknown }
+    >).map((row) => ({
+        ...row,
+        trust_scope_source: normalizeTrustScopeSource(row.trust_scope_source),
+      })),
+  };
+}
+
+async function updateEvidenceTrustScope({
+  supabase,
+  orgId,
+  projectId,
+  evidenceIds,
+  trustScope,
+}: {
+  supabase: SupabaseClient;
+  orgId: string;
+  projectId: string;
+  evidenceIds: string[];
+  trustScope: TrustScope;
+}) {
+  const payload: { trust_scope: TrustScope; trust_scope_source?: TrustScopeSource } = {
+    trust_scope: trustScope,
+    trust_scope_source: "human",
+  };
+
+  const runUpdate = (updates: typeof payload) =>
+    supabase
+      .from("evidence")
+      .update(updates)
+      .eq("org_id", orgId)
+      .eq("project_id", projectId)
+      .in("id", evidenceIds);
+
+  const { error } = await runUpdate(payload);
+  if (!error) return null;
+
+  // Backward-compatible deploy safety: if this code ships before migration
+  // 0026, keep the trust action working and skip provenance until the schema lands.
+  if (isMissingTrustScopeSourceColumn(error)) {
+    const { error: fallbackError } = await runUpdate({ trust_scope: trustScope });
+    return fallbackError;
+  }
+
+  return error;
+}
+
+async function insertEvidenceGradeFeedback({
+  supabase,
+  userId,
+  rows,
+  trustScope,
+}: {
+  supabase: SupabaseClient;
+  userId: string;
+  rows: EvidenceFeedbackState[];
+  trustScope: TrustScope;
+}) {
+  const feedbackRows = rows
+    .filter((row) => row.trust_scope !== trustScope)
+    .map((row) => ({
+      org_id: row.org_id,
+      project_id: row.project_id,
+      user_id: userId,
+      evidence_id: row.id,
+      model_grade: row.ai_trust_grade,
+      from_scope: row.trust_scope,
+      to_scope: trustScope,
+      from_source: row.trust_scope_source,
+    }));
+
+  if (feedbackRows.length === 0) return;
+
+  const { error } = await supabase.from("evidence_grade_feedback").insert(feedbackRows);
+  if (error) {
+    console.warn("[evidence-feedback] failed to log trust override", {
+      project_id: rows[0]?.project_id,
+      count: feedbackRows.length,
+      message: error.message,
+    });
+  }
+}
 
 export async function updateEvidenceTrustAction(formData: FormData) {
   const projectId = String(formData.get("project_id") ?? "");
@@ -31,21 +185,34 @@ export async function updateEvidenceTrustAction(formData: FormData) {
   if (!project) return;
 
   const bulkTrustAll = !evidenceId && trustScope === "trusted";
+  if (!evidenceId && !bulkTrustAll) return;
 
-  let query = supabase
-    .from("evidence")
-    .update({ trust_scope: trustScope })
-    .eq("org_id", project.org_id)
-    .eq("project_id", project.id);
+  const before = await fetchEvidenceFeedbackStates({
+    supabase,
+    orgId: project.org_id,
+    projectId: project.id,
+    evidenceIds: evidenceId ? [evidenceId] : undefined,
+    pendingOnly: !evidenceId,
+  });
 
-  if (evidenceId) {
-    query = query.eq("id", evidenceId);
-  } else {
-    query = query.eq("trust_scope", "pending");
-  }
+  if (before.error || before.rows.length === 0) return;
 
-  const { error } = await query;
+  const affectedIds = before.rows.map((row) => row.id);
+  const error = await updateEvidenceTrustScope({
+    supabase,
+    orgId: project.org_id,
+    projectId: project.id,
+    evidenceIds: affectedIds,
+    trustScope: trustScope as TrustScope,
+  });
   if (error) return;
+
+  await insertEvidenceGradeFeedback({
+    supabase,
+    userId: user.id,
+    rows: before.rows,
+    trustScope: trustScope as TrustScope,
+  });
 
   await supabase
     .from("projects")
@@ -101,14 +268,32 @@ export async function setEvidenceTrustBulkAction({
 
   if (!project) return { ok: false, error: "Project not found." };
 
-  const { error } = await supabase
-    .from("evidence")
-    .update({ trust_scope: trustScope })
-    .eq("org_id", project.org_id)
-    .eq("project_id", project.id)
-    .in("id", ids);
+  const before = await fetchEvidenceFeedbackStates({
+    supabase,
+    orgId: project.org_id,
+    projectId: project.id,
+    evidenceIds: ids,
+  });
+
+  if (before.error) return { ok: false, error: before.error };
+  if (before.rows.length === 0) return { ok: false, error: "No matching evidence found." };
+
+  const error = await updateEvidenceTrustScope({
+    supabase,
+    orgId: project.org_id,
+    projectId: project.id,
+    evidenceIds: before.rows.map((row) => row.id),
+    trustScope,
+  });
 
   if (error) return { ok: false, error: error.message };
+
+  await insertEvidenceGradeFeedback({
+    supabase,
+    userId: user.id,
+    rows: before.rows,
+    trustScope,
+  });
 
   await supabase
     .from("projects")

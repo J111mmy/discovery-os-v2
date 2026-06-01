@@ -36,6 +36,42 @@ type ProjectContext = {
   research_context: Record<string, unknown> | null;
 };
 
+function isMissingTrustScopeSourceColumn(error: { message?: string } | null) {
+  return Boolean(error?.message?.includes("trust_scope_source"));
+}
+
+async function updateEvidenceGrade(params: {
+  supabase: ReturnType<typeof createServiceClient>;
+  org_id: string;
+  evidence_id: string;
+  updates: Record<string, unknown>;
+}) {
+  const { supabase, org_id, evidence_id, updates } = params;
+  const { error } = await supabase
+    .from("evidence")
+    .update(updates)
+    .eq("org_id", org_id)
+    .eq("id", evidence_id);
+
+  if (!error) return;
+
+  // Backward-compatible deploy safety: if code reaches production before
+  // migration 0026, keep grading functional and retry without provenance.
+  if ("trust_scope_source" in updates && isMissingTrustScopeSourceColumn(error)) {
+    const { trust_scope_source: _trustScopeSource, ...fallbackUpdates } = updates;
+    const { error: fallbackError } = await supabase
+      .from("evidence")
+      .update(fallbackUpdates)
+      .eq("org_id", org_id)
+      .eq("id", evidence_id);
+
+    if (!fallbackError) return;
+    throw new Error(`Failed to update evidence grade: ${fallbackError.message}`);
+  }
+
+  throw new Error(`Failed to update evidence grade: ${error.message}`);
+}
+
 export const gradeEvidence = inngest.createFunction(
   { id: "grade-evidence", name: "Grade Evidence", retries: 2 },
   { event: "source/evidence.grading.requested" },
@@ -196,16 +232,14 @@ export const gradeEvidence = inngest.createFunction(
             if (original?.trust_scope === "pending" && hasContext) {
               if (grade.grade === "trusted") {
                 updates.trust_scope = "trusted";
+                updates.trust_scope_source = "ai";
               } else if (grade.grade === "weak") {
                 updates.trust_scope = "excluded";
+                updates.trust_scope_source = "ai";
               }
             }
 
-            await supabase
-              .from("evidence")
-              .update(updates)
-              .eq("org_id", org_id)
-              .eq("id", grade.id);
+            await updateEvidenceGrade({ supabase, org_id, evidence_id: grade.id, updates });
 
             if (grade.grade === "trusted") trusted++;
             else if (grade.grade === "uncertain") uncertain++;
