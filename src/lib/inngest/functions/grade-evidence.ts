@@ -127,6 +127,7 @@ export const gradeEvidence = inngest.createFunction(
       let totalTrusted = 0;
       let totalUncertain = 0;
       let totalWeak = 0;
+      let totalAutoExcluded = 0;
 
       for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
         const batch = batches[batchIdx];
@@ -180,9 +181,15 @@ export const gradeEvidence = inngest.createFunction(
             const original = batch.find((record) => record.id === grade.id);
 
             // Auto-trust: only promote pending records when we have real context.
+            // Auto-exclude: weak records are noise — dismiss them automatically so the
+            // review queue only shows uncertain items that genuinely need a human look.
             // Never override evidence a user has already trusted, excluded, or disputed.
-            if (grade.grade === "trusted" && hasContext && original?.trust_scope === "pending") {
-              updates.trust_scope = "trusted";
+            if (original?.trust_scope === "pending" && hasContext) {
+              if (grade.grade === "trusted") {
+                updates.trust_scope = "trusted";
+              } else if (grade.grade === "weak") {
+                updates.trust_scope = "excluded";
+              }
             }
 
             await supabase
@@ -193,7 +200,10 @@ export const gradeEvidence = inngest.createFunction(
 
             if (grade.grade === "trusted") totalTrusted++;
             else if (grade.grade === "uncertain") totalUncertain++;
-            else totalWeak++;
+            else {
+              totalWeak++;
+              if (original?.trust_scope === "pending" && hasContext) totalAutoExcluded++;
+            }
           }
         });
       }
@@ -210,6 +220,7 @@ export const gradeEvidence = inngest.createFunction(
               weak: totalWeak,
               has_context: hasContext,
               auto_trusted: hasContext ? totalTrusted : 0,
+              auto_excluded: hasContext ? totalAutoExcluded : 0,
             },
             completed_at: new Date().toISOString(),
           })
@@ -224,6 +235,7 @@ export const gradeEvidence = inngest.createFunction(
         uncertain: totalUncertain,
         weak: totalWeak,
         auto_trusted: hasContext ? totalTrusted : 0,
+        auto_excluded: hasContext ? totalAutoExcluded : 0,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown evidence grading error";

@@ -1,4 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import { inngest } from "@/lib/inngest/client";
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -50,10 +51,16 @@ export async function PATCH(req: NextRequest, { params }: Props) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const project = await getProjectForUser<{ id: string; org_id: string }>(
+  const researchContextChanging = "research_context" in parsed.data;
+
+  const project = await getProjectForUser<{
+    id: string;
+    org_id: string;
+    research_context: Record<string, unknown> | null;
+  }>(
     user.id,
     params.projectId,
-    "id, org_id"
+    researchContextChanging ? "id, org_id, research_context" : "id, org_id"
   );
 
   if (!project) {
@@ -101,6 +108,34 @@ export async function PATCH(req: NextRequest, { params }: Props) {
 
   if (error || !data) {
     return NextResponse.json({ error: error?.message ?? "Failed to update project" }, { status: 500 });
+  }
+
+  // When research_context is saved and has meaningfully changed, re-grade all existing
+  // evidence for the project so the queue reflects the new scope without manual effort.
+  if (researchContextChanging) {
+    const newContext = parsed.data.research_context ?? null;
+    const hasContent = newContext !== null && Object.values(newContext).some(
+      (v) => typeof v === "string" ? v.trim().length > 0 : Array.isArray(v) && v.length > 0
+    );
+    const contextChanged =
+      JSON.stringify(newContext ?? null) !== JSON.stringify(project.research_context ?? null);
+
+    if (hasContent && contextChanged) {
+      const { data: sources } = await supabase
+        .from("sources")
+        .select("id")
+        .eq("org_id", project.org_id)
+        .eq("project_id", project.id);
+
+      const events = (sources ?? []).map((source) => ({
+        name: "source/evidence.grading.requested" as const,
+        data: { org_id: project.org_id, project_id: project.id, source_id: source.id },
+      }));
+
+      if (events.length > 0) {
+        await inngest.send(events);
+      }
+    }
   }
 
   return NextResponse.json({ project: data });
