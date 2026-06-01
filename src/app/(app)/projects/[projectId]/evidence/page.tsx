@@ -8,13 +8,23 @@ interface Props {
   params: { projectId: string };
 }
 
-async function getRecentEvidence(orgId: string, projectId: string): Promise<EvidenceRecord[]> {
+async function getRecentEvidence(
+  orgId: string,
+  projectId: string,
+  trustScope: EvidenceRecord["trust_scope"] | "all" = "all"
+): Promise<EvidenceRecord[]> {
   const supabase = await createClient();
-  const { data: evidence } = await supabase
+  let evidenceQuery = supabase
     .from("evidence")
     .select("id, org_id, project_id, source_id, segment_id, content, trust_scope, summary, classification, sentiment, themes, metadata, ai_trust_grade, ai_trust_reason, ai_graded_at, created_at")
     .eq("org_id", orgId)
-    .eq("project_id", projectId)
+    .eq("project_id", projectId);
+
+  if (trustScope !== "all") {
+    evidenceQuery = evidenceQuery.eq("trust_scope", trustScope);
+  }
+
+  const { data: evidence } = await evidenceQuery
     .order("created_at", { ascending: false })
     .limit(20);
 
@@ -106,27 +116,28 @@ export default async function EvidencePage({ params }: Props) {
 
   if (!project) notFound();
 
-  const [{ count: pendingCount }, { count: trustedCount }, { count: uncertainCount }, records] = await Promise.all([
-    supabase
-      .from("evidence")
-      .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
-      .eq("project_id", project.id)
-      .eq("trust_scope", "pending"),
-    supabase
-      .from("evidence")
-      .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
-      .eq("project_id", project.id)
-      .eq("trust_scope", "trusted"),
-    supabase
-      .from("evidence")
-      .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
-      .eq("project_id", project.id)
-      .eq("ai_trust_grade", "uncertain"),
-    getRecentEvidence(project.org_id, project.id),
-  ]);
+  const [{ count: pendingCount }, { count: trustedCount }, { count: excludedCount }, records] =
+    await Promise.all([
+      supabase
+        .from("evidence")
+        .select("*", { count: "exact", head: true })
+        .eq("org_id", project.org_id)
+        .eq("project_id", project.id)
+        .eq("trust_scope", "pending"),
+      supabase
+        .from("evidence")
+        .select("*", { count: "exact", head: true })
+        .eq("org_id", project.org_id)
+        .eq("project_id", project.id)
+        .eq("trust_scope", "trusted"),
+      supabase
+        .from("evidence")
+        .select("*", { count: "exact", head: true })
+        .eq("org_id", project.org_id)
+        .eq("project_id", project.id)
+        .eq("trust_scope", "excluded"),
+      getRecentEvidence(project.org_id, project.id, "pending"),
+    ]);
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -147,7 +158,7 @@ export default async function EvidencePage({ params }: Props) {
         initialRecords={records}
         pendingCount={pendingCount ?? 0}
         trustedCount={trustedCount ?? 0}
-        uncertainCount={uncertainCount ?? 0}
+        excludedCount={excludedCount ?? 0}
         researchContextEmpty={researchContextIsEmpty(project.research_context)}
       />
     </div>

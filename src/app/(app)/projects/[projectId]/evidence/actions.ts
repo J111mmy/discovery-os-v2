@@ -3,7 +3,7 @@
 import { getProjectForUser } from "@/lib/auth/org";
 import { inngest } from "@/lib/inngest/client";
 import { createClient } from "@/lib/supabase/server";
-import type { EvidenceRecord } from "@/types/database";
+import type { EvidenceRecord, TrustScope } from "@/types/database";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -67,14 +67,72 @@ export async function updateEvidenceTrustAction(formData: FormData) {
 
 export const trustEvidenceAction = updateEvidenceTrustAction;
 
+// Bulk move a selected set of evidence records into a trust bucket. Used by the
+// checkbox selection in the evidence browser. Only ever touches the rows whose
+// ids are passed in, scoped to the user's org + project.
+export async function setEvidenceTrustBulkAction({
+  projectId,
+  evidenceIds,
+  trustScope,
+}: {
+  projectId: string;
+  evidenceIds: string[];
+  trustScope: TrustScope;
+}): Promise<{ ok: boolean; error?: string }> {
+  if (!["trusted", "excluded", "pending"].includes(trustScope)) {
+    return { ok: false, error: "Invalid trust scope." };
+  }
+
+  const ids = Array.from(new Set(evidenceIds.filter(Boolean)));
+  if (ids.length === 0) return { ok: false, error: "Nothing selected." };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) redirect("/login");
+
+  const project = await getProjectForUser<{ id: string; org_id: string }>(
+    user.id,
+    projectId,
+    "id, org_id"
+  );
+
+  if (!project) return { ok: false, error: "Project not found." };
+
+  const { error } = await supabase
+    .from("evidence")
+    .update({ trust_scope: trustScope })
+    .eq("org_id", project.org_id)
+    .eq("project_id", project.id)
+    .in("id", ids);
+
+  if (error) return { ok: false, error: error.message };
+
+  await supabase
+    .from("projects")
+    .update({ synthesis_stale: true })
+    .eq("org_id", project.org_id)
+    .eq("id", project.id);
+
+  revalidatePath(`/projects/${project.id}/evidence`);
+  revalidatePath(`/projects/${project.id}`);
+  revalidatePath(`/projects/${project.id}/compose`);
+
+  return { ok: true };
+}
+
 export async function loadEvidenceRecordsAction({
   projectId,
   offset,
   limit = 20,
+  trustScope = "all",
 }: {
   projectId: string;
   offset: number;
   limit?: number;
+  trustScope?: TrustScope | "all";
 }): Promise<EvidenceRecord[]> {
   const supabase = await createClient();
   const {
@@ -94,11 +152,17 @@ export async function loadEvidenceRecordsAction({
   const safeOffset = Math.max(0, offset);
   const safeLimit = Math.min(Math.max(1, limit), 50);
 
-  const { data: evidence } = await supabase
+  let evidenceQuery = supabase
     .from("evidence")
     .select("id, org_id, project_id, source_id, segment_id, content, trust_scope, summary, classification, sentiment, themes, metadata, ai_trust_grade, ai_trust_reason, ai_graded_at, created_at")
     .eq("org_id", project.org_id)
-    .eq("project_id", project.id)
+    .eq("project_id", project.id);
+
+  if (trustScope !== "all") {
+    evidenceQuery = evidenceQuery.eq("trust_scope", trustScope);
+  }
+
+  const { data: evidence } = await evidenceQuery
     .order("created_at", { ascending: false })
     .range(safeOffset, safeOffset + safeLimit - 1);
 
