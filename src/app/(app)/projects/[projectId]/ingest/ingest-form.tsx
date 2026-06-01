@@ -276,7 +276,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
           <input
             id="sourceFile"
             type="file"
-            accept=".pdf,.doc,.docx,.txt,.md,.markdown"
+            accept=".pdf,.doc,.docx,.txt,.md,.markdown,text/markdown,text/plain"
             disabled={isWorking || extractingFile}
             onChange={onFileChange}
             className="block w-full rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-sm text-[var(--ink-muted)] file:mr-4 file:rounded-md file:border-0 file:bg-[var(--surface-2)] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-[var(--ink)] hover:border-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-60"
