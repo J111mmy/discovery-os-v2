@@ -2,13 +2,17 @@ import { createClient } from "@/lib/supabase/server";
 import { getImpersonatedOrgName, isSuperAdmin } from "@/lib/auth/super-admin";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { UserMenu } from "./components/user-menu";
 
 interface AppLayoutProps {
   children: React.ReactNode;
 }
 
-const navItems = [
-  { href: "/projects", label: "Projects" },
+// Primary nav — full visual weight
+const primaryNavItems = [{ href: "/projects", label: "Projects" }];
+
+// Entity registry — secondary, visually de-emphasised
+const directoryItems = [
   { href: "/people", label: "People" },
   { href: "/companies", label: "Companies" },
   { href: "/competitors", label: "Competitors" },
@@ -50,8 +54,10 @@ export default async function AppLayout({ children }: AppLayoutProps) {
           <Link href="/projects" className="text-sm font-semibold text-[var(--ink)]">
             DiscOS
           </Link>
-          <nav className="flex flex-wrap items-center justify-end gap-1">
-            {navItems.map((item) => (
+
+          <nav className="flex items-center gap-1">
+            {/* Primary nav */}
+            {primaryNavItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -60,6 +66,26 @@ export default async function AppLayout({ children }: AppLayoutProps) {
                 {item.label}
               </Link>
             ))}
+
+            {/* Directory — visually secondary */}
+            <span className="mx-1 hidden text-xs text-[var(--ink-faint)] sm:inline">·</span>
+            <div className="hidden items-center gap-0.5 sm:flex">
+              {directoryItems.map((item, i) => (
+                <span key={item.href} className="flex items-center">
+                  <Link
+                    href={item.href}
+                    className="rounded-md px-2 py-1.5 text-xs font-normal text-[var(--ink-faint)] transition-colors hover:bg-[var(--surface-1)] hover:text-[var(--ink-muted)]"
+                  >
+                    {item.label}
+                  </Link>
+                  {i < directoryItems.length - 1 && (
+                    <span className="text-xs text-[var(--ink-faint)]">·</span>
+                  )}
+                </span>
+              ))}
+            </div>
+
+            {/* Admin badge — super admin only */}
             {superAdmin && (
               <Link
                 href="/admin"
@@ -68,17 +94,13 @@ export default async function AppLayout({ children }: AppLayoutProps) {
                 Admin ↗
               </Link>
             )}
-            <form method="POST" action="/api/auth/sign-out">
-              <button
-                type="submit"
-                className="ml-1 rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--ink-muted)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
-              >
-                Sign out
-              </button>
-            </form>
+
+            {/* User avatar — replaces flat Sign out button */}
+            <UserMenu email={user.email ?? ""} />
           </nav>
         </div>
       </header>
+
       {children}
     </div>
   );

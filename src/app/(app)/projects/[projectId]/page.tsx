@@ -256,6 +256,7 @@ export default async function ProjectPage({ params }: Props) {
   const hiddenThemeCount = Math.max((themeCount ?? themeRows.length) - themeRows.length, 0);
   const productRequestTotal = productRequestCount ?? productRequestRows.length;
   const trustedTotal = trustedCount ?? 0;
+  const hasTrustedEvidence = trustedTotal > 0;
   const synthesisRunning = (runningSynthesisCount ?? 0) > 0;
   const pulse = activityPulse((activityRuns ?? []) as ActivityRun[]);
 
@@ -302,23 +303,29 @@ export default async function ProjectPage({ params }: Props) {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
-            Workspace
-          </div>
-          <h1 className="text-2xl font-semibold text-[var(--ink)]">{project.name}</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-muted)]">
-            {project.description || "Turn raw discovery input into trusted evidence and working artifacts."}
-          </p>
+      {/* Page header — sidebar CTA handles Add evidence; no duplicate button here */}
+      <div className="mb-6">
+        <div className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
+          Workspace
         </div>
-        <Link
-          href={`/projects/${project.id}/ingest`}
-          className="inline-flex rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)]"
-        >
-          Add evidence
-        </Link>
+        <h1 className="text-2xl font-semibold text-[var(--ink)]">{project.name}</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-muted)]">
+          {project.description || "Turn raw discovery input into trusted evidence and working artifacts."}
+        </p>
       </div>
+
+      {/* Project context prompt — first element so new users see it immediately */}
+      {!project.frame?.trim() && (
+        <Link
+          href={`/projects/${project.id}/settings`}
+          className="mb-6 block rounded-xl border border-[var(--brand)] bg-[var(--surface-1)] p-5 text-[var(--ink)] transition-colors hover:bg-[var(--surface-2)]"
+        >
+          <div className="text-sm font-semibold">Set up your project context →</div>
+          <div className="mt-1.5 text-sm leading-6 text-[var(--ink-muted)]">
+            Tell the system what you&apos;re researching and who you&apos;re talking to — the AI gets smarter with each field you fill in.
+          </div>
+        </Link>
+      )}
 
       {pulse && (
         <div
@@ -337,30 +344,28 @@ export default async function ProjectPage({ params }: Props) {
         </div>
       )}
 
-      <div className="mb-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
-          <div className="text-2xl font-semibold text-[var(--ink)]">{evidenceCount ?? 0}</div>
-          <div className="mt-1 text-sm text-[var(--ink-muted)]">Evidence records</div>
+      {/* Stats — compact one-liner, hidden entirely when project is empty */}
+      {(evidenceCount ?? 0) > 0 && (
+        <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          <span className="text-[var(--ink-muted)]">{evidenceCount} evidence</span>
+          <span className="text-[var(--ink-faint)]">·</span>
+          <span className="text-green-400">{trustedCount ?? 0} trusted</span>
+          <span className="text-[var(--ink-faint)]">·</span>
+          <Link
+            href={`/projects/${project.id}/evidence`}
+            className={`transition-colors hover:text-[var(--ink)] ${(pendingCount ?? 0) > 0 ? "text-yellow-400" : "text-[var(--ink-muted)]"}`}
+          >
+            {pendingCount ?? 0} needs review
+          </Link>
+          <span className="text-[var(--ink-faint)]">·</span>
+          <Link
+            href={`/projects/${project.id}/documents`}
+            className="text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
+          >
+            {artifactCount ?? 0} documents
+          </Link>
         </div>
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
-          <div className="text-2xl font-semibold text-green-300">{trustedCount ?? 0}</div>
-          <div className="mt-1 text-sm text-[var(--ink-muted)]">Trusted</div>
-        </div>
-        <Link
-          href={`/projects/${project.id}/evidence`}
-          className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5 transition-colors hover:border-[var(--brand)]"
-        >
-          <div className="text-2xl font-semibold text-yellow-300">{pendingCount ?? 0}</div>
-          <div className="mt-1 text-sm text-[var(--ink-muted)]">Needs review</div>
-        </Link>
-        <Link
-          href={`/projects/${project.id}/documents`}
-          className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5 transition-colors hover:border-[var(--brand)]"
-        >
-          <div className="text-2xl font-semibold text-[var(--ink)]">{artifactCount ?? 0}</div>
-          <div className="mt-1 text-sm text-[var(--ink-muted)]">Documents</div>
-        </Link>
-      </div>
+      )}
 
       {/* Confidence indicator */}
       <div className="mb-8 rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
@@ -447,17 +452,7 @@ export default async function ProjectPage({ params }: Props) {
         </section>
       )}
 
-      {!project.frame?.trim() && (
-        <Link
-          href={`/projects/${project.id}/settings`}
-          className="mb-8 block rounded-xl border border-[var(--brand)] bg-[var(--surface-1)] p-5 text-[var(--ink)] transition-colors hover:bg-[var(--surface-2)]"
-        >
-          <div className="text-sm font-semibold">Add a Project Frame to improve compose quality →</div>
-          <div className="mt-2 text-sm leading-6 text-[var(--ink-muted)]">
-            Give drafts a clearer north star, audience, and decision context.
-          </div>
-        </Link>
-      )}
+      {/* Project context prompt has moved to the top of the page (above the confidence bar) */}
 
       {/* Research gaps */}
       {gapSignals && gapSignals.length > 0 && (
@@ -658,21 +653,31 @@ export default async function ProjectPage({ params }: Props) {
             View segments, retry ingest, and remove source material.
           </div>
         </Link>
+        {/* Draft artifact — promoted only when trusted evidence exists to draft from */}
         <Link
           href={`/projects/${project.id}/compose`}
-          className="rounded-xl border border-[var(--brand)] bg-[var(--brand)] p-5 text-white transition-colors hover:bg-[var(--brand-dim)]"
+          className={`rounded-xl border p-5 transition-colors ${
+            hasTrustedEvidence
+              ? "border-[var(--brand)] bg-[var(--brand)] text-white hover:bg-[var(--brand-dim)]"
+              : "border-[var(--border)] bg-[var(--surface-1)] text-[var(--ink)] hover:border-[var(--brand)]"
+          }`}
         >
           <div className="text-sm font-semibold">Draft artifact</div>
-          <div className="mt-2 text-sm leading-6 text-white/75">
+          <div className={`mt-2 text-sm leading-6 ${hasTrustedEvidence ? "text-white/75" : "text-[var(--ink-muted)]"}`}>
             Generate a working document grounded in trusted evidence.
           </div>
         </Link>
+        {/* Add source material — promoted when there's nothing yet to draft from */}
         <Link
           href={`/projects/${project.id}/ingest`}
-          className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5 text-[var(--ink)] transition-colors hover:border-[var(--brand)]"
+          className={`rounded-xl border p-5 transition-colors ${
+            !hasTrustedEvidence
+              ? "border-[var(--brand)] bg-[var(--brand)] text-white hover:bg-[var(--brand-dim)]"
+              : "border-[var(--border)] bg-[var(--surface-1)] text-[var(--ink)] hover:border-[var(--brand)]"
+          }`}
         >
           <div className="text-sm font-semibold">Add source material</div>
-          <div className="mt-2 text-sm leading-6 text-[var(--ink-muted)]">
+          <div className={`mt-2 text-sm leading-6 ${!hasTrustedEvidence ? "text-white/75" : "text-[var(--ink-muted)]"}`}>
             Paste a transcript, document, note, or raw research input.
           </div>
         </Link>
