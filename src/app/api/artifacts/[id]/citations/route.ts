@@ -3,6 +3,7 @@
 // Reads citation_map from artifact.metadata and fetches the linked evidence records.
 
 import { NextRequest, NextResponse } from "next/server";
+import { getActiveOrgId } from "@/lib/auth/org";
 import { createClient } from "@/lib/supabase/server";
 import type { EvidenceRecord } from "@/types/database";
 
@@ -40,15 +41,9 @@ export async function GET(
 
   const artifactId = params.id;
 
-  // Look up user's org membership
-  const { data: membership } = await supabase
-    .from("org_members")
-    .select("org_id")
-    .eq("user_id", user.id)
-    .limit(1)
-    .single();
+  const orgId = await getActiveOrgId(user.id);
 
-  if (!membership) {
+  if (!orgId) {
     return NextResponse.json({ error: "Not a member of any organisation" }, { status: 403 });
   }
 
@@ -57,7 +52,7 @@ export async function GET(
     .from("artifacts")
     .select("id, org_id, metadata")
     .eq("id", artifactId)
-    .eq("org_id", membership.org_id)
+    .eq("org_id", orgId)
     .single();
 
   if (artifactError || !artifact) {
@@ -88,7 +83,7 @@ export async function GET(
   const { data: evidenceRows } = await supabase
     .from("evidence")
     .select("id, content, summary, source_id, segment_id, classification, sentiment")
-    .eq("org_id", membership.org_id)
+    .eq("org_id", orgId)
     .in("id", evidenceIds);
 
   const typedEvidenceRows = (evidenceRows ?? []) as EvidenceRow[];
@@ -111,14 +106,14 @@ export async function GET(
       ? supabase
           .from("sources")
           .select("id, title, type")
-          .eq("org_id", membership.org_id)
+          .eq("org_id", orgId)
           .in("id", sourceIds)
       : Promise.resolve({ data: [] }),
     segmentIds.length > 0
       ? supabase
           .from("source_segments")
           .select("id, speaker")
-          .eq("org_id", membership.org_id)
+          .eq("org_id", orgId)
           .in("id", segmentIds)
       : Promise.resolve({ data: [] }),
   ]);

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getActiveOrgId } from "@/lib/auth/org";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -30,15 +31,9 @@ export async function PATCH(req: NextRequest, { params }: Props) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: membership } = await supabase
-    .from("org_members")
-    .select("org_id")
-    .eq("user_id", user.id)
-    .order("joined_at", { ascending: true })
-    .limit(1)
-    .single();
+  const orgId = await getActiveOrgId(user.id);
 
-  if (!membership?.org_id) {
+  if (!orgId) {
     return NextResponse.json({ error: "Org not found" }, { status: 404 });
   }
 
@@ -51,7 +46,7 @@ export async function PATCH(req: NextRequest, { params }: Props) {
   const { data: competitor, error: competitorError } = await supabase
     .from("competitors")
     .select("battle_card")
-    .eq("org_id", membership.org_id)
+    .eq("org_id", orgId)
     .eq("id", params.competitorId)
     .single();
 
@@ -77,7 +72,7 @@ export async function PATCH(req: NextRequest, { params }: Props) {
   const { error } = await supabase
     .from("competitors")
     .update({ battle_card: nextBattleCard, updated_at: new Date().toISOString() })
-    .eq("org_id", membership.org_id)
+    .eq("org_id", orgId)
     .eq("id", params.competitorId);
 
   if (error) {

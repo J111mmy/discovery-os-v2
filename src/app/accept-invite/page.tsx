@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { setActiveOrgId } from "@/lib/auth/org";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -87,6 +88,8 @@ export default async function AcceptInvitePage({ searchParams }: Props) {
     .update({ accepted_at: new Date().toISOString() })
     .eq("org_id", invite.org_id)
     .eq("id", invite.id);
+
+  await setActiveOrgId(invite.org_id);
 
   redirect("/projects");
 }

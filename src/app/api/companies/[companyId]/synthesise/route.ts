@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getActiveOrgId } from "@/lib/auth/org";
 import { inngest } from "@/lib/inngest/client";
 
 export async function POST(
@@ -17,16 +18,9 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Resolve the user's org
-  const { data: membership } = await supabase
-    .from("org_members")
-    .select("org_id")
-    .eq("user_id", user.id)
-    .order("joined_at", { ascending: true })
-    .limit(1)
-    .single();
+  const orgId = await getActiveOrgId(user.id);
 
-  if (!membership?.org_id) {
+  if (!orgId) {
     return NextResponse.json({ error: "Org not found" }, { status: 404 });
   }
 
@@ -34,7 +28,7 @@ export async function POST(
   const { data: company } = await supabase
     .from("companies")
     .select("id")
-    .eq("org_id", membership.org_id)
+    .eq("org_id", orgId)
     .eq("id", params.companyId)
     .single();
 
@@ -45,7 +39,7 @@ export async function POST(
   try {
     await inngest.send({
       name: "company/digest.requested",
-      data: { org_id: membership.org_id, company_id: params.companyId },
+      data: { org_id: orgId, company_id: params.companyId },
     });
   } catch (inngestError) {
     const message = inngestError instanceof Error ? inngestError.message : String(inngestError);

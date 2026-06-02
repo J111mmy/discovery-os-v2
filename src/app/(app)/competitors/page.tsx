@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getUserOrgIds } from "@/lib/auth/org";
+import { getActiveOrgId } from "@/lib/auth/org";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -40,8 +40,7 @@ export default async function CompetitorsPage() {
 
   if (!user) redirect("/login");
 
-  const orgIds = await getUserOrgIds(user.id);
-  const orgId = orgIds[0] ?? null;
+  const orgId = await getActiveOrgId(user.id);
 
   const { data: competitors } = orgId
     ? await supabase

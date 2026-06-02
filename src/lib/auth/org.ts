@@ -1,5 +1,8 @@
-import { createServiceClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getImpersonatedOrgId, isSuperAdmin } from "./super-admin";
+import { cookies } from "next/headers";
+
+export const ACTIVE_ORG_COOKIE = "disco_active_org";
 
 export interface AuthUser {
   id: string;
@@ -49,12 +52,59 @@ export async function getUserOrgIds(userId: string): Promise<string[]> {
   return (data ?? []).map((membership: { org_id: string }) => membership.org_id);
 }
 
+export async function getActiveOrgId(userId: string): Promise<string | null> {
+  const impersonatedOrgId = await getImpersonatedOrgId(userId);
+  if (impersonatedOrgId) return impersonatedOrgId;
+
+  const supabase = await createClient();
+  const cookieStore = await cookies();
+  const cookieOrgId = cookieStore.get(ACTIVE_ORG_COOKIE)?.value;
+
+  if (cookieOrgId) {
+    const { data } = await supabase
+      .from("org_members")
+      .select("org_id")
+      .eq("user_id", userId)
+      .eq("org_id", cookieOrgId)
+      .maybeSingle();
+
+    if (data?.org_id) return data.org_id;
+  }
+
+  const { data } = await supabase
+    .from("org_members")
+    .select("org_id")
+    .eq("user_id", userId)
+    .order("joined_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  return data?.org_id ?? null;
+}
+
+export async function setActiveOrgId(orgId: string) {
+  const cookieStore = await cookies();
+
+  try {
+    cookieStore.set(ACTIVE_ORG_COOKIE, orgId, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 60 * 60 * 24 * 30,
+      path: "/",
+    });
+  } catch {
+    // Server Components cannot mutate cookies. Callers still get the deterministic
+    // membership fallback until a Server Action or Route Handler can persist it.
+  }
+}
+
 export async function ensureUserOrg(user: AuthUser): Promise<UserOrg> {
   const supabase = createServiceClient();
-  const existingOrgIds = await getUserOrgIds(user.id);
+  const activeOrgId = await getActiveOrgId(user.id);
 
-  if (existingOrgIds[0]) {
-    return { id: existingOrgIds[0] };
+  if (activeOrgId) {
+    return { id: activeOrgId };
   }
 
   const baseName = orgNameFromEmail(user.email);
@@ -91,6 +141,8 @@ export async function ensureUserOrg(user: AuthUser): Promise<UserOrg> {
   if (memberError) {
     throw new Error(`Failed to create organization membership: ${memberError.message}`);
   }
+
+  await setActiveOrgId(org.id);
 
   return { id: org.id, name: org.name, role: "owner" };
 }

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getActiveOrgId } from "@/lib/auth/org";
 import { NextRequest, NextResponse } from "next/server";
 
 interface Props {
@@ -16,19 +17,13 @@ async function getUserOrgId() {
     return { supabase, orgId: null, status: 401 as const };
   }
 
-  const { data: membership } = await supabase
-    .from("org_members")
-    .select("org_id")
-    .eq("user_id", user.id)
-    .order("joined_at", { ascending: true })
-    .limit(1)
-    .single();
+  const orgId = await getActiveOrgId(user.id);
 
-  if (!membership?.org_id) {
+  if (!orgId) {
     return { supabase, orgId: null, status: 403 as const };
   }
 
-  return { supabase, orgId: membership.org_id as string, status: null };
+  return { supabase, orgId, status: null };
 }
 
 export async function GET(_req: NextRequest, { params }: Props) {

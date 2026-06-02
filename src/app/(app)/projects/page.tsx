@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getUserOrgIds } from "@/lib/auth/org";
+import { getActiveOrgId } from "@/lib/auth/org";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
@@ -8,12 +8,12 @@ export default async function ProjectsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const orgIds = await getUserOrgIds(user.id);
-  const { data: projects } = orgIds.length
+  const orgId = await getActiveOrgId(user.id);
+  const { data: projects } = orgId
     ? await supabase
         .from("projects")
         .select("id, org_id, name, slug, description, updated_at, archived")
-        .in("org_id", orgIds)
+        .eq("org_id", orgId)
         .eq("archived", false)
         .order("updated_at", { ascending: false })
     : { data: [] };

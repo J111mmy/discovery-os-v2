@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getActiveOrgId } from "@/lib/auth/org";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -21,15 +22,9 @@ export async function PATCH(req: NextRequest, { params }: Props) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: membership } = await supabase
-    .from("org_members")
-    .select("org_id")
-    .eq("user_id", user.id)
-    .order("joined_at", { ascending: true })
-    .limit(1)
-    .single();
+  const orgId = await getActiveOrgId(user.id);
 
-  if (!membership?.org_id) {
+  if (!orgId) {
     return NextResponse.json({ error: "No org" }, { status: 403 });
   }
 
@@ -42,7 +37,7 @@ export async function PATCH(req: NextRequest, { params }: Props) {
   const { error } = await supabase
     .from("actions")
     .update({ status: parsed.data.status, updated_at: new Date().toISOString() })
-    .eq("org_id", membership.org_id)
+    .eq("org_id", orgId)
     .eq("id", params.actionId);
 
   if (error) {

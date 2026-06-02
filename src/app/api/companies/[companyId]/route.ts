@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getUserOrgIds } from "@/lib/auth/org";
+import { getActiveOrgId } from "@/lib/auth/org";
 import { NextRequest, NextResponse } from "next/server";
 
 type JoinedEvidence = {
@@ -53,8 +53,7 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const orgIds = await getUserOrgIds(user.id);
-  const orgId = orgIds[0] ?? null;
+  const orgId = await getActiveOrgId(user.id);
 
   if (!orgId) {
     return NextResponse.json({ error: "Org not found" }, { status: 404 });

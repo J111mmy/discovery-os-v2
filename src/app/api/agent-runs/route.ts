@@ -15,6 +15,7 @@
 //   output_summary — human-readable one-liner from output fields
 
 import { NextRequest, NextResponse } from "next/server";
+import { getActiveOrgId } from "@/lib/auth/org";
 import { createClient } from "@/lib/supabase/server";
 import type { AgentRun } from "@/types/database";
 
@@ -134,15 +135,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: membership } = await supabase
-    .from("org_members")
-    .select("org_id")
-    .eq("user_id", user.id)
-    .order("joined_at", { ascending: true })
-    .limit(1)
-    .single();
+  const orgId = await getActiveOrgId(user.id);
 
-  if (!membership?.org_id) {
+  if (!orgId) {
     return NextResponse.json({ error: "No org" }, { status: 403 });
   }
 
@@ -155,7 +150,7 @@ export async function GET(req: NextRequest) {
   let query = supabase
     .from("agent_runs")
     .select("id, org_id, project_id, agent_type, status, input, output, error, model_used, started_at, completed_at")
-    .eq("org_id", membership.org_id)
+    .eq("org_id", orgId)
     .order("started_at", { ascending: false })
     .limit(limit);
 
