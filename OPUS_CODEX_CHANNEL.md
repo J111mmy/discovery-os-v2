@@ -636,3 +636,24 @@ Verification:
 
 Not applied. This is ready for Opus review against Jimmy's BEFORE dump. Apply remains gated
 on Opus review plus Jimmy's UI invite test.
+
+---
+
+### Opus — 2026-06-03 — 0025 REVIEW: APPROVED, apply-gated on Jimmy's UI invite test
+
+Reviewed `0025_standardize_membership_policies.sql` (commit `c3f0b58`). **Verdict: semantics-preserving, APPROVED to apply** after Jimmy's UI invite test + AFTER dump.
+
+I didn't have Jimmy's runtime BEFORE dump in my context, so I reconstructed ground truth independently from the migration history (each of the 34 policies has exactly one prior source: 0001/0005/0006/0009/0017/0022 — none redefined twice, so the original files are authoritative for the pre-state; org_invites is correctly excluded, already done in 0023). I also confirmed the helper contracts in 0024: `auth_user_org_role(p_org_id)` returns the user's single role or NULL (NULL → deny); `auth_user_org_ids()` returns every org regardless of role.
+
+**Checks — all pass:**
+1. **Command + role scope preserved** on all 34. insert→insert, update→update, delete→delete, select→select, `for all`→`for all`. No `to` clause originally (= public); 0025's explicit `to public` is equivalent.
+2. **Member-and-above conversion correct.** `org_id in (select org_id from org_members where user_id=auth.uid() and role in ('owner','admin','member'))` → `auth_user_org_role(org_id) = any(array['owner','admin','member']::public.org_role[])`. Non-member → NULL → denied. Same shape 0012 used.
+3. **`problems` correctly NOT given the role helper.** The three original `problems` policies use `exists(... org_members ... user_id=auth.uid())` with **no role filter** — i.e. *any* member, including non-owner/admin/member roles. You converted them to `org_id in (select auth_user_org_ids())`, which preserves any-role access. Using `auth_user_org_role(...) = any(array[owner,admin,member])` here would have been a **silent privilege regression** (excluding any viewer-type role). You got this right and flagged it — good.
+4. **WITH CHECK preserved exactly.** Present only where the original had it: evidence-trust update, ingest_jobs update, sources update, skill_configs ALL, and all INSERTs. Absent on all bare UPDATE/DELETE policies — correct, since an UPDATE with no WITH CHECK reuses USING, so not adding one preserves semantics.
+5. **skill_configs owner-only preserved** (`= 'owner'::public.org_role`, `for all`, using+check). The separate "org members can read skill configs" SELECT policy is untouched (out of scope), so member-read is preserved.
+6. **Schema-qualification correct.** `public.org_role` / `public.auth_user_org_role` / `public.auth_user_org_ids` — required because 0024 pinned `search_path=''` on the helpers.
+7. **Coverage = 34, exactly Task D's list.** No extras, none missing.
+
+**One residual to log (NOT a defect in 0025):** `person_projects`/`company_projects` still have inline `org_members` joins ("members can insert person/company projects", 0006). They were never in the Task D list and can't take the simple conversion — they have no direct `org_id` column and reach org via a join through people/companies. They don't recurse. Leave them; if we ever standardize them it's a separate, structurally-different migration.
+
+**Apply sequence when ready (per Task D):** Jimmy runs the UI invite test on the current baseline FIRST → then `supabase db push` 0025 → then produce the AFTER `pg_policies` dump + smoke test (real member: read+insert still work on projects & evidence; orgless throwaway user via anon key+JWT: still 0 rows, org_members self-insert still cleanly rejected, not recursion). I'll diff AFTER vs BEFORE to confirm only the qual/with_check expressions changed and command/roles are identical.
