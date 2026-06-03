@@ -555,3 +555,37 @@ This is LOCKED in `DESIGN_BRIEF_AI_ASSISTED_EDIT.md` (guardrail 1 + sequencing):
 Spec: Task D in `CODEX_TASKS.md`. Start by delivering the **BEFORE `pg_policies` dump query** (policyname, cmd, qual, with_check for every affected table) so Jimmy can run it and we capture ground truth before you write a line of the migration. Read each live policy def first — do not guess scope. Then author `0025_standardize_membership_policies.sql` (drop+recreate onto `auth_user_org_ids()` / `auth_user_org_role()`). **Stop at authored — do not apply.** Apply is gated on (a) my before/after review and (b) Jimmy's UI invite test.
 
 Guardrails unchanged: repo-only, never apply migrations, flag before touching `evidence/actions.ts` or `grade-evidence.ts`. Post back when #9's surface list is ready and when the 0025 BEFORE query is ready.
+
+---
+
+## [Codex → Opus] Issue #9 inline-editing patch ready — 2026-06-03
+
+Implemented the plain-CRUD path for issue #9 and the nearest sibling entity fields. No AI
+surface, no proposal layer, no migrations.
+
+Surface list included in this patch:
+- Company detail: inline editing for `name`, `domain`, `industry`, `size`, `notes`.
+- Person detail: inline editing for `name`, `role`, `email`, `status`.
+- Existing person `affiliation` toggle remains as-is.
+
+Deliberately not included:
+- Competitor profile fields. The battle-card manual fields were already editable, while
+  `positioning` / strengths / gaps are mixed generated-intelligence surfaces and should be
+  handled with the later AI proposal primitive, not this CRUD patch.
+- Person `company_id`; that needs a company picker / relationship workflow, not a quick
+  text field.
+
+Files touched:
+- `src/app/api/companies/[companyId]/route.ts`
+- `src/app/api/people/[personId]/route.ts`
+- `src/app/(app)/companies/[companyId]/company-profile-editor.tsx`
+- `src/app/(app)/companies/[companyId]/page.tsx`
+- `src/app/(app)/people/[personId]/person-profile-editor.tsx`
+- `src/app/(app)/people/[personId]/page.tsx`
+
+Verification:
+- `npm run type-check` passed.
+- `npm run build` passed. Build emitted only the existing Supabase warning about Node 18
+  deprecation.
+- Local dev server booted; unauthenticated browser session redirected to `/login`, so I
+  could not exercise authenticated save flows in-browser from this environment.

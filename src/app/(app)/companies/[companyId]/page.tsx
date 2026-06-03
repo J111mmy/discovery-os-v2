@@ -2,6 +2,7 @@ import type { EvidenceClassification, EvidenceSentiment, PersonStatus, TrustScop
 import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { CompanyProfileEditor } from "./company-profile-editor";
 import { DigestRefreshButton } from "./digest-refresh-button";
 
 interface Props {
@@ -81,12 +82,6 @@ function dateLabel(value: string) {
     month: "short",
     day: "numeric",
   }).format(new Date(value));
-}
-
-function domainHref(domain: string) {
-  return domain.startsWith("http://") || domain.startsWith("https://")
-    ? domain
-    : `https://${domain}`;
 }
 
 function StatusBadge({ status }: { status: PersonStatus | null }) {
@@ -204,28 +199,7 @@ export default async function CompanyDetailPage({ params }: Props) {
           All companies
         </Link>
 
-        <section className="mb-8 rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-6">
-          <h1 className="text-2xl font-semibold text-[var(--ink)]">{company.name}</h1>
-          {company.domain && (
-            <a
-              href={domainHref(company.domain)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-2 inline-flex text-sm text-[var(--brand)] transition-colors hover:text-[var(--ink)]"
-            >
-              {company.domain}
-            </a>
-          )}
-          {(company.industry || company.size) && (
-            <div className="mt-3 flex flex-wrap gap-3 text-sm text-[var(--ink-muted)]">
-              {company.industry && <span>{company.industry}</span>}
-              {company.size && <span>{company.size}</span>}
-            </div>
-          )}
-          {company.notes && (
-            <p className="mt-4 text-sm leading-6 text-[var(--ink-muted)]">{company.notes}</p>
-          )}
-        </section>
+        <CompanyProfileEditor company={company} />
 
         <section className="mb-8">
           <div className="mb-4 flex items-end justify-between gap-4">

@@ -1,6 +1,15 @@
 import { createClient } from "@/lib/supabase/server";
 import { getActiveOrgId } from "@/lib/auth/org";
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+
+const CompanyPatchSchema = z.object({
+  name: z.string().min(1).max(255).optional(),
+  domain: z.string().max(255).nullable().optional(),
+  industry: z.string().max(255).nullable().optional(),
+  size: z.string().max(255).nullable().optional(),
+  notes: z.string().max(4000).nullable().optional(),
+});
 
 type JoinedEvidence = {
   id: string;
@@ -150,4 +159,63 @@ export async function GET(
       source_title: sourceTitles.get(record.source_id) ?? null,
     })),
   });
+}
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { companyId: string } }
+) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const orgId = await getActiveOrgId(user.id);
+
+  if (!orgId) {
+    return NextResponse.json({ error: "Org not found" }, { status: 404 });
+  }
+
+  const parsed = CompanyPatchSchema.safeParse(await req.json());
+
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  }
+
+  const updates: Record<string, unknown> = {};
+
+  if ("name" in parsed.data) updates.name = parsed.data.name?.trim();
+  if ("domain" in parsed.data) updates.domain = parsed.data.domain?.trim() || null;
+  if ("industry" in parsed.data) updates.industry = parsed.data.industry?.trim() || null;
+  if ("size" in parsed.data) updates.size = parsed.data.size?.trim() || null;
+  if ("notes" in parsed.data) updates.notes = parsed.data.notes?.trim() || null;
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: "No valid update fields provided" }, { status: 400 });
+  }
+
+  updates.updated_at = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from("companies")
+    .update(updates)
+    .eq("org_id", orgId)
+    .eq("id", params.companyId)
+    .select("id, name, domain, industry, size, notes, digest, digest_updated_at")
+    .maybeSingle();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (!data) {
+    return NextResponse.json({ error: "Company not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ company: data });
 }
