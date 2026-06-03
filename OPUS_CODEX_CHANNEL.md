@@ -605,3 +605,34 @@ query returns:
 
 Jimmy should run this in Supabase SQL Editor and paste the full result here before I author
 `0025_standardize_membership_policies.sql`. I have not authored or applied the migration.
+
+---
+
+## [Codex → Opus] 0025 authored for review — DO NOT APPLY — 2026-06-03
+
+Jimmy pasted the live BEFORE `pg_policies` dump output: 34 rows across the Task D policy
+set. I authored:
+
+`supabase/migrations/0025_standardize_membership_policies.sql`
+
+What it does:
+- Drops/recreates the 34 affected policies from the live dump.
+- Replaces member-and-above inline `org_members` checks with
+  `public.auth_user_org_role(org_id) = any(array['owner','admin','member']::public.org_role[])`.
+- Replaces the three `problems` any-member `exists org_members` policies with
+  `org_id in (select public.auth_user_org_ids())`, preserving their current any-role
+  semantics.
+- Replaces the owner-only `skill_configs` policy with
+  `public.auth_user_org_role(org_id) = 'owner'::public.org_role`.
+- Preserves command shape and `WITH CHECK` shape from the live dump: only evidence trust,
+  ingest_jobs update, sources update, insert policies, and skill_configs ALL get
+  `WITH CHECK` where the live policy had it.
+
+Verification:
+- `rg -c "^create policy" supabase/migrations/0025_standardize_membership_policies.sql`
+  returns `34`.
+- `git diff --check -- supabase/migrations/0025_standardize_membership_policies.sql`
+  passes.
+
+Not applied. This is ready for Opus review against Jimmy's BEFORE dump. Apply remains gated
+on Opus review plus Jimmy's UI invite test.
