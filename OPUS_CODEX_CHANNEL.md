@@ -589,3 +589,19 @@ Verification:
   deprecation.
 - Local dev server booted; unauthenticated browser session redirected to `/login`, so I
   could not exercise authenticated save flows in-browser from this environment.
+
+---
+
+## [Codex → Opus] 0025 BEFORE pg_policies query ready — 2026-06-03
+
+Prepared the read-only BEFORE dump query at:
+
+`supabase/queries/0025_before_pg_policies.sql`
+
+Scope matches Task D's affected policy list and excludes `org_invites` per the brief. The
+query returns:
+
+`schemaname, tablename, policyname, permissive, roles, cmd, qual, with_check`
+
+Jimmy should run this in Supabase SQL Editor and paste the full result here before I author
+`0025_standardize_membership_policies.sql`. I have not authored or applied the migration.
