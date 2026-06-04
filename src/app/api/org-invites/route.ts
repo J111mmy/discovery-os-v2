@@ -62,8 +62,7 @@ export async function POST(req: NextRequest) {
 
   const requestOrigin = new URL(req.url).origin;
   const appOrigin = process.env.NEXT_PUBLIC_APP_URL || requestOrigin;
-  const next = `/accept-invite?token=${invite.token}`;
-  const emailRedirectTo = `${appOrigin}/auth/callback?next=${encodeURIComponent(next)}`;
+  const emailRedirectTo = `${appOrigin}/auth/callback/${encodeURIComponent(invite.token)}`;
 
   const { error: emailError } = await supabase.auth.signInWithOtp({
     email: invite.email,

@@ -17,6 +17,21 @@ type InviteStatus =
   | "insert-failed"
   | "finish-failed";
 
+type AcceptInviteStatus =
+  | "accepted"
+  | "already-member"
+  | "already-accepted"
+  | "not-authenticated"
+  | "not-found"
+  | "expired"
+  | "wrong-account";
+
+type AcceptInviteResult = {
+  status: AcceptInviteStatus;
+  org_id: string | null;
+  message: string | null;
+};
+
 function statusRedirect(req: NextRequest, status: InviteStatus, params?: Record<string, string>) {
   const url = new URL("/accept-invite/status", req.url);
   url.searchParams.set("status", status);
@@ -74,61 +89,40 @@ export async function GET(req: NextRequest) {
     return loginRedirect(req, token);
   }
 
-  const { data: invite, error: inviteError } = await supabase
-    .from("org_invites")
-    .select("id, org_id, email, role, accepted_at, expires_at")
-    .eq("token", token)
-    .maybeSingle();
+  const { data, error } = await supabase.rpc("accept_invite", { p_token: token });
+  const result = (Array.isArray(data) ? data[0] : data) as AcceptInviteResult | undefined;
 
-  if (inviteError || !invite) {
-    return statusRedirect(req, "not-found");
-  }
-
-  if (invite.accepted_at) {
-    return statusRedirect(req, "already-accepted");
-  }
-
-  if (new Date(invite.expires_at).getTime() < Date.now()) {
-    return statusRedirect(req, "expired");
-  }
-
-  if (user.email?.toLowerCase() !== invite.email.toLowerCase()) {
-    return statusRedirect(req, "wrong-account", { email: invite.email });
-  }
-
-  const { data: existingMember, error: memberLookupError } = await supabase
-    .from("org_members")
-    .select("id, org_id, user_id")
-    .eq("org_id", invite.org_id)
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (memberLookupError) {
+  if (error || !result) {
     return statusRedirect(req, "insert-failed");
   }
 
-  if (!existingMember) {
-    const { error: insertError } = await supabase.from("org_members").insert({
-      org_id: invite.org_id,
-      user_id: user.id,
-      role: invite.role,
-      display_name: user.user_metadata?.full_name ?? user.email ?? null,
-    });
-
-    if (insertError) {
-      return statusRedirect(req, "insert-failed");
+  if (result.status === "accepted" || result.status === "already-member") {
+    if (!result.org_id) {
+      return statusRedirect(req, "finish-failed");
     }
+
+    return projectsRedirect(req, result.org_id);
   }
 
-  const { error: updateError } = await supabase
-    .from("org_invites")
-    .update({ accepted_at: new Date().toISOString() })
-    .eq("org_id", invite.org_id)
-    .eq("id", invite.id);
-
-  if (updateError) {
-    return statusRedirect(req, "finish-failed");
+  if (result.status === "not-authenticated") {
+    return loginRedirect(req, token);
   }
 
-  return projectsRedirect(req, invite.org_id);
+  if (result.status === "not-found") {
+    return statusRedirect(req, "not-found");
+  }
+
+  if (result.status === "already-accepted") {
+    return statusRedirect(req, "already-accepted");
+  }
+
+  if (result.status === "expired") {
+    return statusRedirect(req, "expired");
+  }
+
+  if (result.status === "wrong-account") {
+    return statusRedirect(req, "wrong-account");
+  }
+
+  return statusRedirect(req, "insert-failed");
 }

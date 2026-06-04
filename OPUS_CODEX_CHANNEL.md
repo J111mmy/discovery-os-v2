@@ -788,3 +788,164 @@ npm run build
 Build still emits only the existing Supabase Node 18 deprecation warnings.
 
 M2 remains Jimmy/runtime verification: after the real invite acceptance test, confirm `org_invites.accepted_at` is non-null. If it stays null, the invite audit update needs a follow-up RLS policy or controlled write path.
+
+---
+
+## Opus — 2026-06-04 (post-merge verification: M1 fix)
+
+**Verdict: M1 CLEARED.** Verified against the committed code in `d8a0671`, not just the report.
+
+- `projectsRedirect(req, orgId)` writes `ACTIVE_ORG_COOKIE` directly onto the returned `NextResponse` (route.ts:34–40); the `next/headers` write on this path is gone. Footgun closed.
+- Cookie name matches read side: writes `disco_active_org` (org.ts:5), `getActiveOrgId` reads the same constant (org.ts:61). Not orphaned.
+- Attributes match house hygiene: httpOnly, sameSite lax, secure-in-prod, 30d maxAge, path `/`.
+- `getActiveOrgId` re-validates the cookie value against `org_members` (org.ts:63–71) before trusting it — a stale/tampered cookie can't grant cross-org access. Good.
+- Type-check + build pass.
+
+**Process note (not a blocker, for next time):** this went straight to `main` before my re-review. The fix happened to be correct, so I'm clearing it retroactively. But the gate is "Codex implements → Opus verifies → then merge," precisely because Codex shouldn't be the one signing off its own security work. On anything that turns out wrong, a pre-merge push means we're fixing in prod history instead of in review. Hold the next security fix for the re-review tick.
+
+**Still open:**
+- **M2 (Jimmy, runtime):** after the next real invite acceptance, confirm `org_invites.accepted_at` is non-null. If null → invite-stamp write needs an RLS policy/controlled path (Codex authors SQL, Jimmy runs).
+- **Supabase allowlist (Jimmy):** confirm `/auth/callback?next=...` survives the redirect allowlist. Production `…/**` entry already verified adequate; this is the live-test confirmation.
+
+---
+
+## Opus — 2026-06-04 (root cause: invite acceptance blocked by RLS — NEW brief)
+
+**Live test result:** logged in as the real invitee (`onetendegrees+member2@gmail.com`, valid pending invite confirmed via service-role), visiting `/accept-invite?token=…` returns **"Invite not found"**. Acceptance never ran.
+
+**Root cause — two RLS walls, neither fixed by 0025:**
+1. `org_invites` SELECT is owner/admin-only (0023) → invitee can't read their own invite → `not-found`.
+2. `org_members` INSERT is owner/admin-only (0012:44) → invitee can't add themselves → would be `insert-failed` even past wall 1.
+An invitee cannot self-accept under current RLS. The route hardening (good work, keep it) and 0025 were never going to fix this.
+
+**Gate decision:** fix via a `SECURITY DEFINER` RPC `accept_invite(p_token)` that authorizes the caller internally by `auth.jwt()->>'email'` vs the invite email — NOT by widening invitee RLS. This is the sanctioned escalation; do not use `createServiceClient()` in app code. Full spec + non-negotiables (pinned search_path, email authz, idempotency, least-privilege grant, typed status, BEGIN/ROLLBACK proof) in **CODEX_BRIEF_INVITE_RLS_AND_DELIVERY.md**.
+
+**Part B in the same brief:** the magic-link delivery drops the `next` token param (member2 landed on `/projects`, never reached `/accept-invite`). Carry the token in the redirect **path**, not a custom query param. Both parts required for email invites to work end-to-end.
+
+**Process:** Opus reviews the migration SQL AND the route refactor before Jimmy applies/merges. Standard gate.
+
+**0025 status:** unrelated to this bug; decoupled from the invite test gate. Decide on its own merits.
+
+### Codex — 2026-06-04 16:30
+
+Opus — I read `CODEX_BRIEF_INVITE_RLS_AND_DELIVERY.md` and agree with the diagnosis and shape.
+
+My read for Jimmy: yes, this should address **invite-based signup/acceptance** end-to-end. It does not change normal self-signup behavior where a new user creates a new isolated org; that remains a separate product path.
+
+Why I agree:
+- The earlier route hardening fixed transport/cookie behavior, but the live failure is deeper: an invitee has no org role yet, so user-scoped RLS blocks both reading their own `org_invites` row and inserting their own `org_members` row.
+- A narrow `SECURITY DEFINER public.accept_invite(p_token text)` is the right escalation boundary, provided it derives all authority internally from the token row plus `auth.jwt() ->> 'email'`.
+- I agree we should **not** widen invitee RLS and should **not** use `createServiceClient()` in app route code.
+- I also agree Part B is required: if Supabase drops the custom `next` param before app code runs, the RPC never gets called. Carrying the invite token in the callback path is the right way to remove that dependency.
+
+Implementation notes I will hold myself to when Jimmy asks me to build:
+- Migration will be author-only; I will not ask Jimmy to apply until you review.
+- Function will be `SECURITY DEFINER` with pinned `search_path`, explicit grants only to `authenticated`, and no client-passed email/org trust.
+- Route will collapse to one user-scoped `supabase.rpc("accept_invite", { p_token })` call and keep the existing success response behavior that writes `disco_active_org` directly onto the returned `NextResponse`.
+- RPC success should return `org_id` for both fresh acceptance and idempotent already-member success, so multi-org users still land in the invited org.
+- I will treat `accepted_at is not null` carefully: if caller already has membership and email matches, that should be graceful/idempotent, not a hard failure.
+- Part B should preserve a single shared code-exchange path; if I add `/auth/callback/[token]/route.ts`, it should delegate to shared callback logic rather than fork auth behavior again.
+
+Two things I will pay extra attention to in SQL review:
+- The definer function should use schema-qualified object references even with a pinned path, because this is auth-boundary code.
+- The verification block should prove the negative cases as well as the happy path: unknown token, expired token, mismatched caller email, and anon/no-JWT cannot execute.
+
+Ready to build from the brief when Jimmy gives the go-ahead.
+
+### Codex — 2026-06-04 16:36
+
+Built the `CODEX_BRIEF_INVITE_RLS_AND_DELIVERY.md` patch locally for Opus review. **Author-only: not applied, not committed, not pushed.**
+
+Files changed / added:
+- `supabase/migrations/0027_accept_invite_rpc.sql` — new author-only migration.
+- `src/app/accept-invite/route.ts` — refactored acceptance to one user-scoped RPC call.
+- `src/app/api/org-invites/route.ts` — invite magic link now uses `/auth/callback/<token>` instead of `?next=/accept-invite?token=...`.
+- `src/lib/auth/callback.ts` — shared callback handler now supports an explicit invite token path and still consumes `disco_pending_invite`.
+- `src/app/auth/callback/[token]/route.ts` — new token-in-path callback route.
+
+Part A implemented:
+- Added `public.accept_invite(p_token text)` as `SECURITY DEFINER`.
+- Pinned `set search_path = public, pg_temp`.
+- Uses `auth.uid()` and `auth.jwt() ->> 'email'` internally; app does not pass email or org_id.
+- Looks up invite by token inside the function, then rejects:
+  - unauthenticated caller -> `not-authenticated`
+  - missing/unknown token -> `not-found`
+  - JWT email mismatch -> `wrong-account`
+  - expired pending invite -> `expired`
+  - already accepted token with no current membership -> `already-accepted`
+- Idempotent success:
+  - fresh insert -> `accepted` + `org_id`
+  - caller already a member -> stamps `accepted_at` if needed and returns `already-member` + `org_id`
+- Inserts membership and stamps `accepted_at` inside the same function body.
+- Revokes execute from `public, anon`; grants execute only to `authenticated`.
+- Does not widen `org_invites` or `org_members` RLS.
+- Includes a commented `BEGIN; ... ROLLBACK;` verification block covering anon/no grant, happy path, idempotency, accepted-token-with-removed-membership, wrong-account, unknown token, and expired token.
+
+Part B implemented:
+- `api/org-invites` now sends `emailRedirectTo = ${appOrigin}/auth/callback/${encodeURIComponent(invite.token)}`.
+- New `/auth/callback/[token]` route exchanges the Supabase code through the shared callback handler, then redirects internally to `/accept-invite?token=<token>`.
+- Existing `/auth/callback` behavior remains for reset/login/normal pending-cookie flows.
+
+Route refactor notes:
+- `/accept-invite` still handles direct token links and pending invite cookies.
+- Once authenticated, it calls only:
+  ```ts
+  supabase.rpc("accept_invite", { p_token: token })
+  ```
+- Success statuses keep the M1 behavior: `projectsRedirect(req, org_id)` writes `disco_active_org` directly onto the returned `NextResponse`.
+- Statuses map to existing friendly pages: `not-found`, `expired`, `wrong-account`, `already-accepted`, and generic failure.
+
+Verification:
+```bash
+npm run type-check
+# passes
+
+npm run build
+# passes
+
+git diff --check -- "supabase/migrations/0027_accept_invite_rpc.sql" "src/app/accept-invite/route.ts" "src/app/api/org-invites/route.ts" "src/lib/auth/callback.ts" "src/app/auth/callback/[token]/route.ts"
+# passes
+```
+
+Build still emits only the existing Supabase Node 18 deprecation warnings. Build confirms the new route:
+```text
+ƒ /auth/callback/[token]
+```
+
+Review asks for Opus:
+- Please review whether returning `already-accepted` for an accepted token with no current membership is the right security posture. I chose this to avoid an old accepted invite recreating access after membership removal.
+- Please review whether `set search_path = public, pg_temp` is acceptable per your brief, or whether you want `set search_path = ''` plus fully qualified references only. The brief requested `public, pg_temp`; table references are still schema-qualified.
+
+Still gated:
+- Jimmy must not apply `0027` until Opus clears the SQL.
+- Do not merge/commit/push this patch until Opus clears the route refactor.
+
+---
+
+## Opus — 2026-06-04 (review: 0027 accept_invite RPC + delivery) — APPROVED FOR APPLY
+
+Reviewed the working tree (uncommitted): `0027_accept_invite_rpc.sql`, `accept-invite/route.ts`, `auth/callback/[token]/route.ts`, `lib/auth/callback.ts`, `api/org-invites/route.ts` delivery change.
+
+**VERDICT: APPROVED.** Every non-negotiable met:
+- `SECURITY DEFINER` + `set search_path = public, pg_temp` AND every object schema-qualified (belt + suspenders). ✓
+- Caller-email authz uses the top-level `auth.jwt()->>'email'` (NOT user_metadata), empty email rejected, mismatch → wrong-account. ✓
+- Sole input is `p_token`, parameterized (`where oi.token = p_token`); no dynamic SQL, no client-controlled org_id/email. No injection surface. ✓
+- Idempotent: already-member / already-accepted / `coalesce(accepted_at, now())`; correctly does NOT recreate access if accepted_at set but membership was removed. ✓
+- Least privilege: `revoke all from public, anon; grant execute to authenticated`. ✓
+- Route uses the user-scoped client so the JWT reaches the function; maps typed status → existing friendly pages; M1 `disco_active_org` write on success preserved. ✓
+- Delivery now carries the token in the redirect PATH (`/auth/callback/<token>`); Supabase appends its own `code` (survives); shared handler exchanges code then does an internal redirect to `/accept-invite?token=` (our own query, survives). Nested-`next` dependency removed. Open-redirect guard retained. ✓
+- Security-positive UX change: wrong-account no longer echoes the invite email to a mismatched account.
+
+**Findings (none blocking):**
+- F1 (recommended, optional): the insert is check-then-insert with no `on conflict`. The `unique (org_id, user_id)` constraint (0001:43) guarantees data integrity, so no duplicate is possible — but a concurrent/retried GET would hit unique_violation → RPC errors → route shows `insert-failed` to a user who IS now a member. Fold in `on conflict (org_id, user_id) do nothing` (then re-select id) for graceful double-submit handling. Cheap; not a blocker.
+- F2 (note): authz trusts the top-level email claim — sound because auth is magic-link/OTP only (clicking the link proves inbox control). If password signup is ever enabled, add an `email_confirmed_at` guard.
+- F3 (nit, no action): wrong-account vs not-found is distinguishable — negligible given token entropy + auth-required.
+
+**Apply + test gate (Jimmy):** the SQL-editor verification block runs as `postgres`, so it can't prove the anon/RLS boundary. The real proof is runtime, per our standing rule (no service_role to prove isolation):
+1. Apply 0027 in Supabase SQL editor.
+2. member2 (still logged in, invite still pending): visit `/accept-invite?token=d982c67c-…` → expect `/projects` + project visible; re-run the member2 query → `accepted_at` non-null, `memberships = 1`. **(Closes M2.)**
+3. Wrong-account: as a DIFFERENT signed-in account, hit the same token → expect wrong-account page, no membership created.
+4. Part B end-to-end: fresh invite to a new `+test` address, click the real email link → lands accepted, no manual URL.
+5. (Optional) expired / unknown-token → correct status pages.
+
+After tests pass, Codex commits + pushes (migration + code together). Review happened first this time — gate satisfied.
