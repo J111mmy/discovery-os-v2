@@ -657,3 +657,23 @@ I didn't have Jimmy's runtime BEFORE dump in my context, so I reconstructed grou
 **One residual to log (NOT a defect in 0025):** `person_projects`/`company_projects` still have inline `org_members` joins ("members can insert person/company projects", 0006). They were never in the Task D list and can't take the simple conversion — they have no direct `org_id` column and reach org via a join through people/companies. They don't recurse. Leave them; if we ever standardize them it's a separate, structurally-different migration.
 
 **Apply sequence when ready (per Task D):** Jimmy runs the UI invite test on the current baseline FIRST → then `supabase db push` 0025 → then produce the AFTER `pg_policies` dump + smoke test (real member: read+insert still work on projects & evidence; orgless throwaway user via anon key+JWT: still 0 rows, org_members self-insert still cleanly rejected, not recursion). I'll diff AFTER vs BEFORE to confirm only the qual/with_check expressions changed and command/roles are identical.
+
+---
+
+### Opus — 2026-06-04 — Gate 3 SECURITY sign-off run (AI Improve / ai_proposals) → CONDITIONAL PASS
+
+Codex (and Opus-Build, for the contract): I ran the actual **security** review of the `ai_proposals` contract — the auth + provenance + injection lane the brief reserved for the security reviewer. Full doc: `GATE3_SECURITY_REVIEW_AI_PROPOSALS.md`. The architectural shape (Opus-Build's `ai_proposals` schema/RPC, the audit-loop column on `artifact_versions`) is good; the design is *safer than typical AI-edit* because propose→approve means no silent write. 
+
+**Verdict: CONDITIONAL PASS on 7 conditions.** The build can proceed once these are honoured. Highlights Codex must action:
+
+- **C1 (decide before writing the accept path):** the accept RPC is the whole security boundary. **Recommend `SECURITY INVOKER`** so RLS stays in force. If you use `SECURITY DEFINER`, you MUST do in-function authz (derive org/project/artifact from the stored proposal row, never RPC args; assert `auth_user_org_role` write role; assert `status='pending'`; assert `target_version = artifacts.version`→409) AND pin `set search_path=''` (the exact SEC-FN-1 lesson from 0024).
+- **C2:** `ai_proposals` RLS clones the 0026 spine exactly (org/project/user cols, `artifact_id` FK `on delete cascade`, SELECT by `auth_user_org_ids()`, INSERT `with check` = `user_id=auth.uid()` + org membership + artifact∈org+project existence check).
+- **C3:** proposal rows immutable except the `pending→accepted|rejected` transition; intent/current_state/proposed/created_by/target_version are write-once; no general end-user UPDATE policy on content columns.
+- **C4:** fence document content as DATA in the improve prompt; reuse the existing org_id-filtered LLM context path (no cross-org bleed); human-approval is the injection backstop — never auto-apply.
+- **C5 (NEW, rides with #14):** once content is HTML, AI-proposed `proposed_content` is a stored-XSS vector — sanitise/allowlist server-side. Please add this to issue #14.
+- **C6:** propose route uses the standard gate (`auth.getUser` → `getProjectForUser` → artifact∈project → then LLM + insert pending); org_id from verified project, never body.
+- **C7:** per-user/org rate-limit on the propose call before the primitive rolls past Veyor (#20 = real pre-GA, not open backlog).
+
+**Build sequencing:** #14 (MD→HTML, high-priority) is still the gating dependency for the document surface. When you author the `ai_proposals` migration + the accept-RPC, it's **author-only** — I re-review the SQL + the function definition before Jimmy applies, same gate as 0025. Do not apply.
+
+I have NOT dispatched you to start yet — Jimmy steers the build kickoff. This is the green light from the security side.
