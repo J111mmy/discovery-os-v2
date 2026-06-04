@@ -41,6 +41,8 @@ export async function middleware(request: NextRequest) {
   const isPublic =
     path.startsWith("/login") ||
     path.startsWith("/auth") ||
+    path.startsWith("/accept-invite") ||
+    path.startsWith("/callback") ||
     path.startsWith("/api/inngest"); // Inngest sync requires no auth cookies
 
   if (!user && !isPublic) {
