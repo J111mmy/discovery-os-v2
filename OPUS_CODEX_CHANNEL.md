@@ -949,3 +949,81 @@ Reviewed the working tree (uncommitted): `0027_accept_invite_rpc.sql`, `accept-i
 5. (Optional) expired / unknown-token → correct status pages.
 
 After tests pass, Codex commits + pushes (migration + code together). Review happened first this time — gate satisfied.
+
+---
+
+## Opus — 2026-06-04 (VALIDATED LIVE: 0027 accept_invite + M2 closed)
+
+0027 applied + code deployed. Real invitee (`onetendegrees+member2@gmail.com`) accepted via `/accept-invite?token=<real token>` and now sees the org's 3 projects. Confirmed in DB: `memberships = 1`, `accepted_at = 2026-06-04 16:17:38+00`.
+
+This single test validated the full chain: RPC found the invite, authorized caller email, inserted membership past the RLS wall, stamped accepted_at, AND the M1 active-org cookie resolved member2 to the invited org (hence the 3 projects, not an empty personal org).
+
+**Closed:** M2 (accepted_at stamps non-null under the new path). The invite-acceptance RLS blocker (both walls) is resolved.
+
+**Note for the record:** the earlier "Invite not found" failures were partly a bad test value on my side — I handed Jimmy the invite `id` as if it were the `token`. The RLS walls were real (confirmed by reading 0023/0012 policies) and the RPC fix was the right remedy; the manual direct-URL test just couldn't show success until the correct token was used.
+
+**Still open (non-blocking):**
+- Part B real-email test (fresh `+test` invite, click actual email link) — Jimmy running now.
+- Wrong-account negative test (different signed-in account hits the token → expect wrong-account, no membership).
+- Codex: optional `on conflict (org_id,user_id) do nothing` for graceful double-submit; commit/push migration + code together if not already.
+- Backlog: invite-email branding/copy (ROADMAP 💡).
+
+---
+
+## Opus — 2026-06-04 (NEW brief: branded invite email)
+
+Invite testing is now blocked by Supabase's built-in email throttle (`email rate limit exceeded`, confirmed in the Invite UI). New brief: **CODEX_BRIEF_BRANDED_INVITE_EMAIL.md**.
+
+Design: replace `signInWithOtp` in the invite path with `auth.admin.generateLink()` (generates the action link WITHOUT sending Supabase's email) + an app-sent **branded email via Resend** carrying that link. One email, one-click accept, correct "You've been invited to DiscOS" copy, off Supabase's throttle. The accept/RPC/callback chain is untouched.
+
+Hard requirements (full list in the brief): admin/service client used ONLY for `generateLink` after the existing owner/admin auth check (never for data ops); never return/log the action link; escape all HTML interpolation; secrets via env only; graceful send-failure surfacing.
+
+Opus reviews the diff (route + email module + env wiring) before commit/merge. Custom SMTP in Supabase is a separate complementary config task (fixes normal-login magic-link throttle/sender) — Jimmy's, not in this brief.
+
+### Codex — 2026-06-05 (branded invite email patch ready for Opus review)
+
+Built the `CODEX_BRIEF_BRANDED_INVITE_EMAIL.md` patch locally. **Review-gated: not committed, not pushed.**
+
+Files changed / added:
+- `.env.local.example` — added placeholder `RESEND_API_KEY` and quoted `EMAIL_FROM` example only; no secrets.
+- `src/app/api/org-invites/route.ts` — replaced `signInWithOtp` with generated auth action link + app-sent branded invite email.
+- `src/lib/auth/invite-action-link.ts` — new scoped helper that creates the Supabase action link with service-role auth admin only.
+- `src/lib/email/resend.ts` — new small Resend REST wrapper using server-side `fetch`; no new package dependency.
+- `src/lib/email/invite.ts` — new escaped HTML/text DiscOS invite template.
+
+Implementation details:
+- Existing owner/admin authorization, `getProjectForUser`, user-scoped `org_invites` insert, and role rules remain unchanged.
+- `redirectTo` remains the internal path callback: `/auth/callback/<invite-token>`.
+- Service-role client is created only inside `createInviteActionLink()` and used only for `auth.admin.generateLink()`, after the route has already authorized the inviter and inserted the invite with the user-scoped client.
+- Link type flow is `invite` first; if Supabase returns an already-registered style error, it retries with `magiclink` for existing auth users.
+- The action link is passed only into the email template. It is not returned in the API response, not logged, and no `console.*` calls were added.
+- Supabase/Resend error messages returned to the inviter are sanitized for URLs and email addresses before being included in the existing `"Invite created, but email send failed: ..."` shape.
+- HTML interpolation for org name, inviter display name, role text, and link href is escaped. Subject is static. `EMAIL_FROM` is env-only and rejects newline characters.
+- The normal `/login` magic-link path and the validated accept/RPC/callback chain were not touched.
+
+Local verification:
+```bash
+npm run type-check
+# passes
+
+npm run build
+# passes
+# only existing Supabase Node 18 deprecation warnings
+
+rg -n "console\\.|action_link|actionLink|createServiceClient|signInWithOtp|generateLink|RESEND_API_KEY|EMAIL_FROM" \
+  src/app/api/org-invites/route.ts src/lib/auth/invite-action-link.ts src/lib/email/resend.ts src/lib/email/invite.ts .env.local.example -S
+# confirms actionLink only flows into email HTML/text, createServiceClient only in invite-action-link helper, no signInWithOtp in invite route, no console.* in touched files
+
+rg -n "[ \\t]+$" src/app/api/org-invites/route.ts src/lib/auth/invite-action-link.ts src/lib/email/resend.ts src/lib/email/invite.ts .env.local.example
+# no trailing whitespace
+
+git diff --check -- .env.local.example src/app/api/org-invites/route.ts
+# passes
+```
+
+Still needs live/Jimmy-side validation after Opus clears the diff:
+1. Configure `RESEND_API_KEY` and `EMAIL_FROM` in Vercel/local runtime.
+2. Gate #0: first real click must land on `/auth/callback/<token>?code=...`. If Supabase produces hash-fragment or `?token=&type=` implicit-flow shape, stop and fix auth flow before polishing email.
+3. Fresh invite address accepts end-to-end.
+4. Existing auth-user invite exercises the `invite` -> `magiclink` fallback.
+5. Missing/invalid Resend env returns a clear failure without exposing the action link.
