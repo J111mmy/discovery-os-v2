@@ -1,5 +1,4 @@
 import { getProjectForUser } from "@/lib/auth/org";
-import { createInviteActionLink } from "@/lib/auth/invite-action-link";
 import { sendInviteEmail } from "@/lib/email/invite";
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
@@ -74,7 +73,7 @@ export async function POST(req: NextRequest) {
 
   const requestOrigin = new URL(req.url).origin;
   const appOrigin = process.env.NEXT_PUBLIC_APP_URL || requestOrigin;
-  const emailRedirectTo = `${appOrigin}/auth/callback/${encodeURIComponent(invite.token)}`;
+  const acceptUrl = `${appOrigin}/invite/${encodeURIComponent(invite.token)}`;
 
   const { data: org } = await supabase
     .from("orgs")
@@ -83,11 +82,9 @@ export async function POST(req: NextRequest) {
     .single();
 
   try {
-    const actionLink = await createInviteActionLink(invite.email, emailRedirectTo);
-
     await sendInviteEmail({
       to: invite.email,
-      actionLink,
+      acceptUrl,
       orgName: org?.name ?? "your DiscOS workspace",
       inviterName: getInviterName(user),
       role: invite.role,

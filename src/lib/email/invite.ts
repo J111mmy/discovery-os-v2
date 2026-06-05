@@ -2,7 +2,7 @@ import { sendEmail } from "@/lib/email/resend";
 
 type InviteEmailParams = {
   to: string;
-  actionLink: string;
+  acceptUrl: string;
   orgName: string;
   inviterName?: string;
   role: "admin" | "member";
@@ -44,7 +44,7 @@ function invitationIntro(params: InviteEmailParams) {
 
 function renderInviteHtml(params: InviteEmailParams) {
   const intro = invitationIntro(params);
-  const actionLink = escapeHtml(params.actionLink);
+  const acceptUrl = escapeHtml(params.acceptUrl);
 
   return `<!doctype html>
 <html lang="en">
@@ -67,8 +67,8 @@ function renderInviteHtml(params: InviteEmailParams) {
             </tr>
             <tr>
               <td style="padding:0 28px 28px;">
-                <a href="${actionLink}" style="display:inline-block;background:#7c6dfa;color:#ffffff;text-decoration:none;border-radius:8px;padding:12px 18px;font-size:14px;font-weight:700;">Accept your invitation</a>
-                <p style="margin:22px 0 0;color:#9090a8;font-size:13px;line-height:1.6;">This secure link signs you in and adds you to the workspace. If you were not expecting this invite, you can ignore this email.</p>
+                <a href="${acceptUrl}" style="display:inline-block;background:#7c6dfa;color:#ffffff;text-decoration:none;border-radius:8px;padding:12px 18px;font-size:14px;font-weight:700;">Accept your invitation</a>
+                <p style="margin:22px 0 0;color:#9090a8;font-size:13px;line-height:1.6;">This secure link opens DiscOS so you can finish joining the workspace. If you were not expecting this invite, you can ignore this email.</p>
               </td>
             </tr>
           </table>
@@ -87,9 +87,9 @@ function renderInviteText(params: InviteEmailParams) {
   return `${intro}
 
 Accept your invitation:
-${params.actionLink}
+${params.acceptUrl}
 
-This secure link signs you in and adds you to the workspace. If you were not expecting this invite, you can ignore this email.`;
+This secure link opens DiscOS so you can finish joining the workspace. If you were not expecting this invite, you can ignore this email.`;
 }
 
 export async function sendInviteEmail(params: InviteEmailParams) {
