@@ -4,16 +4,19 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
 
 function LoginForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next") || "/projects";
+  const isInviteFlow = next === "/accept-invite";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [mode, setMode] = useState<"magic" | "password" | "reset">("password");
+  const [mode, setMode] = useState<"magic" | "password" | "reset">(
+    isInviteFlow ? "magic" : "password"
+  );
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const router = useRouter();
-  const searchParams = useSearchParams();
   const supabase = createClient();
-  const next = searchParams.get("next") || "/projects";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -70,11 +73,13 @@ function LoginForm() {
         ) : (
           <>
             <h1 className="text-xl font-semibold text-[var(--ink)] mb-1">
-              {mode === "reset" ? "Reset password" : "Sign in"}
+              {mode === "reset" ? "Reset password" : isInviteFlow ? "Accept your invitation" : "Sign in"}
             </h1>
             <p className="text-sm text-[var(--ink-muted)] mb-6">
               {mode === "reset"
                 ? "We'll send you a link to choose a new password."
+                : isInviteFlow && mode === "magic"
+                ? "Enter the invited email address. We'll send a sign-in link to finish joining the workspace."
                 : mode === "password"
                 ? "Sign in with email and password."
                 : "We'll send you a magic link."}
