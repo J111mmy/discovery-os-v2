@@ -3,6 +3,7 @@ import { getImpersonatedOrgName, isSuperAdmin } from "@/lib/auth/super-admin";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { UserMenu } from "./components/user-menu";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -102,6 +103,9 @@ export default async function AppLayout({ children }: AppLayoutProps) {
       </header>
 
       {children}
+
+      {/* Phase-0: floating debug toggle — moves into rail footer in Phase 1 */}
+      <ThemeToggle />
     </div>
   );
 }
