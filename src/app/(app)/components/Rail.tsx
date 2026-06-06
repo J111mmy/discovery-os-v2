@@ -306,11 +306,10 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
   const pathname = usePathname();
   const router = useRouter();
 
-  // Detect active project from URL: /projects/[projectId]/...
+  // Active project from URL (/projects/[id]/...)
   const activeProjectId = pathname.match(/^\/projects\/([^/]+)/)?.[1] ?? null;
-  const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
 
-  // Detect which directory item is active
+  // Directory + settings active state
   const activeDirId = DIR_ITEMS.find((d) => pathname.startsWith(d.href))?.id ?? null;
   const isSettingsActive = pathname.startsWith("/settings");
 
@@ -319,14 +318,15 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
   const [newProjOpen, setNewProjOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>("dark");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  // isMobile: JS-driven so mobile elements are never in the DOM on desktop.
-  // Avoids the flex-sibling leak that occurs when CSS display:none is the
-  // only guard inside a flex container (next.js doesn't tree-shake them).
   const [isMobile, setIsMobile] = useState(false);
+
+  // Last visited project — persists across directory/settings navigation so
+  // the project box stays open and the user can easily return to any sub-route.
+  const [lastProjectId, setLastProjectId] = useState<string | null>(null);
 
   const avatarRef = useRef<HTMLDivElement>(null);
 
-  // Read persisted theme on mount + set up mobile breakpoint listener
+  // Mount: read theme + last project from localStorage; set up mobile listener
   useEffect(() => {
     const t =
       (document.documentElement.getAttribute("data-theme") as Theme) ||
@@ -334,12 +334,29 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
       "dark";
     setTheme(t);
 
+    const stored = localStorage.getItem("discos-last-project");
+    if (stored && projects.some((p) => p.id === stored)) {
+      setLastProjectId(stored);
+    }
+
     const mq = window.matchMedia("(max-width: 860px)");
     setIsMobile(mq.matches);
     const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When URL changes to a project route, persist it
+  useEffect(() => {
+    if (activeProjectId && projects.some((p) => p.id === activeProjectId)) {
+      setLastProjectId(activeProjectId);
+      localStorage.setItem("discos-last-project", activeProjectId);
+    }
+  }, [activeProjectId, projects]);
+
+  // The "open" project: URL-based when on a project route, otherwise last visited
+  const openProjectId = activeProjectId ?? lastProjectId;
+  const openProject = projects.find((p) => p.id === openProjectId) ?? null;
 
   // Close avatar popover on outside click
   useEffect(() => {
@@ -418,14 +435,14 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
           <div style={divider} />
 
           {/* Active project sub-items (icon-only strip) */}
-          {activeProject && (
+          {openProject && (
             <>
               {PROJECT_NAV.slice(0, 3).map((item) => {
-                const href = item.href ? `/projects/${activeProjectId}/${item.href}` : `/projects/${activeProjectId}`;
+                const href = item.href ? `/projects/${openProjectId}/${item.href}` : `/projects/${openProjectId}`;
                 const on = item.href
-                  ? pathname.startsWith(`/projects/${activeProjectId}/${item.href}`)
-                  : pathname === `/projects/${activeProjectId}`;
-                const color = DOT_COLORS[projects.findIndex((p) => p.id === activeProjectId) % DOT_COLORS.length];
+                  ? pathname.startsWith(`/projects/${openProjectId}/${item.href}`)
+                  : pathname === `/projects/${openProjectId}`;
+                const color = DOT_COLORS[projects.findIndex((p) => p.id === openProjectId) % DOT_COLORS.length];
                 return (
                   <Link key={item.id} href={href} title={item.label}
                     style={{ ...colIconBtn, color: on ? color : "var(--ink-3)", background: on ? "var(--sel)" : "transparent", textDecoration: "none" }}>
@@ -466,7 +483,7 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
 
           {/* Add evidence */}
           <Link
-            href={activeProject ? `/projects/${activeProjectId}/ingest` : "/projects"}
+            href={openProject ? `/projects/${openProjectId}/ingest` : "/projects"}
             title="Add evidence"
             style={{
               width: 34, height: 34, borderRadius: "50%",
@@ -549,15 +566,15 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
           {/* Projects */}
           <div style={{ marginBottom: 10 }}>
             {projects.map((p, i) => {
-              const isActive = p.id === activeProjectId;
+              const isOpen = p.id === openProjectId;
               const color = DOT_COLORS[i % DOT_COLORS.length];
 
               return (
-                <div key={p.id} style={isActive ? {
+                <div key={p.id} style={isOpen ? {
                   background: "var(--surface-2)", border: "1px solid var(--line)",
                   borderRadius: 10, marginBottom: 4, overflow: "hidden",
                 } : { marginBottom: 2 }}>
-                  {isActive ? (
+                  {isOpen ? (
                     <>
                       {/* Active project label (non-interactive) */}
                       <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 10px 6px", cursor: "default" }}>
@@ -567,10 +584,27 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
                         </span>
                       </div>
                       {/* Sub-nav items */}
-                      <div style={{ padding: "0 5px 8px" }}>
+                      <div style={{ padding: "0 5px 4px" }}>
                         {PROJECT_NAV.map((item) => (
                           <ProjectNavItem key={item.id} item={item} projectId={p.id} color={color} />
                         ))}
+                      </div>
+                      {/* Add evidence — compact action scoped to this project */}
+                      <div style={{ padding: "0 5px 8px" }}>
+                        <Link
+                          href={`/projects/${p.id}/ingest`}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 7,
+                            padding: "6px 9px", borderRadius: 7,
+                            color: "var(--accent)", fontSize: 13,
+                            fontWeight: 560, textDecoration: "none",
+                            transition: ".13s", background: "transparent",
+                          }}
+                          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--accent-soft)"; }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                        >
+                          <IcoPlus size={12} /> Add evidence
+                        </Link>
                       </div>
                     </>
                   ) : (
@@ -691,42 +725,8 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
           </div>
         </div>
 
-        {/* ── Footer ── */}
-        <div style={{ borderTop: "1px solid var(--line)", padding: "12px 12px 14px", display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
-          {/* Add evidence */}
-          <Link
-            href={activeProject ? `/projects/${activeProjectId}/ingest` : "/projects"}
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-              padding: "11px 16px", borderRadius: "var(--r-md)",
-              background: "var(--accent)", color: "#fff",
-              fontWeight: 580, fontSize: 14, textDecoration: "none",
-              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 14px -6px var(--accent)",
-              transition: "background .15s", whiteSpace: "nowrap",
-            }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--accent-hover)"; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--accent)"; }}
-          >
-            <IcoPlus size={16} /> Add evidence
-          </Link>
-
-          {/* Theme toggle */}
-          <button
-            onClick={() => applyTheme(theme === "dark" ? "light" : "dark")}
-            style={{
-              display: "flex", alignItems: "center", gap: 8,
-              padding: "6px 10px", borderRadius: "var(--r-sm)",
-              border: "1px solid var(--line)", background: "transparent",
-              color: "var(--ink-3)", fontSize: 12, cursor: "pointer",
-              transition: ".14s", fontFamily: "inherit",
-            }}
-            onMouseEnter={(e) => { const el = e.currentTarget as HTMLElement; el.style.background = "var(--sel)"; el.style.color = "var(--ink)"; }}
-            onMouseLeave={(e) => { const el = e.currentTarget as HTMLElement; el.style.background = "transparent"; el.style.color = "var(--ink-3)"; }}
-          >
-            {theme === "dark" ? <IcoSun size={13} /> : <IcoMoon size={13} />}
-            <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
-          </button>
-
+        {/* ── Footer — avatar row only ── */}
+        <div style={{ borderTop: "1px solid var(--line)", padding: "10px 12px 14px", flexShrink: 0 }}>
           {/* Avatar row + sign-out popover */}
           <div style={{ position: "relative" }} ref={avatarRef}>
             <button
@@ -801,9 +801,9 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
             zIndex: 30,
           }}>
             <span style={{ fontWeight: 640, fontSize: 15, color: "var(--ink)", letterSpacing: "-0.01em" }}>DiscOS</span>
-            {activeProject && (
+            {openProject && (
               <span style={{ fontSize: 13, color: "var(--ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, textAlign: "center" }}>
-                {activeProject.name}
+                {openProject.name}
               </span>
             )}
             <button
@@ -885,7 +885,7 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
 
           {/* FAB */}
           <Link
-            href={activeProject ? `/projects/${activeProjectId}/ingest` : "/projects"}
+            href={openProject ? `/projects/${openProjectId}/ingest` : "/projects"}
             aria-label="Add evidence"
             style={{ width: 54, height: 54, borderRadius: "50%", background: "var(--accent)", color: "#fff", display: "grid", placeItems: "center", position: "fixed", bottom: 72, right: 20, boxShadow: "var(--shadow-pop)", zIndex: 50, textDecoration: "none" }}
           >
