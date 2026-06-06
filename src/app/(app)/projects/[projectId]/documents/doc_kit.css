@@ -1,0 +1,466 @@
+/* ============================================================
+   DiscOS — doc-kit: rich article block primitives
+   Built to the v1 HTML contract allowlist.
+   Contract: docs/ARTIFACT_HTML_CONTRACT.md
+   Every allowlisted class is styled here.
+   Icons come from CSS ::before — <svg> is stripped by the sanitiser.
+   Colour variants come from allowlisted classes — no inline style.
+   ============================================================ */
+
+/* ── Hero ───────────────────────────────────────────────────── */
+.dp-hero {
+  padding: 44px 54px 30px;
+  border-bottom: 1px solid var(--line);
+}
+.dp-hero .kicker {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 14px;
+}
+.dp-hero h1 {
+  font-family: var(--font-serif);
+  font-size: 38px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-weight: 500;
+  margin: 0 0 16px;
+  color: var(--ink);
+}
+.dp-hero .lede {
+  font-family: var(--font-serif);
+  font-size: 18.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.dp-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-top: 18px;
+}
+.dp-meta .who {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-2);
+  font-weight: 520;
+}
+/* Author avatar is render-time only (CSS gradient circle via ::before on .who) */
+.dp-meta .who::before {
+  content: attr(data-initials, "");
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: linear-gradient(150deg, #6f78ff, #4a52e6);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.dp-meta .dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+/* ── Section & headings ─────────────────────────────────────── */
+.dp-art .sec {
+  padding: 36px 54px;
+  border-top: 1px solid var(--line);
+}
+.dp-art .sec:first-of-type {
+  border-top: none;
+}
+/* Lede at section level */
+.dp-art .lede {
+  font-family: var(--font-serif);
+  font-size: 19px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  letter-spacing: -0.01em;
+  margin: 0 0 22px;
+}
+.dp-h2 {
+  font-size: 23px;
+  font-weight: 640;
+  letter-spacing: -0.022em;
+  line-height: 1.2;
+  color: var(--ink);
+  margin: 0 0 18px;
+  scroll-margin-top: 80px;
+}
+.dp-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 23px;
+  height: 23px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 700;
+  margin-right: 10px;
+  vertical-align: 2px;
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+.dp-h3 {
+  font-size: 16px;
+  font-weight: 640;
+  letter-spacing: -0.01em;
+  margin: 22px 0 10px;
+  color: var(--ink);
+}
+
+/* ── Body text ──────────────────────────────────────────────── */
+.dp-art {
+  color: var(--ink);
+}
+.dp-art p {
+  font-size: 15.5px;
+  line-height: 1.72;
+  color: var(--ink-2);
+  margin: 0 0 18px;
+}
+.dp-art p:last-child { margin-bottom: 0; }
+.dp-art p strong,
+.dp-art li strong {
+  color: var(--ink);
+  font-weight: 620;
+}
+
+/* ── Inline citation chip ───────────────────────────────────── */
+/* Stored as <cite data-n="N">N</cite> — styled here, popover wired by #14 */
+cite[data-n] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  font-style: normal;
+  vertical-align: 2px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  transition: background .12s, color .12s;
+  user-select: none;
+  line-height: 1;
+}
+cite[data-n]:hover,
+cite[data-n][aria-expanded="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ── Evidence badge (N sources) ─────────────────────────────── */
+.ev {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--pos-bg);
+  color: var(--pos);
+  vertical-align: 1px;
+  cursor: default;
+}
+/* checkmark icon supplied by CSS */
+.ev::before {
+  content: "✓";
+  font-size: 10px;
+  font-weight: 800;
+}
+
+/* ── Pull quote ─────────────────────────────────────────────── */
+.pq {
+  margin: 24px 0;
+  padding: 4px 0 4px 20px;
+  border-left: 3px solid var(--accent);
+}
+.pq-text {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  line-height: 1.48;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  display: block;
+  margin: 0;
+}
+.pq-cite {
+  font-size: 12px;
+  color: var(--ink-faint);
+  margin-top: 11px;
+  font-weight: 500;
+  display: block;
+}
+.pq-cite b {
+  color: var(--ink-3);
+  font-weight: 620;
+}
+
+/* ── Callout ────────────────────────────────────────────────── */
+.callout {
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--r-lg);
+  margin: 20px 0;
+  border: 1px solid transparent;
+}
+/* Icon supplied by ::before since <svg> is stripped */
+.callout::before {
+  content: "•";
+  flex-shrink: 0;
+  font-size: 18px;
+  line-height: 1.4;
+  font-weight: 700;
+}
+.callout.info {
+  background: var(--info-bg);
+  border-color: rgba(74, 159, 224, 0.18);
+}
+.callout.info::before { content: "ℹ"; color: var(--info); font-size: 15px; }
+.callout.warn {
+  background: var(--warn-bg);
+  border-color: rgba(216, 161, 58, 0.2);
+}
+.callout.warn::before { content: "⚠"; color: var(--warn); font-size: 14px; }
+.callout.pos {
+  background: var(--pos-bg);
+  border-color: rgba(47, 181, 116, 0.18);
+}
+.callout.pos::before { content: "✓"; color: var(--pos); font-size: 14px; }
+.callout.neg {
+  background: var(--neg-bg);
+  border-color: rgba(224, 89, 79, 0.18);
+}
+.callout.neg::before { content: "✕"; color: var(--neg); font-size: 14px; }
+.callout .ct {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  flex: 1;
+  min-width: 0;
+}
+.callout .ct b {
+  font-weight: 640;
+  color: var(--ink);
+}
+
+/* ── Key takeaway ───────────────────────────────────────────── */
+.takeaway {
+  background: linear-gradient(150deg, var(--accent-soft), transparent 70%);
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--line));
+  border-radius: var(--r-xl);
+  padding: 20px 22px;
+  margin: 22px 0;
+}
+.tk-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 10px;
+}
+/* sparkle icon via CSS */
+.tk-label::before {
+  content: "✦";
+  font-size: 9px;
+}
+.takeaway p {
+  font-family: var(--font-serif);
+  font-size: 17.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+/* ── Stat grid ──────────────────────────────────────────────── */
+.stat-grid {
+  display: grid;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  margin: 20px 0;
+}
+/* Column count variants — the only way to set this (no inline style) */
+.stat-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.stat-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.stat-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.stat-cell {
+  background: var(--doc-paper);
+  padding: 16px 18px;
+}
+.stat-cell .n {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--ink);
+}
+/* Tone variants on .n — class-only, no inline color */
+.stat-cell .n.pos  { color: var(--pos); }
+.stat-cell .n.neg  { color: var(--neg); }
+.stat-cell .n.warn { color: var(--warn); }
+.stat-cell .n.info { color: var(--info); }
+.stat-cell .l {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  margin-top: 7px;
+  line-height: 1.4;
+}
+
+/* ── List (toned) ───────────────────────────────────────────── */
+ul.dp-list {
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+ul.dp-list li {
+  font-size: 15px;
+  line-height: 1.62;
+  color: var(--ink-2);
+  display: flex;
+  gap: 10px;
+}
+/* Bullet icon via ::before — class sets the variant colour */
+ul.dp-list li::before {
+  content: "–";
+  flex-shrink: 0;
+  font-weight: 700;
+  width: 14px;
+  text-align: center;
+  margin-top: 0.06em;
+  color: var(--ink-faint);
+}
+ul.dp-list.pos li::before { content: "✓"; color: var(--pos); }
+ul.dp-list.neg li::before { content: "✕"; color: var(--neg); }
+ul.dp-list.warn li::before { content: "⚠"; color: var(--warn); font-size: 12px; }
+ul.dp-list.info li::before { content: "→"; color: var(--info); }
+
+/* ── Data table ─────────────────────────────────────────────── */
+table.dp-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+  font-size: 13.5px;
+}
+.dp-table th {
+  text-align: left;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 700;
+  padding: 0 14px 10px;
+  border-bottom: 1px solid var(--line-strong);
+}
+.dp-table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-2);
+  vertical-align: top;
+  line-height: 1.5;
+}
+.dp-table tr:last-child td { border-bottom: none; }
+.dp-table td:first-child {
+  font-weight: 580;
+  color: var(--ink);
+}
+
+/* ── Flow (process steps) ───────────────────────────────────── */
+ol.flow {
+  display: flex;
+  align-items: stretch;
+  margin: 20px 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  list-style: none;
+  padding: 0;
+}
+.flow-step {
+  flex: 1;
+  padding: 16px 16px;
+  background: var(--doc-paper);
+}
+.flow-step + .flow-step {
+  border-left: 1px solid var(--line);
+}
+.fs-n {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  display: block;
+}
+.fs-t {
+  font-size: 13px;
+  font-weight: 620;
+  color: var(--ink);
+  margin: 5px 0 4px;
+  display: block;
+}
+.fs-d {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  line-height: 1.45;
+  display: block;
+}
+.flow-step.pain {
+  background: var(--neg-bg);
+}
+.flow-step.pain .fs-t { color: var(--neg); }
+
+/* ── Split (two-column) ─────────────────────────────────────── */
+.dp-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+  margin: 20px 0;
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .dp-hero { padding: 26px 20px 20px; }
+  .dp-hero h1 { font-size: 26px; }
+  .dp-art .sec { padding: 28px 20px; }
+  .dp-split { grid-template-columns: 1fr; gap: 12px; }
+  ol.flow { flex-direction: column; }
+  .flow-step + .flow-step { border-left: none; border-top: 1px solid var(--line); }
+  /* force 2-col on mobile regardless of cols-3/4 to avoid 8px columns */
+  .stat-grid { grid-template-columns: repeat(2, 1fr) !important; }
+}

@@ -1,9 +1,8 @@
 import { getProjectForUser } from "@/lib/auth/org";
 import { createClient } from "@/lib/supabase/server";
 import type { ArtifactType } from "@/types/database";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArtifactViewer } from "./ArtifactViewer";
+import { ArtifactReader } from "./ArtifactReader";
 
 interface Props {
   params: { projectId: string; artifactId: string };
@@ -18,14 +17,6 @@ type ArtifactRow = {
   word_count: number | null;
   metadata: Record<string, unknown> | null;
 };
-
-function dateLabel(value: string) {
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(value));
-}
 
 export default async function ArtifactDetailPage({ params }: Props) {
   const supabase = await createClient();
@@ -57,47 +48,37 @@ export default async function ArtifactDetailPage({ params }: Props) {
   const rawSourceId = artifactRow.metadata?.source_id;
   const sourceId = typeof rawSourceId === "string" ? rawSourceId : null;
 
-  return (
-    <div className="mx-auto max-w-3xl">
-      <div className="mb-8">
-        {sourceId ? (
-          <Link
-            href={`/projects/${project.id}/sources/${sourceId}`}
-            className="mb-4 inline-flex text-sm font-medium text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
-          >
-            Back to source
-          </Link>
-        ) : (
-          <Link
-            href={`/projects/${project.id}/documents`}
-            className="mb-4 inline-flex text-sm font-medium text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
-          >
-            All documents
-          </Link>
-        )}
-        <div className="mb-2 flex flex-wrap items-center gap-2">
-          <span className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-xs font-medium capitalize text-[var(--ink-muted)]">
-            {artifactRow.type}
-          </span>
-          <span className="text-xs text-[var(--ink-faint)]">
-            {dateLabel(artifactRow.created_at)}
-          </span>
-          {artifactRow.word_count !== null && (
-            <span className="text-xs text-[var(--ink-faint)]">
-              {artifactRow.word_count} words
-            </span>
-          )}
-        </div>
-        <h1 className="text-2xl font-semibold text-[var(--ink)]">{artifactRow.title}</h1>
-      </div>
+  // Try to fetch content_html — only available after the content_html migration.
+  // Graceful degradation: if the column doesn't exist yet, contentHtml stays null
+  // and ArtifactReader falls back to the markdown viewer.
+  let contentHtml: string | null = null;
+  const { data: htmlRow, error: htmlError } = await supabase
+    .from("artifacts")
+    .select("content_html")
+    .eq("id", params.artifactId)
+    .maybeSingle();
+  if (!htmlError && htmlRow) {
+    const raw = (htmlRow as Record<string, unknown>).content_html;
+    if (typeof raw === "string" && raw.length > 0) contentHtml = raw;
+  }
 
-      <article className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-6">
-        <ArtifactViewer
-          artifactId={artifactRow.id}
-          projectId={project.id}
-          contentMd={artifactRow.content_md}
-        />
-      </article>
-    </div>
+  const backHref = sourceId
+    ? `/projects/${project.id}/sources/${sourceId}`
+    : `/projects/${project.id}/documents`;
+  const backLabel = sourceId ? "Back to source" : "All documents";
+
+  return (
+    <ArtifactReader
+      artifactId={artifactRow.id}
+      projectId={project.id}
+      contentHtml={contentHtml}
+      contentMd={artifactRow.content_md}
+      title={artifactRow.title}
+      type={artifactRow.type}
+      createdAt={artifactRow.created_at}
+      wordCount={artifactRow.word_count}
+      backHref={backHref}
+      backLabel={backLabel}
+    />
   );
 }
