@@ -17,11 +17,11 @@
   --font-serif: var(--font-newsreader),  Georgia, "Times New Roman", serif;
 
   /* Radii */
-  --r-xs:   6px;
-  --r-sm:   9px;
-  --r-md:   12px;
-  --r-lg:   16px;
-  --r-xl:   22px;
+  --r-xs:   3px;
+  --r-sm:   6px;
+  --r-md:   8px;
+  --r-lg:   10px;
+  --r-xl:   14px;
   --r-full: 999px;
 
   /* Spacing scale */
@@ -235,6 +235,112 @@ a { color: inherit; text-decoration: none; }
 
 .spin      { display: inline-block; animation: spin 0.8s linear infinite; }
 .dots3::after { content: "…"; animation: dots3 1.2s steps(4, end) infinite; }
+
+/* ── Shell layout (Phase 1) ──────────────────────────────────── */
+
+/* Outer wrapper: full viewport, no scroll */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+/* Impersonation banner */
+.impersonation-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #dc2626;
+  padding: 6px 20px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+  flex-shrink: 0;
+  z-index: 40;
+}
+.impersonation-exit-btn {
+  border-radius: 5px;
+  border: 1px solid rgba(255,255,255,0.4);
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+.impersonation-exit-btn:hover { background: rgba(255,255,255,0.15); }
+
+/* Rail + content row */
+.app-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Scrollable content column */
+.app-content {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+/* Mobile elements — hidden on desktop */
+.mobile-top-bar { display: none; }
+.mobile-tab-bar { display: none; }
+.mobile-fab     { display: none !important; }
+
+/* ── Mobile breakpoint (< 860px) ────────────────────────────── */
+@media (max-width: 860px) {
+  /* Hide desktop rail */
+  .rail-expanded,
+  .rail-collapsed { display: none !important; }
+
+  /* Sticky mobile header */
+  .mobile-top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 54px;
+    padding: 0 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    z-index: 30;
+  }
+
+  /* Bottom tab bar */
+  .mobile-tab-bar {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+    z-index: 30;
+  }
+
+  /* FAB */
+  .mobile-fab {
+    display: grid !important;
+  }
+
+  /* Push content away from fixed bars */
+  .app-content {
+    padding-top: 54px;
+    padding-bottom: 56px;
+  }
+}
 
 /* ── Respect reduced-motion ──────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
