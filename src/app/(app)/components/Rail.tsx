@@ -319,16 +319,26 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
   const [newProjOpen, setNewProjOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>("dark");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // isMobile: JS-driven so mobile elements are never in the DOM on desktop.
+  // Avoids the flex-sibling leak that occurs when CSS display:none is the
+  // only guard inside a flex container (next.js doesn't tree-shake them).
+  const [isMobile, setIsMobile] = useState(false);
 
   const avatarRef = useRef<HTMLDivElement>(null);
 
-  // Read persisted theme on mount
+  // Read persisted theme on mount + set up mobile breakpoint listener
   useEffect(() => {
     const t =
       (document.documentElement.getAttribute("data-theme") as Theme) ||
       (localStorage.getItem("discos-theme") as Theme) ||
       "dark";
     setTheme(t);
+
+    const mq = window.matchMedia("(max-width: 860px)");
+    setIsMobile(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
   }, []);
 
   // Close avatar popover on outside click
@@ -777,109 +787,112 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
         </div>
       </div>
 
-      {/* ── Mobile: sticky top bar (visible < 860px via CSS) ── */}
-      <div className="mobile-top-bar">
-        <span style={{ fontWeight: 640, fontSize: 15, color: "var(--ink)", letterSpacing: "-0.01em" }}>DiscOS</span>
-        {activeProject && (
-          <span style={{ fontSize: 13, color: "var(--ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, textAlign: "center" }}>
-            {activeProject.name}
-          </span>
-        )}
-        <button
-          onClick={() => setMobileMenuOpen((o) => !o)}
-          aria-label="Open menu"
-          style={{ width: 36, height: 36, display: "grid", placeItems: "center", borderRadius: "var(--r-sm)", border: "none", background: "transparent", color: "var(--ink-2)", cursor: "pointer" }}
-        >
-          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
-            <path d="M3 5h14M3 10h14M3 15h14" />
-          </svg>
-        </button>
-      </div>
+      {/* ── Mobile elements — only rendered when JS confirms mobile viewport.
+           CSS-only hiding was unreliable because these are flex siblings
+           inside app-body; JS conditional rendering is the safe guard. ── */}
+      {isMobile && (
+        <>
+          {/* Sticky top bar */}
+          <div style={{
+            position: "fixed", top: 0, left: 0, right: 0, height: 54,
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            gap: 12, padding: "0 16px",
+            background: "var(--surface)", borderBottom: "1px solid var(--line)",
+            zIndex: 30,
+          }}>
+            <span style={{ fontWeight: 640, fontSize: 15, color: "var(--ink)", letterSpacing: "-0.01em" }}>DiscOS</span>
+            {activeProject && (
+              <span style={{ fontSize: 13, color: "var(--ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, textAlign: "center" }}>
+                {activeProject.name}
+              </span>
+            )}
+            <button
+              onClick={() => setMobileMenuOpen((o) => !o)}
+              aria-label="Open menu"
+              style={{ width: 36, height: 36, display: "grid", placeItems: "center", borderRadius: "var(--r-sm)", border: "none", background: "transparent", color: "var(--ink-2)", cursor: "pointer" }}
+            >
+              <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+                <path d="M3 5h14M3 10h14M3 15h14" />
+              </svg>
+            </button>
+          </div>
 
-      {/* Mobile slide-in menu */}
-      {mobileMenuOpen && (
-        <div
-          onClick={() => setMobileMenuOpen(false)}
-          style={{ position: "fixed", inset: 0, zIndex: 70, background: "rgba(5,8,18,0.5)", backdropFilter: "blur(3px)", animation: "fadeIn .2s" }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: "min(280px, 85vw)", background: "var(--surface)", borderRight: "1px solid var(--line-strong)", boxShadow: "var(--shadow-lg)", display: "flex", flexDirection: "column", padding: "16px 12px", gap: 8, overflowY: "auto" }}
-          >
-            <button onClick={() => setMobileMenuOpen(false)} style={{ alignSelf: "flex-end", width: 30, height: 30, display: "grid", placeItems: "center", borderRadius: "var(--r-sm)", border: "none", background: "transparent", color: "var(--ink-3)", cursor: "pointer", fontSize: 18 }}>×</button>
-            {projects.map((p, i) => {
-              const color = DOT_COLORS[i % DOT_COLORS.length];
-              const isActive = p.id === activeProjectId;
+          {/* Slide-in menu */}
+          {mobileMenuOpen && (
+            <div
+              onClick={() => setMobileMenuOpen(false)}
+              style={{ position: "fixed", inset: 0, zIndex: 70, background: "rgba(5,8,18,0.5)", backdropFilter: "blur(3px)", animation: "fadeIn .2s" }}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: "min(280px, 85vw)", background: "var(--surface)", borderRight: "1px solid var(--line-strong)", boxShadow: "var(--shadow-lg)", display: "flex", flexDirection: "column", padding: "16px 12px", gap: 8, overflowY: "auto" }}
+              >
+                <button onClick={() => setMobileMenuOpen(false)} style={{ alignSelf: "flex-end", width: 30, height: 30, display: "grid", placeItems: "center", borderRadius: "var(--r-sm)", border: "none", background: "transparent", color: "var(--ink-3)", cursor: "pointer", fontSize: 18 }}>×</button>
+                {projects.map((p, i) => {
+                  const color = DOT_COLORS[i % DOT_COLORS.length];
+                  const isActive = p.id === activeProjectId;
+                  return (
+                    <Link key={p.id} href={`/projects/${p.id}`} onClick={() => setMobileMenuOpen(false)}
+                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: "var(--r-sm)", background: isActive ? "var(--surface-2)" : "transparent", color: isActive ? "var(--ink)" : "var(--ink-2)", fontWeight: isActive ? 620 : 480, fontSize: 14, textDecoration: "none" }}>
+                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />
+                      {p.name}
+                    </Link>
+                  );
+                })}
+                <div style={{ height: 1, background: "var(--line)", margin: "4px 0" }} />
+                {DIR_ITEMS.map((d) => (
+                  <Link key={d.id} href={d.href} onClick={() => setMobileMenuOpen(false)}
+                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: "var(--r-sm)", color: "var(--ink-2)", fontSize: 14, textDecoration: "none" }}>
+                    {d.label}
+                  </Link>
+                ))}
+                <div style={{ height: 1, background: "var(--line)", margin: "4px 0" }} />
+                <form method="POST" action="/api/auth/sign-out">
+                  <button type="submit" style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: "var(--r-sm)", border: "none", background: "transparent", color: "var(--ink-2)", fontSize: 14, textAlign: "left", cursor: "pointer", fontFamily: "inherit" }}>
+                    <IcoSignOut size={15} /> Sign out
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Bottom tab bar */}
+          <div style={{
+            position: "fixed", bottom: 0, left: 0, right: 0, height: 56,
+            display: "flex",
+            background: "var(--surface)", borderTop: "1px solid var(--line)",
+            zIndex: 30,
+          }}>
+            {[
+              { href: "/projects",    label: "Projects" },
+              { href: "/people",      label: "People" },
+              { href: "/companies",   label: "Companies" },
+              { href: "/competitors", label: "Competitors" },
+            ].map((tab) => {
+              const on = tab.href === "/projects"
+                ? pathname.startsWith("/projects")
+                : pathname.startsWith(tab.href);
               return (
-                <Link key={p.id} href={`/projects/${p.id}`} onClick={() => setMobileMenuOpen(false)}
-                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: "var(--r-sm)", background: isActive ? "var(--surface-2)" : "transparent", color: isActive ? "var(--ink)" : "var(--ink-2)", fontWeight: isActive ? 620 : 480, fontSize: 14, textDecoration: "none" }}>
-                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />
-                  {p.name}
+                <Link key={tab.href} href={tab.href}
+                  style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, padding: "8px 4px", textDecoration: "none", color: on ? "var(--accent)" : "var(--ink-3)", fontSize: 10, fontWeight: on ? 600 : 500, transition: ".13s" }}
+                >
+                  <span style={{ width: 4, height: 4, borderRadius: "50%", background: on ? "var(--accent)" : "transparent" }} />
+                  {tab.label}
                 </Link>
               );
             })}
-            <div style={{ height: 1, background: "var(--line)", margin: "4px 0" }} />
-            {DIR_ITEMS.map((d) => (
-              <Link key={d.id} href={d.href} onClick={() => setMobileMenuOpen(false)}
-                style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: "var(--r-sm)", color: "var(--ink-2)", fontSize: 14, textDecoration: "none" }}>
-                {d.label}
-              </Link>
-            ))}
-            <div style={{ height: 1, background: "var(--line)", margin: "4px 0" }} />
-            <form method="POST" action="/api/auth/sign-out">
-              <button type="submit" style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: "var(--r-sm)", border: "none", background: "transparent", color: "var(--ink-2)", fontSize: 14, textAlign: "left", cursor: "pointer", fontFamily: "inherit" }}>
-                <IcoSignOut size={15} /> Sign out
-              </button>
-            </form>
           </div>
-        </div>
+
+          {/* FAB */}
+          <Link
+            href={activeProject ? `/projects/${activeProjectId}/ingest` : "/projects"}
+            aria-label="Add evidence"
+            style={{ width: 54, height: 54, borderRadius: "50%", background: "var(--accent)", color: "#fff", display: "grid", placeItems: "center", position: "fixed", bottom: 72, right: 20, boxShadow: "var(--shadow-pop)", zIndex: 50, textDecoration: "none" }}
+          >
+            <IcoPlus size={22} />
+          </Link>
+        </>
       )}
-
-      {/* ── Mobile: bottom tab bar (visible < 860px via CSS) ── */}
-      <div className="mobile-tab-bar">
-        {[
-          { href: "/projects",    label: "Projects" },
-          { href: "/people",      label: "People" },
-          { href: "/companies",   label: "Companies" },
-          { href: "/competitors", label: "Competitors" },
-        ].map((tab) => {
-          const on = tab.href === "/projects"
-            ? pathname.startsWith("/projects")
-            : pathname.startsWith(tab.href);
-          return (
-            <Link
-              key={tab.href}
-              href={tab.href}
-              style={{
-                flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                gap: 3, padding: "8px 4px", textDecoration: "none",
-                color: on ? "var(--accent)" : "var(--ink-3)",
-                fontSize: 10, fontWeight: on ? 600 : 500, transition: ".13s",
-              }}
-            >
-              <span style={{ width: 4, height: 4, borderRadius: "50%", background: on ? "var(--accent)" : "transparent" }} />
-              {tab.label}
-            </Link>
-          );
-        })}
-      </div>
-
-      {/* Add Evidence FAB (mobile only, visible < 860px) */}
-      <Link
-        href={activeProject ? `/projects/${activeProjectId}/ingest` : "/projects"}
-        className="mobile-fab"
-        aria-label="Add evidence"
-        style={{
-          width: 54, height: 54, borderRadius: "50%",
-          background: "var(--accent)", color: "#fff",
-          display: "grid", placeItems: "center",
-          position: "fixed", bottom: 72, right: 20,
-          boxShadow: "var(--shadow-pop)", zIndex: 50,
-          textDecoration: "none",
-        }}
-      >
-        <IcoPlus size={22} />
-      </Link>
 
       {newProjOpen && <NewProjectModal onClose={() => setNewProjOpen(false)} />}
     </>
