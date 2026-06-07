@@ -5,9 +5,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 const InviteSchema = z.object({
-  project_id: z.string().uuid(),
+  project_id: z.string().uuid().optional(),
+  org_id: z.string().uuid().optional(),
   email: z.string().email(),
   role: z.enum(["admin", "member"]).default("member"),
+}).refine((value) => Boolean(value.project_id) !== Boolean(value.org_id), {
+  message: "Provide either project_id or org_id.",
+  path: ["project_id"],
 });
 
 function getInviterName(user: { user_metadata?: Record<string, unknown> }) {
@@ -36,20 +40,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const project = await getProjectForUser<{ id: string; org_id: string }>(
-    user.id,
-    parsed.data.project_id,
-    "id, org_id"
-  );
+  let orgId = parsed.data.org_id;
 
-  if (!project) {
-    return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  if (parsed.data.project_id) {
+    const project = await getProjectForUser<{ id: string; org_id: string }>(
+      user.id,
+      parsed.data.project_id,
+      "id, org_id"
+    );
+
+    if (!project) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    }
+
+    orgId = project.org_id;
+  }
+
+  if (!orgId) {
+    return NextResponse.json({ error: "Organization not found" }, { status: 404 });
   }
 
   const { data: membership } = await supabase
     .from("org_members")
     .select("id, org_id, user_id, role")
-    .eq("org_id", project.org_id)
+    .eq("org_id", orgId)
     .eq("user_id", user.id)
     .single();
 
@@ -60,7 +74,7 @@ export async function POST(req: NextRequest) {
   const { data: invite, error: inviteError } = await supabase
     .from("org_invites")
     .insert({
-      org_id: project.org_id,
+      org_id: orgId,
       email: parsed.data.email.toLowerCase(),
       role: parsed.data.role,
     })
@@ -78,7 +92,7 @@ export async function POST(req: NextRequest) {
   const { data: org } = await supabase
     .from("orgs")
     .select("name")
-    .eq("id", project.org_id)
+    .eq("id", orgId)
     .single();
 
   try {

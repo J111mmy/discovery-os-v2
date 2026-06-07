@@ -60,14 +60,14 @@ function renderInviteHtml(params: InviteEmailParams) {
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#141418;border:1px solid #30303a;border-radius:12px;overflow:hidden;">
             <tr>
               <td style="padding:28px 28px 20px;">
-                <div style="display:inline-block;background:#7c6dfa;color:#ffffff;border-radius:8px;padding:8px 10px;font-size:18px;font-weight:700;line-height:1;">D</div>
+                <div style="display:inline-block;background:#5b63f0;color:#ffffff;border-radius:8px;padding:8px 10px;font-size:18px;font-weight:700;line-height:1;">D</div>
                 <h1 style="margin:20px 0 10px;color:#ffffff;font-size:24px;line-height:1.25;font-weight:700;">You've been invited to DiscOS</h1>
                 <p style="margin:0;color:#b7b7c8;font-size:15px;line-height:1.7;">${intro}</p>
               </td>
             </tr>
             <tr>
               <td style="padding:0 28px 28px;">
-                <a href="${acceptUrl}" style="display:inline-block;background:#7c6dfa;color:#ffffff;text-decoration:none;border-radius:8px;padding:12px 18px;font-size:14px;font-weight:700;">Accept your invitation</a>
+                <a href="${acceptUrl}" style="display:inline-block;background:#5b63f0;color:#ffffff;text-decoration:none;border-radius:8px;padding:12px 18px;font-size:14px;font-weight:700;">Accept your invitation</a>
                 <p style="margin:22px 0 0;color:#9090a8;font-size:13px;line-height:1.6;">This secure link opens DiscOS so you can finish joining the workspace. If you were not expecting this invite, you can ignore this email.</p>
               </td>
             </tr>
