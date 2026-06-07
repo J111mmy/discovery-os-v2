@@ -21,14 +21,6 @@ type ArtifactRow = {
   metadata: Record<string, unknown> | null;
 };
 
-function dateLabel(value: string) {
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(value));
-}
-
 function toSafeContentHtml(rawContentHtml: string | null, contentMd: string): string | null {
   const trimmedHtml = rawContentHtml?.trim();
 
