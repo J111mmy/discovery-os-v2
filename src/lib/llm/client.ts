@@ -50,6 +50,9 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
   const config = await getAIModelConfig(opts.tier);
 
   if (config.provider === "anthropic") {
+    // SECURITY INVARIANT A1: callLLM is text-in/text-out only.
+    // Adding tools/tool_choice/function_call changes the prompt-injection threat model
+    // and requires security review; see docs/security/SECURITY_POSTURE.md.
     const response = await getAnthropic().messages.create(
       {
         model: config.model,
@@ -81,6 +84,9 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
       })),
     ];
 
+    // SECURITY INVARIANT A1: callLLM is text-in/text-out only.
+    // Adding tools/tool_choice/function_call changes the prompt-injection threat model
+    // and requires security review; see docs/security/SECURITY_POSTURE.md.
     const request: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming = {
       model: config.model,
       max_completion_tokens: config.maxTokens,
