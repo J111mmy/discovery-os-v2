@@ -117,19 +117,19 @@ export function AIProviderSettingsPanel({
           <h2 className="mt-2 text-lg font-semibold text-[var(--ink)]">
             Model routing
           </h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--ink-muted)]">
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--ink-2)]">
             Choose the model for each job type. Cheap, standard, and premium create or
             transform work. Eval is the reviewer lane: strict checks for evidence,
             citations, and unsupported claims.
           </p>
           <div className="mt-3 flex flex-wrap gap-2 text-xs">
-            <span className="rounded-full border border-[var(--border)] bg-[var(--surface-1)] px-2.5 py-1 text-[var(--ink-muted)]">
+            <span className="rounded-full border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1 text-[var(--ink-2)]">
               Source: {settings.source}
             </span>
-            <span className="rounded-full border border-[var(--border)] bg-[var(--surface-1)] px-2.5 py-1 text-[var(--ink-muted)]">
+            <span className="rounded-full border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1 text-[var(--ink-2)]">
               Standard: {routeLabel(routes.standard)}
             </span>
-            <span className="rounded-full border border-[var(--border)] bg-[var(--surface-1)] px-2.5 py-1 text-[var(--ink-muted)]">
+            <span className="rounded-full border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1 text-[var(--ink-2)]">
               Eval: {routeLabel(routes.eval)}
             </span>
           </div>
@@ -140,7 +140,7 @@ export function AIProviderSettingsPanel({
             type="button"
             onClick={applyRecommended}
             disabled={status === "saving" || recommendedActive}
-            className="rounded-lg border border-[var(--brand)] px-4 py-2 text-sm font-medium text-[var(--brand)] transition-colors hover:bg-[var(--brand)] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg border border-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent)] transition-colors hover:bg-[var(--accent)] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             Use recommended split
           </button>
@@ -148,7 +148,7 @@ export function AIProviderSettingsPanel({
             type="button"
             onClick={saveRoutes}
             disabled={status === "saving" || !dirty || missingProviders.length > 0}
-            className="rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)] disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {status === "saving" ? "Saving..." : "Save routing"}
           </button>
@@ -165,10 +165,10 @@ export function AIProviderSettingsPanel({
           return (
             <article
               key={tier}
-              className={`rounded-xl border bg-[var(--surface-1)] p-4 ${
+              className={`rounded-xl border bg-[var(--surface)] p-4 ${
                 detail.role === "review"
                   ? "border-yellow-500/25"
-                  : "border-[var(--border)]"
+                  : "border-[var(--line)]"
               }`}
             >
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -181,13 +181,13 @@ export function AIProviderSettingsPanel({
                       className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
                         detail.role === "review"
                           ? "border-yellow-500/20 bg-yellow-500/10 text-yellow-300"
-                          : "border-[var(--border)] bg-[var(--surface-0)] text-[var(--ink-muted)]"
+                          : "border-[var(--line)] bg-[var(--bg)] text-[var(--ink-2)]"
                       }`}
                     >
                       {detail.role === "review" ? "Reviewer tier" : "Work tier"}
                     </span>
                   </div>
-                  <p className="mt-2 text-sm leading-6 text-[var(--ink-muted)]">
+                  <p className="mt-2 text-sm leading-6 text-[var(--ink-2)]">
                     {detail.description}
                   </p>
                   <p className="mt-1 text-xs text-[var(--ink-faint)]">
@@ -208,10 +208,10 @@ export function AIProviderSettingsPanel({
 
               <div className="mt-4 grid gap-3 sm:grid-cols-[170px_minmax(0,1fr)]">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-[var(--ink-muted)]">
+                  <label className="mb-1 block text-xs font-medium text-[var(--ink-2)]">
                     Provider
                   </label>
-                  <div className="grid grid-cols-2 gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface-0)] p-1">
+                  <div className="grid grid-cols-2 gap-1 rounded-lg border border-[var(--line)] bg-[var(--bg)] p-1">
                     {(["anthropic", "openai"] as LLMProvider[]).map((provider) => {
                       const selected = route.provider === provider;
                       return (
@@ -221,8 +221,8 @@ export function AIProviderSettingsPanel({
                           onClick={() => updateRoute(tier, { provider })}
                           className={`rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
                             selected
-                              ? "bg-[var(--brand)] text-white"
-                              : "text-[var(--ink-muted)] hover:text-[var(--ink)]"
+                              ? "bg-[var(--accent)] text-white"
+                              : "text-[var(--ink-2)] hover:text-[var(--ink)]"
                           }`}
                         >
                           {PROVIDER_LABELS[provider]}
@@ -233,14 +233,14 @@ export function AIProviderSettingsPanel({
                 </div>
 
                 <div>
-                  <label htmlFor={`model-${tier}`} className="mb-1 block text-xs font-medium text-[var(--ink-muted)]">
+                  <label htmlFor={`model-${tier}`} className="mb-1 block text-xs font-medium text-[var(--ink-2)]">
                     Model
                   </label>
                   <select
                     id={`model-${tier}`}
                     value={route.model}
                     onChange={(event) => updateRoute(tier, { model: event.target.value })}
-                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-sm text-[var(--ink)] outline-none transition-colors focus:border-[var(--brand)]"
+                    className="w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)]"
                   >
                     {!choices.some((choice) => choice.model === route.model) && (
                       <option value={route.model}>{route.model}</option>

@@ -59,11 +59,11 @@ export default async function OrgDetailPage({ params }: Props) {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <Link href="/admin" className="mb-3 inline-flex text-xs text-[var(--ink-muted)] hover:text-[var(--ink)] transition-colors">
+          <Link href="/admin" className="mb-3 inline-flex text-xs text-[var(--ink-2)] hover:text-[var(--ink)] transition-colors">
             ← All organisations
           </Link>
           <h1 className="text-2xl font-semibold text-[var(--ink)]">{org.name}</h1>
-          <p className="mt-1 text-sm text-[var(--ink-muted)]">
+          <p className="mt-1 text-sm text-[var(--ink-2)]">
             {org.slug} · Created {new Date(org.created_at).toLocaleDateString()}
           </p>
         </div>
@@ -71,7 +71,7 @@ export default async function OrgDetailPage({ params }: Props) {
           <input type="hidden" name="org_id" value={org.id} />
           <button
             type="submit"
-            className="rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--brand-dim)] transition-colors"
+            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--accent-hover)] transition-colors"
           >
             Enter workspace
           </button>
@@ -83,9 +83,9 @@ export default async function OrgDetailPage({ params }: Props) {
         <h2 className="mb-3 text-sm font-semibold text-[var(--ink)]">
           Members · {members.length}
         </h2>
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] divide-y divide-[var(--border)]">
+        <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] divide-y divide-[var(--line)]">
           {members.length === 0 ? (
-            <p className="px-5 py-4 text-sm text-[var(--ink-muted)]">No members.</p>
+            <p className="px-5 py-4 text-sm text-[var(--ink-2)]">No members.</p>
           ) : members.map((m) => (
             <div key={m.user_id} className="flex items-center justify-between px-5 py-3">
               <div>
@@ -96,7 +96,7 @@ export default async function OrgDetailPage({ params }: Props) {
                   Joined {relativeTime(m.joined_at)}
                 </span>
               </div>
-              <span className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-xs font-medium text-[var(--ink-muted)]">
+              <span className="rounded-full border border-[var(--line)] bg-[var(--surface-2)] px-2 py-0.5 text-xs font-medium text-[var(--ink-2)]">
                 {ROLE_LABELS[m.role] ?? m.role}
               </span>
             </div>
@@ -109,9 +109,9 @@ export default async function OrgDetailPage({ params }: Props) {
         <h2 className="mb-3 text-sm font-semibold text-[var(--ink)]">
           Projects · {projects.length}
         </h2>
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] divide-y divide-[var(--border)]">
+        <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] divide-y divide-[var(--line)]">
           {projects.length === 0 ? (
-            <p className="px-5 py-4 text-sm text-[var(--ink-muted)]">No projects yet.</p>
+            <p className="px-5 py-4 text-sm text-[var(--ink-2)]">No projects yet.</p>
           ) : projects.map((p) => (
             <div key={p.id} className="flex items-center justify-between px-5 py-3">
               <div>
@@ -131,9 +131,9 @@ export default async function OrgDetailPage({ params }: Props) {
       {/* Recent agent runs */}
       <section>
         <h2 className="mb-3 text-sm font-semibold text-[var(--ink)]">Recent processing</h2>
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] divide-y divide-[var(--border)]">
+        <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] divide-y divide-[var(--line)]">
           {recent_runs.length === 0 ? (
-            <p className="px-5 py-4 text-sm text-[var(--ink-muted)]">No activity yet.</p>
+            <p className="px-5 py-4 text-sm text-[var(--ink-2)]">No activity yet.</p>
           ) : recent_runs.map((run) => (
             <div key={run.id} className="flex items-center justify-between px-5 py-3">
               <div className="flex items-center gap-3">

@@ -230,7 +230,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
 
   return (
     <form onSubmit={onSubmit} className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
         <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_180px]">
           <div>
             <label className="mb-2 block text-sm font-medium text-[var(--ink)]" htmlFor="title">
@@ -241,7 +241,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
               required
               value={title}
               onChange={(event) => setTitle(event.target.value)}
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
+              className="w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
               placeholder="Q1 call with Sarah K., Acme Corp"
             />
           </div>
@@ -254,7 +254,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
               id="type"
               value={type}
               onChange={(event) => setType(event.target.value as SourceType)}
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors focus:border-[var(--brand)]"
+              className="w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)]"
             >
               {INGEST_SOURCE_TYPES.map((sourceType) => (
                 <option key={sourceType} value={sourceType}>
@@ -262,7 +262,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
                 </option>
               ))}
             </select>
-            <p className="mt-2 text-xs leading-5 text-[var(--ink-muted)]">
+            <p className="mt-2 text-xs leading-5 text-[var(--ink-2)]">
               Choose what the source is, not the file format. A PDF transcript should still be a
               customer interview.
             </p>
@@ -279,10 +279,10 @@ export function IngestForm({ projectId }: IngestFormProps) {
             accept=".pdf,.doc,.docx,.txt,.md,.markdown,text/markdown,text/plain"
             disabled={isWorking || extractingFile}
             onChange={onFileChange}
-            className="block w-full rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-sm text-[var(--ink-muted)] file:mr-4 file:rounded-md file:border-0 file:bg-[var(--surface-2)] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-[var(--ink)] hover:border-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-60"
+            className="block w-full rounded-lg border border-dashed border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--ink-2)] file:mr-4 file:rounded-md file:border-0 file:bg-[var(--surface-2)] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-[var(--ink)] hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
           />
           {extractingFile && (
-            <div className="mt-2 text-sm text-[var(--ink-muted)]">Extracting text...</div>
+            <div className="mt-2 text-sm text-[var(--ink-2)]">Extracting text...</div>
           )}
           {!extractingFile && fileName && rawText && !fileError && (
             <div className="mt-2 text-sm text-pos">
@@ -307,21 +307,21 @@ export function IngestForm({ projectId }: IngestFormProps) {
             rows={22}
             value={rawText}
             onChange={(event) => setRawText(event.target.value)}
-            className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
+            className="w-full resize-y rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
             placeholder="Paste the transcript, research note, or document text here."
           />
         </div>
       </div>
 
-      <aside className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+      <aside className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
         <div className="text-sm font-semibold text-[var(--ink)]">{statusTitle}</div>
-        <p className="mt-2 text-sm leading-6 text-[var(--ink-muted)]">
+        <p className="mt-2 text-sm leading-6 text-[var(--ink-2)]">
           DiscOS queues sources and processes one at a time so extraction stays reliable,
           cheaper, and easier on provider limits.
         </p>
 
         {isWorking && (
-          <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink-muted)]">
+          <div className="mt-4 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink-2)]">
             {isQueued
               ? "Queued — this will start automatically when the current source finishes. You can leave this page."
               : "Analyzing — extracting citable evidence from the source."}
@@ -331,7 +331,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
         {status === "done" && (
           <div className="mt-4 rounded-lg border border-pos/20 bg-pos-bg px-3 py-2 text-sm text-pos">
             <div>✓ Processed — {result?.evidence_created ?? 0} evidence records created</div>
-            <a href={`/projects/${projectId}/evidence`} className="mt-2 inline-flex text-[var(--ink)] hover:text-[var(--brand)]">
+            <a href={`/projects/${projectId}/evidence`} className="mt-2 inline-flex text-[var(--ink)] hover:text-[var(--accent)]">
               View evidence
             </a>
           </div>
@@ -347,7 +347,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
           <button
             type="submit"
             disabled={isWorking || extractingFile}
-            className="w-full rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)] disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {extractingFile ? "Extracting..." : isQueued ? "Queued" : status === "processing" ? "Analyzing..." : "Start ingest"}
           </button>

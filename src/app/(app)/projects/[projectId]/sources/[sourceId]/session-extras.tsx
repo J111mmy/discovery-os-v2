@@ -33,7 +33,7 @@ const priorityLabels: Record<PrioritySignal, string> = {
 const priorityClasses: Record<PrioritySignal, string> = {
   critical: "border-neg/40 bg-neg-bg text-neg",
   important: "border-warn/40 bg-warn-bg text-warn",
-  nice_to_have: "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]",
+  nice_to_have: "border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink-2)]",
 };
 
 export function SessionExtras({ sourceId }: { sourceId: string }) {
@@ -143,7 +143,7 @@ export function SessionExtras({ sourceId }: { sourceId: string }) {
               return (
                 <div
                   key={action.id}
-                  className="flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-1)] px-4 py-3"
+                  className="flex items-start gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3"
                 >
                   <button
                     type="button"
@@ -151,8 +151,8 @@ export function SessionExtras({ sourceId }: { sourceId: string }) {
                     disabled={updatingId === action.id}
                     className={`mt-0.5 h-4 w-4 shrink-0 rounded border transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                       done
-                        ? "border-[var(--brand)] bg-[var(--brand)]"
-                        : "border-[var(--border)] bg-transparent hover:border-[var(--brand)]"
+                        ? "border-[var(--accent)] bg-[var(--accent)]"
+                        : "border-[var(--line)] bg-transparent hover:border-[var(--accent)]"
                     }`}
                     aria-label={done ? "Mark action open" : "Mark action done"}
                   />
@@ -179,7 +179,7 @@ export function SessionExtras({ sourceId }: { sourceId: string }) {
                       type="button"
                       onClick={() => updateActionStatus(action, "dismissed")}
                       disabled={updatingId === action.id}
-                      className="shrink-0 rounded-lg border border-[var(--border)] px-2 py-1 text-xs font-medium text-[var(--ink-muted)] transition-colors hover:border-neg/40 hover:text-neg disabled:cursor-not-allowed disabled:opacity-50"
+                      className="shrink-0 rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-medium text-[var(--ink-2)] transition-colors hover:border-neg/40 hover:text-neg disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Dismiss
                     </button>
@@ -200,7 +200,7 @@ export function SessionExtras({ sourceId }: { sourceId: string }) {
             {requests.map((request) => (
               <div
                 key={request.id}
-                className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] px-4 py-3"
+                className="rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3"
               >
                 <div className="flex items-start justify-between gap-3">
                   <p className="text-sm leading-6 text-[var(--ink)]">{request.description}</p>

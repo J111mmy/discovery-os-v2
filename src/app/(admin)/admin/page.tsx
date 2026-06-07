@@ -32,7 +32,7 @@ export default async function AdminPage() {
     <div>
       <div className="mb-8">
         <h1 className="text-2xl font-semibold text-[var(--ink)]">All organisations</h1>
-        <p className="mt-2 text-sm text-[var(--ink-muted)]">
+        <p className="mt-2 text-sm text-[var(--ink-2)]">
           {orgs.length} organisation{orgs.length === 1 ? "" : "s"} · Enter any workspace to browse as support
         </p>
       </div>
@@ -40,14 +40,14 @@ export default async function AdminPage() {
       <AIProviderSettingsPanel initialSettings={aiSettings} />
 
       {orgs.length === 0 ? (
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-12 text-center text-sm text-[var(--ink-muted)]">
+        <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-12 text-center text-sm text-[var(--ink-2)]">
           No organisations yet.
         </div>
       ) : (
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] overflow-hidden">
+        <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] overflow-hidden">
           <table className="w-full text-left text-sm">
             <thead>
-              <tr className="border-b border-[var(--border)]">
+              <tr className="border-b border-[var(--line)]">
                 <th className="px-5 py-3 font-semibold text-[var(--ink)]">Organisation</th>
                 <th className="px-5 py-3 font-semibold text-[var(--ink)] text-right">Members</th>
                 <th className="px-5 py-3 font-semibold text-[var(--ink)] text-right">Sources</th>
@@ -56,20 +56,20 @@ export default async function AdminPage() {
                 <th className="px-5 py-3"></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[var(--border)]">
+            <tbody className="divide-y divide-[var(--line)]">
               {orgs.map((org) => (
                 <tr key={org.id} className="hover:bg-[var(--surface-2)] transition-colors">
                   <td className="px-5 py-4">
                     <div className="font-medium text-[var(--ink)]">{org.name}</div>
                     <div className="text-xs text-[var(--ink-faint)] mt-0.5">{org.slug}</div>
                   </td>
-                  <td className="px-5 py-4 text-right text-[var(--ink-muted)]">
+                  <td className="px-5 py-4 text-right text-[var(--ink-2)]">
                     {org.member_count}
                   </td>
-                  <td className="px-5 py-4 text-right text-[var(--ink-muted)]">
+                  <td className="px-5 py-4 text-right text-[var(--ink-2)]">
                     {org.source_count}
                   </td>
-                  <td className="px-5 py-4 text-[var(--ink-muted)]">
+                  <td className="px-5 py-4 text-[var(--ink-2)]">
                     {relativeTime(org.last_source_at)}
                   </td>
                   <td className="px-5 py-4">
@@ -79,7 +79,7 @@ export default async function AdminPage() {
                           ? "text-red-400"
                           : org.last_run.status === "running"
                           ? "text-yellow-400"
-                          : "text-[var(--ink-muted)]"
+                          : "text-[var(--ink-2)]"
                       }`}>
                         {org.last_run.status === "failed" ? "⚠ failed" : relativeTime(org.last_run.started_at)}
                       </span>
@@ -91,7 +91,7 @@ export default async function AdminPage() {
                     <div className="flex items-center justify-end gap-2">
                       <a
                         href={`/admin/orgs/${org.id}`}
-                        className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
+                        className="rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-medium text-[var(--ink-2)] transition-colors hover:text-[var(--ink)]"
                       >
                         Detail
                       </a>
@@ -99,7 +99,7 @@ export default async function AdminPage() {
                         <input type="hidden" name="org_id" value={org.id} />
                         <button
                           type="submit"
-                          className="rounded-lg bg-[var(--brand)] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[var(--brand-dim)]"
+                          className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[var(--accent-hover)]"
                         >
                           Enter workspace
                         </button>

@@ -143,7 +143,7 @@ export function computeConfidence(input: ConfidenceInput): ConfidenceResult {
 
   const colour =
     score >= 80 ? "bg-green-400" :
-    score >= 55 ? "bg-[var(--brand)]" :
+    score >= 55 ? "bg-[var(--accent)]" :
     score >= 25 ? "bg-yellow-400" :
     "bg-[var(--ink-faint)]";
 

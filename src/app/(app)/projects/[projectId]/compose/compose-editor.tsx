@@ -47,7 +47,7 @@ function verificationLabel(status: ArtifactVerificationStatus) {
 function verificationClasses(status: ArtifactVerificationStatus) {
   if (status === "verified") return "border-pos/20 bg-pos-bg text-pos";
   if (status === "partial") return "border-warn/20 bg-warn-bg text-warn";
-  return "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
+  return "border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink-2)]";
 }
 
 function summaryLabel(summary: Record<string, unknown> | null) {
@@ -78,7 +78,7 @@ function VerificationBanner({
 
   if (pending) {
     return (
-      <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink-muted)]">
+      <div className="mt-4 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink-2)]">
         Verification running...
       </div>
     );
@@ -86,7 +86,7 @@ function VerificationBanner({
 
   if (!state?.runAt) {
     return (
-      <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm font-medium text-[var(--ink-muted)]">
+      <div className="mt-4 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm font-medium text-[var(--ink-2)]">
         Unverified
         <span className="font-normal"> — no verification run yet</span>
       </div>
@@ -333,10 +333,10 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
 
   return (
     <div className="space-y-6">
-      <form onSubmit={createDraft} className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)]">
-        <div className="border-b border-[var(--border)] px-5 py-4">
+      <form onSubmit={createDraft} className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
+        <div className="border-b border-[var(--line)] px-5 py-4">
           <div className="text-sm font-semibold text-[var(--ink)]">Draft prompt</div>
-          <p className="mt-1 text-xs text-[var(--ink-muted)]">
+          <p className="mt-1 text-xs text-[var(--ink-2)]">
             The draft will use the project evidence query pipeline and return editable markdown sections.
           </p>
         </div>
@@ -351,19 +351,19 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
               minLength={5}
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
-              className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
+              className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
               placeholder="Write a persona for our enterprise buyer"
             />
             <button
               type="submit"
               disabled={isDrafting}
-              className="rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isDrafting ? "Drafting..." : "Draft"}
             </button>
           </div>
           {isDrafting && (
-            <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink-muted)]">
+            <div className="mt-3 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink-2)]">
               {isPollingDraft
                 ? "Generating a grounded draft — this usually takes 30–60 seconds on large evidence sets."
                 : "Queuing draft…"}
@@ -385,9 +385,9 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
       )}
 
       {!isDrafting && sections.length === 0 && (
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-10 text-center">
+        <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-10 text-center">
           <div className="text-sm font-medium text-[var(--ink)]">No draft yet</div>
-          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--ink-muted)]">
+          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--ink-2)]">
             Enter a prompt above to generate editable sections from the project evidence.
           </p>
         </div>
@@ -395,7 +395,7 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
 
       {sections.length > 0 && (
         <div className="space-y-4">
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+          <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_180px]">
               <div>
                 <label className="mb-2 block text-sm font-medium text-[var(--ink)]" htmlFor="title">
@@ -405,7 +405,7 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
                   id="title"
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors focus:border-[var(--brand)]"
+                  className="w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)]"
                 />
               </div>
               <div>
@@ -416,7 +416,7 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
                   id="artifact-type"
                   value={artifactType}
                   onChange={(event) => setArtifactType(event.target.value as ArtifactType)}
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors focus:border-[var(--brand)]"
+                  className="w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)]"
                 >
                   <option value="brief">Brief</option>
                   <option value="prd">PRD</option>
@@ -439,17 +439,17 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
           </div>
 
           {sections.map((section) => (
-            <section key={section.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+            <section key={section.id} className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
               <div className="mb-3 flex items-center gap-2">
                 <input
                   value={section.heading}
                   onChange={(event) => updateSection(section.id, { heading: event.target.value })}
-                  className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 font-medium text-[var(--ink)] outline-none transition-colors focus:border-[var(--brand)]"
+                  className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 font-medium text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)]"
                 />
                 <button
                   type="button"
                   onClick={() => addSection(section.id)}
-                  className="h-9 w-9 rounded-lg border border-[var(--border)] text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
+                  className="h-9 w-9 rounded-lg border border-[var(--line)] text-[var(--ink)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
                   aria-label="Add section"
                 >
                   +
@@ -457,7 +457,7 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
                 <button
                   type="button"
                   onClick={() => deleteSection(section.id)}
-                  className="h-9 w-9 rounded-lg border border-[var(--border)] text-[var(--ink-muted)] transition-colors hover:border-neg hover:text-neg"
+                  className="h-9 w-9 rounded-lg border border-[var(--line)] text-[var(--ink-2)] transition-colors hover:border-neg hover:text-neg"
                   aria-label="Delete section"
                 >
                   x
@@ -467,7 +467,7 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
                 value={section.content}
                 onChange={(event) => updateSection(section.id, { content: event.target.value })}
                 rows={10}
-                className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors focus:border-[var(--brand)]"
+                className="w-full resize-y rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)]"
               />
             </section>
           ))}
@@ -476,7 +476,7 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
             <button
               type="button"
               onClick={() => addSection()}
-              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
+              className="rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-medium text-[var(--ink)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
             >
               + Add section
             </button>
@@ -484,7 +484,7 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
               type="button"
               onClick={saveArtifact}
               disabled={isSaving}
-              className="rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSaving ? "Saving..." : "Save"}
             </button>

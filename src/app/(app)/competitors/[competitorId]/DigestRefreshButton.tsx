@@ -34,7 +34,7 @@ export function DigestRefreshButton({ competitorId }: { competitorId: string }) 
         type="button"
         onClick={refresh}
         disabled={state === "loading" || state === "queued"}
-        className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-medium text-[var(--ink)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {state === "loading"
           ? "Starting..."
@@ -158,7 +158,7 @@ function EditableBattleCardField({
   state: "idle" | "saving" | "saved";
 }) {
   return (
-    <label className="block rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-4">
+    <label className="block rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm font-semibold text-[var(--ink)]">{label}</span>
         {state !== "idle" && (
@@ -167,13 +167,13 @@ function EditableBattleCardField({
           </span>
         )}
       </div>
-      <p className="mt-1 text-xs leading-5 text-[var(--ink-muted)]">{description}</p>
+      <p className="mt-1 text-xs leading-5 text-[var(--ink-2)]">{description}</p>
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
         onBlur={onBlur}
         rows={5}
-        className="mt-3 w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-sm leading-6 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
+        className="mt-3 w-full resize-y rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-sm leading-6 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
         placeholder="Add the field-ready counter message..."
       />
     </label>

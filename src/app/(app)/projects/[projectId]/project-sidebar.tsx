@@ -32,12 +32,12 @@ export function ProjectSidebar({
   const basePath = `/projects/${projectId}`;
 
   return (
-    <aside className="flex h-full flex-col border-r border-[var(--border)] bg-[var(--surface-1)]">
-      <div className="border-b border-[var(--border)] p-5">
+    <aside className="flex h-full flex-col border-r border-[var(--line)] bg-[var(--surface)]">
+      <div className="border-b border-[var(--line)] p-5">
         <Link
           href="/projects"
           onClick={onNavigate}
-          className="mb-5 inline-flex text-xs font-medium text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
+          className="mb-5 inline-flex text-xs font-medium text-[var(--ink-2)] transition-colors hover:text-[var(--ink)]"
         >
           Back to all projects
         </Link>
@@ -46,7 +46,7 @@ export function ProjectSidebar({
             {projectName}
           </div>
           {projectDescription && (
-            <p className="mt-2 line-clamp-3 text-xs leading-5 text-[var(--ink-muted)]">
+            <p className="mt-2 line-clamp-3 text-xs leading-5 text-[var(--ink-2)]">
               {projectDescription}
             </p>
           )}
@@ -65,8 +65,8 @@ export function ProjectSidebar({
               onClick={onNavigate}
               className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                 isActive
-                  ? "bg-[var(--brand)] text-white"
-                  : "text-[var(--ink-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"
+                  ? "bg-[var(--accent)] text-white"
+                  : "text-[var(--ink-2)] hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"
               }`}
             >
               {item.label}
@@ -74,12 +74,12 @@ export function ProjectSidebar({
           );
         })}
       </nav>
-      <div className="border-t border-[var(--border)] p-3 space-y-1">
+      <div className="border-t border-[var(--line)] p-3 space-y-1">
         {/* Add evidence CTA — visually distinct from nav items */}
         <Link
           href={`${basePath}/ingest`}
           onClick={onNavigate}
-          className="block w-full rounded-lg bg-[var(--brand)] px-3 py-2 text-center text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)]"
+          className="block w-full rounded-lg bg-[var(--accent)] px-3 py-2 text-center text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)]"
         >
           + Add evidence
         </Link>
@@ -95,8 +95,8 @@ export function ProjectSidebar({
               onClick={onNavigate}
               className={`block rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                 isActive
-                  ? "bg-[var(--brand)] text-white"
-                  : "text-[var(--ink-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"
+                  ? "bg-[var(--accent)] text-white"
+                  : "text-[var(--ink-2)] hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"
               }`}
             >
               {item.label}

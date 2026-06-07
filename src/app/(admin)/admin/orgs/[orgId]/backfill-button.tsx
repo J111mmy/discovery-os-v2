@@ -56,15 +56,15 @@ export function BackfillButton({ orgId }: { orgId: string }) {
   return (
     <section>
       <h2 className="mb-3 text-sm font-semibold text-[var(--ink)]">Evidence grading</h2>
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
-        <p className="mb-4 text-sm leading-6 text-[var(--ink-muted)]">
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
+        <p className="mb-4 text-sm leading-6 text-[var(--ink-2)]">
           Grade all ungraded evidence for this organisation. Jobs run in the background, grouped by source, so the existing evidence grading pipeline handles the work.
         </p>
         <button
           type="button"
           onClick={handleClick}
           disabled={status === "running" || status === "done"}
-          className="rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)] disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {status === "running"
             ? "Queuing..."

@@ -30,7 +30,7 @@ export default async function IngestPage({ params }: Props) {
           Add evidence
         </div>
         <h1 className="text-2xl font-semibold text-[var(--ink)]">Submit source material</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-muted)]">
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-2)]">
           Paste a transcript, document, or research note. DiscOS will segment it, redact sensitive details, and create evidence records for review.
         </p>
       </div>
