@@ -184,3 +184,80 @@ Dated security sign-off for the full branch. Verified against the pushed tree (`
 **Verdict: PR #24 is gate-clean end to end. Nothing from the Opus gate blocks merge.**
 
 **Residual (non-blocking, tracked):** SECURITY_POSTURE backlog #5 — unfenced untrusted-derived metadata (`source_title`/`segment_speaker`/`summary`) in `ask.ts` `formatEvidenceBlock`. A4-adjacent, future hardening pass. Migration B (tighten `content_html` NOT NULL + drop `content_md`) remains separately gated.
+
+---
+
+### Codex — 2026-06-07 WEST — Cut #2 invites-on wiring ready for Opus review
+
+Implemented `CODEX_BRIEF_INVITES_ON.md`. No commit or push yet.
+
+Files touched:
+
+- `src/app/(app)/settings/SettingsClient.tsx`
+- `src/app/(app)/settings/page.tsx`
+
+Scope confirmation:
+
+- Did **not** touch `/api/org-invites/route.ts`.
+- Did **not** touch `/invite`, `/accept-invite`, `accept_invite(p_token)`, middleware, RLS, migrations, service-role usage, or email generation.
+- Global settings Team tab now POSTs to the already-reviewed `/api/org-invites` route with `{ org_id: orgId, email, role }`; it never sends `project_id`.
+
+Behaviour:
+
+- Removed the "Coming soon / not yet wired" disabled invite block.
+- Added local invite form state: `inviteEmail`, `inviteRole`, `isSubmittingInvite`, `inviteError`, `inviteSuccess`.
+- On submit, calls `POST /api/org-invites` with the org-scoped body.
+- On success, clears email, resets role to `member`, shows a success line, and calls `router.refresh()` so the server-rendered pending invite list reloads from `org_invites`.
+- On error, shows the route-provided string message inline when present; otherwise falls back to `Could not send invite (<status>).`.
+- Added UI role gate: only `owner`/`admin` see the enabled form. Other roles see: `Ask an owner or admin to invite people to this workspace.`
+- Added `currentUserRole` in `settings/page.tsx` by matching `user.id` against the existing `org_members` query result and passing it to `SettingsClient`.
+
+Verification run:
+
+```bash
+git diff --check -- "src/app/(app)/settings/SettingsClient.tsx" "src/app/(app)/settings/page.tsx"
+# passed
+
+npm run type-check
+# passed
+
+npm run build
+# passed, with only existing Supabase Node 18 deprecation warnings
+```
+
+Verification not run from Codex:
+
+- Full invite/email/acceptance loop against a real inbox was not run from this session. This needs a Jimmy-side/dev browser pass because it exercises email delivery and real invite acceptance.
+
+Awaiting Opus review/APPROVED before commit/push.
+
+---
+
+### Opus — 2026-06-07 — Cut #2 invites-on: **APPROVED**
+
+Reviewed the diff (`SettingsClient.tsx`, `settings/page.tsx`) against the five
+gated areas. **Gate-clean — APPROVED for commit/push to `feat/cut-2`.**
+
+- **Auth/authz:** unchanged. The UI `canInvite` (owner/admin) gate is
+  defense-in-depth UX only; the real authorization stays server-side in the
+  unchanged `/api/org-invites` route (owner/admin check). A non-privileged user
+  who forced the form open still gets 403 from the route. UI gate is not relied
+  on as the security control. ✓
+- **RLS / migrations:** none touched. ✓
+- **Public routes:** none. POST target is the authenticated `/api/org-invites`. ✓
+- **Middleware:** untouched. ✓
+- **Service-role:** no `createServiceClient`; the wiring uses a plain `fetch`. ✓
+- **Body contract:** sends `{ org_id, email, role }` only — never `project_id`;
+  matches the route's XOR refine. ✓
+- **Acceptance side re-verified static (C3):** `accept-invite/route.ts` uses the
+  **user-scoped** `createClient()` + `accept_invite(p_token)` RPC, auth-gated, no
+  service-client membership write. Pipe is connected, not a stub. ✓
+
+**Non-security promotion condition (NOT a commit blocker):** the live
+email→click→accept→`org_members` loop has not been exercised end-to-end (Codex
+correctly flagged this). This must pass as a **Cut #2 smoke-test item on dev/prod
+before promotion to getdiscos.com** — sending a "Send invite" button that emails
+real people dead links is a product failure even though it's not a security hole.
+
+Cleared to commit on `feat/cut-2`. Promotion to `main` still gated on: build
+green + live invite-loop smoke test + Jimmy's go.

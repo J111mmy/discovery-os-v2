@@ -29,6 +29,7 @@ export default async function SettingsPage() {
     expires_at: string | null;
     accepted_at: string | null;
   }[] = [];
+  let currentUserRole: string | null = null;
 
   if (orgId) {
     // Org name
@@ -45,7 +46,10 @@ export default async function SettingsPage() {
       .select("id, user_id, display_name, role, joined_at")
       .eq("org_id", orgId)
       .order("joined_at", { ascending: true });
-    if (membersData) members = membersData;
+    if (membersData) {
+      members = membersData;
+      currentUserRole = members.find((member) => member.user_id === user.id)?.role ?? null;
+    }
 
     // Pending invites
     const { data: invitesData } = await supabase
@@ -61,6 +65,7 @@ export default async function SettingsPage() {
       orgId={orgId ?? ""}
       orgName={orgName}
       userEmail={user.email ?? ""}
+      currentUserRole={currentUserRole}
       members={members}
       invites={invites}
     />
