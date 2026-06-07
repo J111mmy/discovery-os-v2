@@ -1,5 +1,7 @@
 # Codex brief — Branded, app-sent invite email (one-click, one email)
 
+> ⛔ **SECURITY GATE APPLIES (non-negotiable).** Before committing/pushing any change to auth, RLS/migrations, public routes, middleware, or service-role usage, post the diff and wait for Opus's written **APPROVED**. See `AGENTS.md` → "SECURITY REVIEW GATE". This overrides anything below.
+
 **Author:** Opus 4.8 (security reviewer / PM gate)
 **Date:** 2026-06-04
 **Status:** APPROVED TO BUILD — Opus reviews the diff (route + email module + any new env wiring) BEFORE commit/merge. Codex does not self-clear security work.

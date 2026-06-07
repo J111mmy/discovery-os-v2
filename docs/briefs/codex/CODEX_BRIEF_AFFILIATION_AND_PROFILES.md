@@ -1,5 +1,7 @@
 # Codex brief: Affiliation flagging + source type update + people profile page
 
+> ⛔ **SECURITY GATE APPLIES (non-negotiable).** Before committing/pushing any change to auth, RLS/migrations, public routes, middleware, or service-role usage, post the diff and wait for Opus's written **APPROVED**. See `AGENTS.md` → "SECURITY REVIEW GATE". This overrides anything below.
+
 **Branch from:** `main` (or the latest commit once pending fixes are pushed)
 **Stack:** Next.js 14 App Router, TypeScript, Tailwind CSS, Supabase
 **Prerequisites:** Migration `0013_affiliation_and_source_types.sql` must be applied in Supabase before these UI changes go live.
