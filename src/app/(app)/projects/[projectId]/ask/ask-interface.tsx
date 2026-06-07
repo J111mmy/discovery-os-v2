@@ -56,12 +56,12 @@ function ClassificationBadge({
   if (!classification) return null;
   const classes =
     classification === "insight"
-      ? "border-[var(--brand)]/30 bg-[var(--brand)]/10 text-[var(--brand)]"
+      ? "border-[var(--accent)]/30 bg-[var(--accent-soft)] text-[var(--accent)]"
       : classification === "verbatim"
-      ? "border-blue-500/25 bg-blue-500/10 text-blue-300"
+      ? "border-info/25 bg-info-bg text-info"
       : classification === "data_point"
-      ? "border-cyan-500/25 bg-cyan-500/10 text-cyan-300"
-      : "border-amber-500/25 bg-amber-500/10 text-amber-300";
+      ? "border-info/25 bg-info-bg text-info"
+      : "border-warn/25 bg-warn-bg text-warn";
 
   return (
     <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}>
@@ -74,11 +74,11 @@ function SentimentDot({ sentiment }: { sentiment: EvidenceRecord["sentiment"] })
   if (!sentiment) return null;
   const color =
     sentiment === "positive"
-      ? "bg-green-400"
+      ? "bg-pos"
       : sentiment === "negative"
-      ? "bg-red-400"
+      ? "bg-neg"
       : sentiment === "mixed"
-      ? "bg-yellow-400"
+      ? "bg-warn"
       : "bg-[var(--ink-faint)]";
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-[var(--ink-muted)]">
@@ -303,7 +303,7 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
 
         {/* Error state */}
         {error && !loading && (
-          <div className="m-5 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+          <div className="m-5 rounded-lg border border-neg/20 bg-neg-bg px-3 py-2 text-sm text-neg">
             {error}
           </div>
         )}

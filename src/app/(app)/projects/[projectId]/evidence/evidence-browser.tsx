@@ -30,15 +30,15 @@ const BUCKETS: {
     key: "pending",
     label: "Needs review",
     blurb: "AI wasn't sure — your call. Pull the keepers into Trusted.",
-    accent: "text-yellow-300",
-    activeAccent: "border-yellow-400/60 bg-yellow-500/10 text-yellow-100",
+    accent: "text-warn",
+    activeAccent: "border-warn/60 bg-warn-bg text-warn",
   },
   {
     key: "trusted",
     label: "Trusted",
     blurb: "Strong, on-topic evidence. These feed synthesis and drafts.",
-    accent: "text-green-300",
-    activeAccent: "border-green-400/60 bg-green-500/10 text-green-100",
+    accent: "text-pos",
+    activeAccent: "border-pos/60 bg-pos-bg text-pos",
   },
   {
     key: "excluded",
@@ -54,12 +54,12 @@ function ClassificationBadge({ classification }: { classification: EvidenceRecor
 
   const classes =
     classification === "insight"
-      ? "border-[var(--brand)]/30 bg-[var(--brand)]/10 text-[var(--brand)]"
+      ? "border-[var(--accent)]/30 bg-[var(--accent-soft)] text-[var(--accent)]"
       : classification === "verbatim"
-      ? "border-blue-500/25 bg-blue-500/10 text-blue-300"
+      ? "border-info/25 bg-info-bg text-info"
       : classification === "data_point"
-      ? "border-cyan-500/25 bg-cyan-500/10 text-cyan-300"
-      : "border-amber-500/25 bg-amber-500/10 text-amber-300";
+      ? "border-info/25 bg-info-bg text-info"
+      : "border-warn/25 bg-warn-bg text-warn";
 
   return (
     <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}>
@@ -78,14 +78,14 @@ function GradeBadge({ grade }: { grade: EvidenceRecord["ai_trust_grade"] }) {
   }
   if (grade === "trusted") {
     return (
-      <span className="rounded-full border border-green-500/25 bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-300">
+      <span className="rounded-full border border-pos/25 bg-pos-bg px-2 py-0.5 text-xs font-medium text-pos">
         Strong
       </span>
     );
   }
   const classes =
     grade === "uncertain"
-      ? "border-yellow-500/25 bg-yellow-500/10 text-yellow-300"
+      ? "border-warn/25 bg-warn-bg text-warn"
       : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
   return (
     <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}>
@@ -99,11 +99,11 @@ function SentimentIndicator({ sentiment }: { sentiment: EvidenceRecord["sentimen
 
   const classes =
     sentiment === "positive"
-      ? "bg-green-400"
+      ? "bg-pos"
       : sentiment === "negative"
-      ? "bg-red-400"
+      ? "bg-neg"
       : sentiment === "mixed"
-      ? "bg-yellow-400"
+      ? "bg-warn"
       : "bg-[var(--ink-faint)]";
 
   return (
@@ -137,17 +137,17 @@ function EvidenceRow({
   const quick: { target: BucketKey; label: string; tone: string }[] =
     record.trust_scope === "pending"
       ? [
-          { target: "trusted", label: "Trust", tone: "text-green-300 hover:border-green-400 border-green-500/20" },
-          { target: "excluded", label: "Exclude", tone: "text-red-300 hover:border-red-400 border-red-500/20" },
+          { target: "trusted", label: "Trust", tone: "text-pos hover:border-pos border-pos/20" },
+          { target: "excluded", label: "Exclude", tone: "text-neg hover:border-neg border-neg/20" },
         ]
       : record.trust_scope === "trusted"
       ? [
-          { target: "pending", label: "To review", tone: "text-yellow-200 hover:border-yellow-400 border-yellow-500/20" },
-          { target: "excluded", label: "Exclude", tone: "text-red-300 hover:border-red-400 border-red-500/20" },
+          { target: "pending", label: "To review", tone: "text-warn hover:border-warn border-warn/20" },
+          { target: "excluded", label: "Exclude", tone: "text-neg hover:border-neg border-neg/20" },
         ]
       : [
-          { target: "pending", label: "To review", tone: "text-yellow-200 hover:border-yellow-400 border-yellow-500/20" },
-          { target: "trusted", label: "Trust", tone: "text-green-300 hover:border-green-400 border-green-500/20" },
+          { target: "pending", label: "To review", tone: "text-warn hover:border-warn border-warn/20" },
+          { target: "trusted", label: "Trust", tone: "text-pos hover:border-pos border-pos/20" },
         ];
 
   return (
@@ -434,17 +434,17 @@ export function EvidenceBrowser({
   const bulkTargets: { target: BucketKey; label: string; tone: string }[] =
     activeTab === "pending"
       ? [
-          { target: "trusted", label: "Trust selected", tone: "border-green-500/30 text-green-200 hover:border-green-400" },
-          { target: "excluded", label: "Exclude selected", tone: "border-red-500/30 text-red-200 hover:border-red-400" },
+          { target: "trusted", label: "Trust selected", tone: "border-pos/30 text-pos hover:border-pos" },
+          { target: "excluded", label: "Exclude selected", tone: "border-neg/30 text-neg hover:border-neg" },
         ]
       : activeTab === "trusted"
       ? [
-          { target: "pending", label: "Move to review", tone: "border-yellow-500/30 text-yellow-100 hover:border-yellow-400" },
-          { target: "excluded", label: "Exclude selected", tone: "border-red-500/30 text-red-200 hover:border-red-400" },
+          { target: "pending", label: "Move to review", tone: "border-warn/30 text-warn hover:border-warn" },
+          { target: "excluded", label: "Exclude selected", tone: "border-neg/30 text-neg hover:border-neg" },
         ]
       : [
-          { target: "pending", label: "Move to review", tone: "border-yellow-500/30 text-yellow-100 hover:border-yellow-400" },
-          { target: "trusted", label: "Trust selected", tone: "border-green-500/30 text-green-200 hover:border-green-400" },
+          { target: "pending", label: "Move to review", tone: "border-warn/30 text-warn hover:border-warn" },
+          { target: "trusted", label: "Trust selected", tone: "border-pos/30 text-pos hover:border-pos" },
         ];
 
   function dismissContextNudge() {
@@ -561,7 +561,7 @@ export function EvidenceBrowser({
       )}
 
       {error && (
-        <div className="m-5 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+        <div className="m-5 rounded-lg border border-neg/20 bg-neg-bg px-3 py-2 text-sm text-neg">
           {error}
         </div>
       )}

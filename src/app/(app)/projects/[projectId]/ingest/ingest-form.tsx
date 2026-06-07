@@ -285,12 +285,12 @@ export function IngestForm({ projectId }: IngestFormProps) {
             <div className="mt-2 text-sm text-[var(--ink-muted)]">Extracting text...</div>
           )}
           {!extractingFile && fileName && rawText && !fileError && (
-            <div className="mt-2 text-sm text-green-300">
+            <div className="mt-2 text-sm text-pos">
               Loaded {fileName}. Review the extracted text below before ingesting.
             </div>
           )}
           {fileError && (
-            <div className="mt-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+            <div className="mt-2 rounded-lg border border-neg/20 bg-neg-bg px-3 py-2 text-sm text-neg">
               {fileError}
             </div>
           )}
@@ -329,7 +329,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
         )}
 
         {status === "done" && (
-          <div className="mt-4 rounded-lg border border-green-500/20 bg-green-500/10 px-3 py-2 text-sm text-green-300">
+          <div className="mt-4 rounded-lg border border-pos/20 bg-pos-bg px-3 py-2 text-sm text-pos">
             <div>✓ Processed — {result?.evidence_created ?? 0} evidence records created</div>
             <a href={`/projects/${projectId}/evidence`} className="mt-2 inline-flex text-[var(--ink)] hover:text-[var(--brand)]">
               View evidence
@@ -338,7 +338,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
         )}
 
         {error && (
-          <div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+          <div className="mt-4 rounded-lg border border-neg/20 bg-neg-bg px-3 py-2 text-sm text-neg">
             {error}
           </div>
         )}

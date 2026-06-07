@@ -102,12 +102,6 @@ export function SettingsClient({
   const [tab, setTab] = useState<Tab>("appearance");
   const [theme, setTheme] = useState<Theme>("dark");
 
-  // Invite form state
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState("member");
-  const [inviteStatus, setInviteStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
-  const [inviteError, setInviteError] = useState("");
-
   // Sync theme from document on mount
   useEffect(() => {
     const stored =
@@ -121,30 +115,6 @@ export function SettingsClient({
     setTheme(next);
     localStorage.setItem("discos-theme", next);
     document.documentElement.setAttribute("data-theme", next);
-  }
-
-  async function submitInvite(e: React.FormEvent) {
-    e.preventDefault();
-    if (!inviteEmail.trim()) return;
-    setInviteStatus("loading");
-    setInviteError("");
-    try {
-      const res = await fetch("/api/org-invites", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole, org_id: orgId }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error ?? `Error ${res.status}`);
-      }
-      setInviteStatus("ok");
-      setInviteEmail("");
-      setInviteRole("member");
-    } catch (err) {
-      setInviteStatus("error");
-      setInviteError(err instanceof Error ? err.message : "Something went wrong");
-    }
   }
 
   const TABS: { id: Tab; label: string }[] = [
@@ -296,67 +266,61 @@ export function SettingsClient({
             )}
           </Section>
 
-          {/* Invite */}
+          {/* Invite — coming soon */}
           <Section title="Invite someone">
-            <form onSubmit={submitInvite} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14, opacity: 0.55, pointerEvents: "none", userSelect: "none" }}>
               <div style={{ display: "flex", gap: 10 }}>
                 <div style={{ flex: 1 }}>
                   <label style={labelStyle}>Email address</label>
                   <input
                     type="email"
-                    required
+                    disabled
                     placeholder="colleague@example.com"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
                     style={inputStyle}
-                    onFocus={(e) => { (e.target as HTMLElement).style.borderColor = "var(--accent)"; }}
-                    onBlur={(e) => { (e.target as HTMLElement).style.borderColor = "var(--line)"; }}
+                    tabIndex={-1}
                   />
                 </div>
                 <div style={{ width: 140 }}>
                   <label style={labelStyle}>Role</label>
-                  <select
-                    value={inviteRole}
-                    onChange={(e) => setInviteRole(e.target.value)}
-                    style={{ ...inputStyle, cursor: "pointer" }}
-                  >
-                    <option value="admin">Admin</option>
+                  <select disabled style={{ ...inputStyle, cursor: "not-allowed" }} tabIndex={-1}>
                     <option value="member">Member</option>
-                    <option value="viewer">Viewer</option>
                   </select>
                 </div>
               </div>
-
-              {inviteStatus === "error" && (
-                <div style={{ fontSize: 12.5, color: "var(--neg)", padding: "8px 12px", background: "var(--neg-bg)", borderRadius: "var(--r-sm)" }}>
-                  {inviteError}
-                </div>
-              )}
-              {inviteStatus === "ok" && (
-                <div style={{ fontSize: 12.5, color: "var(--pos)", padding: "8px 12px", background: "var(--pos-bg)", borderRadius: "var(--r-sm)" }}>
-                  Invite sent.
-                </div>
-              )}
-
               <div>
                 <button
-                  type="submit"
-                  disabled={inviteStatus === "loading"}
+                  disabled
                   style={{
                     padding: "9px 20px", borderRadius: "var(--r-sm)",
-                    background: "var(--accent)", color: "#fff",
-                    fontWeight: 580, fontSize: 13.5, cursor: inviteStatus === "loading" ? "default" : "pointer",
-                    border: "none", fontFamily: "inherit", opacity: inviteStatus === "loading" ? 0.7 : 1,
-                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.15), 0 3px 10px -4px var(--accent)",
-                    transition: "background .14s",
+                    background: "var(--surface-3)", color: "var(--ink-3)",
+                    fontWeight: 580, fontSize: 13.5, cursor: "not-allowed",
+                    border: "1px solid var(--line)", fontFamily: "inherit",
                   }}
-                  onMouseEnter={(e) => { if (inviteStatus !== "loading") (e.currentTarget as HTMLElement).style.background = "var(--accent-hover)"; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--accent)"; }}
                 >
-                  {inviteStatus === "loading" ? "Sending…" : "Send invite"}
+                  Send invite
                 </button>
               </div>
-            </form>
+            </div>
+            <div style={{
+              marginTop: 14,
+              padding: "10px 14px",
+              borderRadius: "var(--r-sm)",
+              background: "var(--surface-2)",
+              border: "1px solid var(--line)",
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <span style={{
+                fontSize: 10, fontWeight: 700, letterSpacing: ".07em",
+                textTransform: "uppercase", padding: "2px 7px",
+                borderRadius: 999, background: "var(--warn-bg)", color: "var(--warn)",
+                flexShrink: 0,
+              }}>
+                Coming soon
+              </span>
+              <span style={{ fontSize: 12.5, color: "var(--ink-3)" }}>
+                Org-scoped invites are not yet wired. This will be enabled in an upcoming release.
+              </span>
+            </div>
           </Section>
 
           {/* Pending invites */}

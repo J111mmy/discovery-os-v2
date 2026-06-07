@@ -35,9 +35,9 @@ function dateLabel(value: string) {
 function VerificationBadge({ status }: { status: ArtifactVerificationStatus }) {
   const classes =
     status === "verified"
-      ? "border-green-500/20 bg-green-500/10 text-green-300"
+      ? "border-pos/20 bg-pos-bg text-pos"
       : status === "partial"
-      ? "border-yellow-500/20 bg-yellow-500/10 text-yellow-300"
+      ? "border-warn/20 bg-warn-bg text-warn"
       : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
 
   const label =
@@ -154,7 +154,7 @@ export default async function DocumentsPage({ params }: Props) {
                     <input type="hidden" name="artifact_id" value={artifact.id} />
                     <button
                       type="submit"
-                      className="rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:border-red-400"
+                      className="rounded-lg border border-neg/20 px-3 py-1.5 text-xs font-medium text-neg transition-colors hover:border-neg"
                     >
                       Delete
                     </button>

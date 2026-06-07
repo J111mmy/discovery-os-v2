@@ -45,8 +45,8 @@ function verificationLabel(status: ArtifactVerificationStatus) {
 }
 
 function verificationClasses(status: ArtifactVerificationStatus) {
-  if (status === "verified") return "border-green-500/20 bg-green-500/10 text-green-300";
-  if (status === "partial") return "border-yellow-500/20 bg-yellow-500/10 text-yellow-300";
+  if (status === "verified") return "border-pos/20 bg-pos-bg text-pos";
+  if (status === "partial") return "border-warn/20 bg-warn-bg text-warn";
   return "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
 }
 
@@ -70,7 +70,7 @@ function VerificationBanner({
 }) {
   if (queueError) {
     return (
-      <div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+      <div className="mt-4 rounded-lg border border-neg/20 bg-neg-bg px-3 py-2 text-sm text-neg">
         {queueError}
       </div>
     );
@@ -373,13 +373,13 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
       </form>
 
       {error && (
-        <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+        <div className="rounded-lg border border-neg/20 bg-neg-bg px-3 py-2 text-sm text-neg">
           {error}
         </div>
       )}
 
       {message && (
-        <div className="rounded-lg border border-green-500/20 bg-green-500/10 px-3 py-2 text-sm text-green-300">
+        <div className="rounded-lg border border-pos/20 bg-pos-bg px-3 py-2 text-sm text-pos">
           {message}
         </div>
       )}
@@ -457,7 +457,7 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
                 <button
                   type="button"
                   onClick={() => deleteSection(section.id)}
-                  className="h-9 w-9 rounded-lg border border-[var(--border)] text-[var(--ink-muted)] transition-colors hover:border-red-400 hover:text-red-300"
+                  className="h-9 w-9 rounded-lg border border-[var(--border)] text-[var(--ink-muted)] transition-colors hover:border-neg hover:text-neg"
                   aria-label="Delete section"
                 >
                   x
