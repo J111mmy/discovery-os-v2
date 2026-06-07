@@ -17,6 +17,7 @@ interface EvidenceBrowserProps {
   trustedCount: number;
   excludedCount: number;
   researchContextEmpty: boolean;
+  internalSpeakerNames: string[];
 }
 
 const BUCKETS: {
@@ -121,6 +122,7 @@ function EvidenceRow({
   onToggle,
   onQuickMove,
   busy,
+  isInternal,
 }: {
   projectId: string;
   record: EvidenceRecord;
@@ -128,6 +130,7 @@ function EvidenceRow({
   onToggle: () => void;
   onQuickMove: (target: BucketKey) => void;
   busy: boolean;
+  isInternal?: boolean;
 }) {
   const showReason =
     record.ai_trust_reason &&
@@ -174,7 +177,14 @@ function EvidenceRow({
               </div>
             )}
             {record.segment_speaker && (
-              <div className="mt-0.5 text-xs font-medium text-[var(--brand)]">{record.segment_speaker}</div>
+              <div className="mt-0.5 flex items-center gap-1.5">
+                <span className="text-xs font-medium text-[var(--brand)]">{record.segment_speaker}</span>
+                {isInternal && (
+                  <span className="rounded-full border border-[var(--border)] bg-[var(--surface-0)] px-1.5 py-0 text-[10px] font-medium text-[var(--ink-muted)]">
+                    Internal
+                  </span>
+                )}
+              </div>
             )}
           </div>
           <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
@@ -229,6 +239,7 @@ export function EvidenceBrowser({
   trustedCount,
   excludedCount,
   researchContextEmpty,
+  internalSpeakerNames,
 }: EvidenceBrowserProps) {
   const [activeTab, setActiveTab] = useState<BucketKey>("pending");
   const [counts, setCounts] = useState<Record<BucketKey, number>>({
@@ -249,12 +260,34 @@ export function EvidenceBrowser({
   const [isSearching, startSearch] = useTransition();
   // Whether the pending bucket still holds its server-seeded initial page.
   const [pendingSeeded, setPendingSeeded] = useState(true);
+  // Internal-speaker filter
+  const [showInternal, setShowInternal] = useState(false);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadingMoreRef = useRef(false);
 
   const trimmedQuery = useMemo(() => query.trim(), [query]);
   const activeBucket = BUCKETS.find((b) => b.key === activeTab)!;
+
+  const internalSet = useMemo(
+    () => new Set(internalSpeakerNames.map((n) => n.trim().toLowerCase())),
+    [internalSpeakerNames]
+  );
+  const isInternal = useCallback(
+    (record: EvidenceRecord) => {
+      const spk = record.segment_speaker?.trim().toLowerCase();
+      return !!spk && internalSet.has(spk);
+    },
+    [internalSet]
+  );
+  const visibleRecords = useMemo(
+    () => (showInternal ? records : records.filter((r) => !isInternal(r))),
+    [records, showInternal, isInternal]
+  );
+  const hiddenInternalCount = useMemo(
+    () => (showInternal ? 0 : records.filter((r) => isInternal(r)).length),
+    [records, showInternal, isInternal]
+  );
 
   const loadTab = useCallback(
     async (tab: BucketKey) => {
@@ -389,7 +422,7 @@ export function EvidenceBrowser({
 
   function toggleAll() {
     setSelected((current) =>
-      current.size === records.length ? new Set() : new Set(records.map((r) => r.id))
+      current.size === visibleRecords.length ? new Set() : new Set(visibleRecords.map((r) => r.id))
     );
   }
 
@@ -512,11 +545,22 @@ export function EvidenceBrowser({
             className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
             placeholder={`Search ${activeBucket.label.toLowerCase()}`}
           />
-          {records.length > 0 && (
+          {internalSpeakerNames.length > 0 && (
             <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-xs font-medium text-[var(--ink-muted)]">
               <input
                 type="checkbox"
-                checked={selected.size === records.length && records.length > 0}
+                checked={showInternal}
+                onChange={() => setShowInternal((v) => !v)}
+                className="h-4 w-4 cursor-pointer accent-[var(--brand)]"
+              />
+              Show internal
+            </label>
+          )}
+          {visibleRecords.length > 0 && (
+            <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-xs font-medium text-[var(--ink-muted)]">
+              <input
+                type="checkbox"
+                checked={selected.size === visibleRecords.length && visibleRecords.length > 0}
                 onChange={toggleAll}
                 className="h-4 w-4 cursor-pointer accent-[var(--brand)]"
               />
@@ -529,8 +573,8 @@ export function EvidenceBrowser({
           {isSearching || isLoadingTab
             ? "Loading..."
             : trimmedQuery
-            ? `${records.length} match${records.length === 1 ? "" : "es"} in ${activeBucket.label.toLowerCase()}`
-            : `Showing ${records.length} of ${counts[activeTab]}`}
+            ? `${visibleRecords.length} match${visibleRecords.length === 1 ? "" : "es"} in ${activeBucket.label.toLowerCase()}${hiddenInternalCount > 0 ? ` · ${hiddenInternalCount} internal hidden` : ""}`
+            : `Showing ${visibleRecords.length} of ${counts[activeTab]}${hiddenInternalCount > 0 ? ` · ${hiddenInternalCount} internal hidden` : ""}`}
         </div>
       </div>
 
@@ -566,11 +610,13 @@ export function EvidenceBrowser({
         </div>
       )}
 
-      {records.length === 0 ? (
+      {visibleRecords.length === 0 ? (
         <div className="p-12 text-center">
           <div className="text-sm font-medium text-[var(--ink)]">
             {trimmedQuery
               ? "No matches in this bucket."
+              : hiddenInternalCount > 0
+              ? "All visible records are hidden"
               : activeTab === "pending"
               ? "Nothing left to review"
               : activeTab === "trusted"
@@ -580,6 +626,8 @@ export function EvidenceBrowser({
           <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--ink-muted)]">
             {trimmedQuery
               ? "Try a broader search or clear the search field."
+              : hiddenInternalCount > 0
+              ? `${hiddenInternalCount} internal-speaker record${hiddenInternalCount === 1 ? " is" : "s are"} hidden. Toggle "Show internal" to see them.`
               : activeTab === "pending"
               ? "Every record has been sorted. New sessions will add more here when the AI is unsure."
               : activeTab === "trusted"
@@ -590,7 +638,7 @@ export function EvidenceBrowser({
       ) : (
         <>
           <div className="grid gap-3 p-4 sm:p-5">
-            {records.map((record) => (
+            {visibleRecords.map((record) => (
               <EvidenceRow
                 key={record.id}
                 projectId={projectId}
@@ -599,6 +647,7 @@ export function EvidenceBrowser({
                 onToggle={() => toggleOne(record.id)}
                 onQuickMove={(target) => moveRecords([record.id], target)}
                 busy={isMutating}
+                isInternal={isInternal(record)}
               />
             ))}
           </div>
