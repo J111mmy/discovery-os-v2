@@ -48,16 +48,16 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[var(--surface-0)]">
+    <div className="min-h-screen flex items-center justify-center bg-[var(--bg)]">
       <div className="w-full max-w-sm">
         {/* Brand */}
         <div className="flex items-center gap-3 mb-10">
-          <div className="w-9 h-9 rounded-lg bg-[var(--brand)] flex items-center justify-center text-white font-bold text-lg">
+          <div className="w-9 h-9 rounded-lg bg-[var(--accent)] flex items-center justify-center text-white font-bold text-lg">
             D
           </div>
           <div>
             <div className="font-semibold text-[var(--ink)] text-base">DiscOS</div>
-            <div className="text-xs text-[var(--ink-muted)]">Evidence workspace</div>
+            <div className="text-xs text-[var(--ink-2)]">Evidence workspace</div>
           </div>
         </div>
 
@@ -65,7 +65,7 @@ function LoginForm() {
           <div className="text-center">
             <div className="text-2xl mb-3">Email sent</div>
             <h2 className="text-lg font-semibold text-[var(--ink)] mb-2">Check your email</h2>
-            <p className="text-[var(--ink-muted)] text-sm">
+            <p className="text-[var(--ink-2)] text-sm">
               {mode === "reset" ? "We sent a password reset link to " : "We sent a sign-in link to "}
               <strong>{email}</strong>
             </p>
@@ -75,7 +75,7 @@ function LoginForm() {
             <h1 className="text-xl font-semibold text-[var(--ink)] mb-1">
               {mode === "reset" ? "Reset password" : isInviteFlow ? "Accept your invitation" : "Sign in"}
             </h1>
-            <p className="text-sm text-[var(--ink-muted)] mb-6">
+            <p className="text-sm text-[var(--ink-2)] mb-6">
               {mode === "reset"
                 ? "We'll send you a link to choose a new password."
                 : isInviteFlow && mode === "magic"
@@ -92,7 +92,7 @@ function LoginForm() {
                 placeholder="you@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-2)] border border-[var(--border)] text-[var(--ink)] placeholder:text-[var(--ink-faint)] focus:outline-none focus:border-[var(--brand)] text-sm"
+                className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-2)] border border-[var(--line)] text-[var(--ink)] placeholder:text-[var(--ink-faint)] focus:outline-none focus:border-[var(--accent)] text-sm"
               />
 
               {mode === "password" && (
@@ -102,7 +102,7 @@ function LoginForm() {
                   placeholder="Password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-2)] border border-[var(--border)] text-[var(--ink)] placeholder:text-[var(--ink-faint)] focus:outline-none focus:border-[var(--brand)] text-sm"
+                  className="w-full px-3 py-2.5 rounded-lg bg-[var(--surface-2)] border border-[var(--line)] text-[var(--ink)] placeholder:text-[var(--ink-faint)] focus:outline-none focus:border-[var(--accent)] text-sm"
                 />
               )}
 
@@ -111,7 +111,7 @@ function LoginForm() {
               <button
                 type="submit"
                 disabled={loading || !email}
-                className="w-full py-2.5 rounded-lg bg-[var(--brand)] text-white font-medium text-sm hover:bg-[var(--brand-dim)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="w-full py-2.5 rounded-lg bg-[var(--accent)] text-white font-medium text-sm hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {loading
                   ? "Working..."
@@ -125,7 +125,7 @@ function LoginForm() {
 
             <button
               onClick={() => { setMode(mode === "password" ? "magic" : "password"); setError(""); }}
-              className="mt-4 text-xs text-[var(--ink-muted)] hover:text-[var(--ink)] w-full text-center"
+              className="mt-4 text-xs text-[var(--ink-2)] hover:text-[var(--ink)] w-full text-center"
             >
               {mode === "password" ? "Use magic link instead" : "Use password instead"}
             </button>
@@ -133,7 +133,7 @@ function LoginForm() {
               <button
                 type="button"
                 onClick={() => { setMode("reset"); setError(""); setSent(false); }}
-                className="mt-3 text-xs text-[var(--ink-muted)] hover:text-[var(--ink)] w-full text-center"
+                className="mt-3 text-xs text-[var(--ink-2)] hover:text-[var(--ink)] w-full text-center"
               >
                 Forgot your password?
               </button>
@@ -141,7 +141,7 @@ function LoginForm() {
               <button
                 type="button"
                 onClick={() => { setMode("password"); setError(""); setSent(false); }}
-                className="mt-3 text-xs text-[var(--ink-muted)] hover:text-[var(--ink)] w-full text-center"
+                className="mt-3 text-xs text-[var(--ink-2)] hover:text-[var(--ink)] w-full text-center"
               >
                 Back to sign in
               </button>
@@ -157,7 +157,7 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-[var(--surface-0)]" />
+        <div className="min-h-screen bg-[var(--bg)]" />
       }
     >
       <LoginForm />

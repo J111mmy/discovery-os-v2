@@ -79,13 +79,13 @@ export function InviteAuthCallback({ token }: InviteAuthCallbackProps) {
   }, [router, searchParams, token]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[var(--surface-0)] px-5 text-[var(--ink)]">
-      <div className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-6 text-center">
-        <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--brand)] text-lg font-bold text-white">
+    <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-5 text-[var(--ink)]">
+      <div className="w-full max-w-sm rounded-xl border border-[var(--line)] bg-[var(--surface)] p-6 text-center">
+        <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--accent)] text-lg font-bold text-white">
           D
         </div>
         <h1 className="text-lg font-semibold">Finishing your invitation</h1>
-        <p className="mt-2 text-sm leading-6 text-[var(--ink-muted)]">
+        <p className="mt-2 text-sm leading-6 text-[var(--ink-2)]">
           We are signing you in and adding you to the workspace.
         </p>
       </div>

@@ -66,7 +66,7 @@ export default async function SettingsPage({ params, searchParams }: Props) {
           Settings
         </div>
         <h1 className="text-2xl font-semibold text-[var(--ink)]">Project settings</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-muted)]">
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-2)]">
           Configure the project context that shapes compose output and manage access to the workspace.
         </p>
       </div>
@@ -83,7 +83,13 @@ export default async function SettingsPage({ params, searchParams }: Props) {
         }}
         members={membersResult.data ?? []}
         invites={invitesResult.data ?? []}
-        initialTab={searchParams?.tab === "team" ? "team" : "project"}
+        initialTab={
+          searchParams?.tab === "team"
+            ? "team"
+            : searchParams?.tab === "billing"
+            ? "billing"
+            : "project"
+        }
       />
     </div>
   );

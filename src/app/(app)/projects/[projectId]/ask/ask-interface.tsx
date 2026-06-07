@@ -34,7 +34,7 @@ function renderAnswerWithCitations(
         <button
           key={i}
           onClick={() => onCitationClick(n)}
-          className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded bg-[var(--brand)]/15 px-1 text-[10px] font-semibold text-[var(--brand)] transition-colors hover:bg-[var(--brand)]/30 align-super"
+          className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded bg-[var(--accent)]/15 px-1 text-[10px] font-semibold text-[var(--accent)] transition-colors hover:bg-[var(--accent)]/30 align-super"
           title={`Jump to source ${n}`}
         >
           {n}
@@ -81,7 +81,7 @@ function SentimentDot({ sentiment }: { sentiment: EvidenceRecord["sentiment"] })
       ? "bg-warn"
       : "bg-[var(--ink-faint)]";
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-[var(--ink-muted)]">
+    <span className="inline-flex items-center gap-1.5 text-xs text-[var(--ink-2)]">
       <span className={`h-1.5 w-1.5 rounded-full ${color}`} />
       {sentiment}
     </span>
@@ -102,7 +102,7 @@ function SourceCard({
   return (
     <article
       id={id}
-      className="scroll-mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-1)]"
+      className="scroll-mt-4 rounded-xl border border-[var(--line)] bg-[var(--surface)]"
     >
       {/* Header — always visible */}
       <button
@@ -110,7 +110,7 @@ function SourceCard({
         onClick={() => setExpanded((v) => !v)}
         className="flex w-full items-start gap-3 p-4 text-left"
       >
-        <span className="mt-0.5 flex h-5 min-w-5 items-center justify-center rounded bg-[var(--brand)]/15 text-[10px] font-bold text-[var(--brand)] shrink-0">
+        <span className="mt-0.5 flex h-5 min-w-5 items-center justify-center rounded bg-[var(--accent)]/15 text-[10px] font-bold text-[var(--accent)] shrink-0">
           {citationNumber}
         </span>
         <div className="min-w-0 flex-1">
@@ -118,7 +118,7 @@ function SourceCard({
             {record.source_title ?? "Source"}
           </p>
           {record.segment_speaker && (
-            <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
+            <p className="mt-0.5 text-xs text-[var(--ink-2)]">
               {record.segment_speaker}
             </p>
           )}
@@ -130,12 +130,12 @@ function SourceCard({
 
       {/* Expanded body */}
       {expanded && (
-        <div className="border-t border-[var(--border)] px-4 pb-4 pt-3">
+        <div className="border-t border-[var(--line)] px-4 pb-4 pt-3">
           <p className="whitespace-pre-wrap text-sm leading-6 text-[var(--ink)]">
             {record.content}
           </p>
           {record.summary && record.summary !== record.content && (
-            <p className="mt-3 text-sm leading-6 text-[var(--ink-muted)]">
+            <p className="mt-3 text-sm leading-6 text-[var(--ink-2)]">
               {record.summary}
             </p>
           )}
@@ -238,27 +238,27 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
           {projectName}
         </div>
         <h1 className="text-2xl font-semibold text-[var(--ink)]">Ask your evidence</h1>
-        <p className="mt-2 text-sm leading-6 text-[var(--ink-muted)]">
+        <p className="mt-2 text-sm leading-6 text-[var(--ink-2)]">
           Ask a question and get a sourced answer drawn from your transcripts and notes.
         </p>
       </div>
 
       {/* Query form */}
-      <section className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)]">
-        <div className="border-b border-[var(--border)] p-4 sm:p-5">
+      <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
+        <div className="border-b border-[var(--line)] p-4 sm:p-5">
           <form onSubmit={handleSubmit} className="flex flex-col gap-3 sm:flex-row">
             <input
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
+              className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
               placeholder="What problems did users mention most?"
               disabled={loading}
             />
             <button
               type="submit"
               disabled={loading || !query.trim()}
-              className="rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)] disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? "Thinking…" : "Ask"}
             </button>
@@ -266,14 +266,14 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
 
           {/* Trust scope toggle */}
           <div className="mt-4 flex flex-wrap items-center gap-3">
-            <div className="inline-flex rounded-lg border border-[var(--border)] bg-[var(--surface-0)] p-1">
+            <div className="inline-flex rounded-lg border border-[var(--line)] bg-[var(--bg)] p-1">
               <button
                 type="button"
                 onClick={() => handleTrustScopeChange("trusted")}
                 className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                   trustScope === "trusted"
-                    ? "bg-[var(--brand)] text-white"
-                    : "text-[var(--ink-muted)] hover:text-[var(--ink)]"
+                    ? "bg-[var(--accent)] text-white"
+                    : "text-[var(--ink-2)] hover:text-[var(--ink)]"
                 }`}
               >
                 Trusted only
@@ -283,8 +283,8 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
                 onClick={() => handleTrustScopeChange("include_pending")}
                 className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                   trustScope === "include_pending"
-                    ? "bg-[var(--brand)] text-white"
-                    : "text-[var(--ink-muted)] hover:text-[var(--ink)]"
+                    ? "bg-[var(--accent)] text-white"
+                    : "text-[var(--ink-2)] hover:text-[var(--ink)]"
                 }`}
               >
                 All evidence
@@ -295,8 +295,8 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
 
         {/* Loading state */}
         {loading && (
-          <div className="flex items-center gap-3 px-5 py-8 text-sm text-[var(--ink-muted)]">
-            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--brand)]" />
+          <div className="flex items-center gap-3 px-5 py-8 text-sm text-[var(--ink-2)]">
+            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--line)] border-t-[var(--accent)]" />
             Reading through the evidence…
           </div>
         )}
@@ -310,7 +310,7 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
 
         {/* Empty state */}
         {!loading && !error && !response && (
-          <div className="p-12 text-center text-sm text-[var(--ink-muted)]">
+          <div className="p-12 text-center text-sm text-[var(--ink-2)]">
             Ask about user problems, workflow gaps, buying signals, or anything in the evidence.
           </div>
         )}

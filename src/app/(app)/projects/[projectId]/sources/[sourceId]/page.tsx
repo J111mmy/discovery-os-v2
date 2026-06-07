@@ -69,7 +69,7 @@ function TrustBadge({ trustScope }: { trustScope: TrustScope | "missing" }) {
       ? "border-warn/20 bg-warn-bg text-warn"
       : trustScope === "excluded"
       ? "border-neg/20 bg-neg-bg text-neg"
-      : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
+      : "border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink-2)]";
 
   return (
     <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}>
@@ -95,8 +95,8 @@ function StatusBadge({ status }: { status: JobStatus | "not_started" }) {
       : status === "processing"
       ? "border-warn/20 bg-warn-bg text-warn"
       : status === "pending"
-      ? "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]"
-      : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
+      ? "border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink-2)]"
+      : "border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink-2)]";
 
   return (
     <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}>
@@ -194,7 +194,7 @@ export default async function SourceDetailPage({ params }: Props) {
       <div className="mb-8">
         <Link
           href={`/projects/${project.id}/sources`}
-          className="mb-4 inline-flex text-sm font-medium text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
+          className="mb-4 inline-flex text-sm font-medium text-[var(--ink-2)] transition-colors hover:text-[var(--ink)]"
         >
           Back to sources
         </Link>
@@ -202,10 +202,10 @@ export default async function SourceDetailPage({ params }: Props) {
           <div>
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <StatusBadge status={displayStatus} />
-              <span className="text-xs capitalize text-[var(--ink-muted)]">{typedSource.type}</span>
+              <span className="text-xs capitalize text-[var(--ink-2)]">{typedSource.type}</span>
             </div>
             <h1 className="text-2xl font-semibold text-[var(--ink)]">{typedSource.title}</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-muted)]">
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-2)]">
               Review the source chunks created during ingest and see which evidence records they produced.
             </p>
           </div>
@@ -225,7 +225,7 @@ export default async function SourceDetailPage({ params }: Props) {
       )}
 
       {isQueued && (
-        <div className="mb-6 rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-4 text-sm leading-6 text-[var(--ink-muted)]">
+        <div className="mb-6 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-sm leading-6 text-[var(--ink-2)]">
           <div className="font-semibold text-[var(--ink)]">Queued for ingest.</div>
           <p className="mt-1">
             DiscOS processes one source at a time for better extraction quality, lower cost, and fewer
@@ -269,7 +269,7 @@ export default async function SourceDetailPage({ params }: Props) {
       {latestJob?.status === "done" && !zeroEvidenceDone && (
         <div className="mb-6">
           {sessionBrief ? (
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+            <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
               <div className="mb-3 flex items-center justify-between gap-4">
                 <div>
                   <div className="text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
@@ -281,21 +281,21 @@ export default async function SourceDetailPage({ params }: Props) {
                 </div>
                 <Link
                   href={`/projects/${project.id}/documents/${sessionBrief.id}`}
-                  className="whitespace-nowrap rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
+                  className="whitespace-nowrap rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-medium text-[var(--ink)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
                 >
                   Read brief
                 </Link>
               </div>
-              <p className="line-clamp-3 text-sm leading-6 text-[var(--ink-muted)]">
+              <p className="line-clamp-3 text-sm leading-6 text-[var(--ink-2)]">
                 {briefPreview(sessionBrief.content_md)}
               </p>
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-1)] p-5">
+            <div className="rounded-xl border border-dashed border-[var(--line)] bg-[var(--surface)] p-5">
               <div className="text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
                 Session brief
               </div>
-              <p className="mt-1 text-sm text-[var(--ink-muted)]">
+              <p className="mt-1 text-sm text-[var(--ink-2)]">
                 Generating session brief. This usually takes under a minute after evidence is ready.
               </p>
             </div>
@@ -313,7 +313,7 @@ export default async function SourceDetailPage({ params }: Props) {
             <article
               key={segment.id}
               id={`segment-${segment.id}`}
-              className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5"
+              className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5"
             >
               <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-wrap items-center gap-2">
@@ -321,12 +321,12 @@ export default async function SourceDetailPage({ params }: Props) {
                     Segment {segment.segment_index + 1}
                   </span>
                   {segment.speaker && (
-                    <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--brand)]">
+                    <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-xs text-[var(--accent)]">
                       {segment.speaker}
                     </span>
                   )}
                   {segment.word_count !== null && (
-                    <span className="text-xs text-[var(--ink-muted)]">{segment.word_count} words</span>
+                    <span className="text-xs text-[var(--ink-2)]">{segment.word_count} words</span>
                   )}
                 </div>
                 <TrustBadge trustScope={evidence?.trust_scope ?? "missing"} />
@@ -340,7 +340,7 @@ export default async function SourceDetailPage({ params }: Props) {
       </div>
 
       {segments.length === 0 && (
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-12 text-center text-sm text-[var(--ink-muted)]">
+        <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-12 text-center text-sm text-[var(--ink-2)]">
           {isQueued
             ? "No segments yet. This source is queued and will start automatically."
             : isAnalyzing

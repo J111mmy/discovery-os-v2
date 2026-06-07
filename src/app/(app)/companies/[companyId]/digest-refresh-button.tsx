@@ -31,7 +31,7 @@ export function DigestRefreshButton({ companyId }: { companyId: string }) {
         type="button"
         onClick={refresh}
         disabled={state === "queued"}
-        className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-medium text-[var(--ink)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {state === "queued" ? "Generating..." : "Refresh digest"}
       </button>

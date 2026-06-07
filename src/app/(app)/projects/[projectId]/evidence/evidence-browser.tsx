@@ -17,6 +17,7 @@ interface EvidenceBrowserProps {
   trustedCount: number;
   excludedCount: number;
   researchContextEmpty: boolean;
+  themeFilter?: string;
 }
 
 const BUCKETS: {
@@ -44,8 +45,8 @@ const BUCKETS: {
     key: "excluded",
     label: "Excluded",
     blurb: "Off-topic or weak. Kept out of drafts — restore anything we got wrong.",
-    accent: "text-[var(--ink-muted)]",
-    activeAccent: "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink)]",
+    accent: "text-[var(--ink-2)]",
+    activeAccent: "border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink)]",
   },
 ];
 
@@ -71,7 +72,7 @@ function ClassificationBadge({ classification }: { classification: EvidenceRecor
 function GradeBadge({ grade }: { grade: EvidenceRecord["ai_trust_grade"] }) {
   if (!grade) {
     return (
-      <span className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-xs font-medium text-[var(--ink-muted)]">
+      <span className="rounded-full border border-[var(--line)] bg-[var(--surface-2)] px-2 py-0.5 text-xs font-medium text-[var(--ink-2)]">
         Ungraded
       </span>
     );
@@ -86,7 +87,7 @@ function GradeBadge({ grade }: { grade: EvidenceRecord["ai_trust_grade"] }) {
   const classes =
     grade === "uncertain"
       ? "border-warn/25 bg-warn-bg text-warn"
-      : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
+      : "border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink-2)]";
   return (
     <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}>
       {grade === "uncertain" ? "Uncertain" : "Weak"}
@@ -107,7 +108,7 @@ function SentimentIndicator({ sentiment }: { sentiment: EvidenceRecord["sentimen
       : "bg-[var(--ink-faint)]";
 
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--ink-muted)]">
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--ink-2)]">
       <span className={`h-1.5 w-1.5 rounded-full ${classes}`} />
       {sentiment}
     </span>
@@ -152,8 +153,8 @@ function EvidenceRow({
 
   return (
     <article
-      className={`flex gap-3 rounded-xl border bg-[var(--surface-1)] p-4 transition-colors ${
-        selected ? "border-[var(--brand)]/60" : "border-[var(--border)] hover:border-white/15"
+      className={`flex gap-3 rounded-xl border bg-[var(--surface)] p-4 transition-colors ${
+        selected ? "border-[var(--accent)]/60" : "border-[var(--line)] hover:border-white/15"
       }`}
     >
       <label className="mt-0.5 flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center">
@@ -161,7 +162,7 @@ function EvidenceRow({
           type="checkbox"
           checked={selected}
           onChange={onToggle}
-          className="h-4 w-4 cursor-pointer accent-[var(--brand)]"
+          className="h-4 w-4 cursor-pointer accent-[var(--accent)]"
         />
       </label>
 
@@ -174,7 +175,7 @@ function EvidenceRow({
               </div>
             )}
             {record.segment_speaker && (
-              <div className="mt-0.5 text-xs font-medium text-[var(--brand)]">{record.segment_speaker}</div>
+              <div className="mt-0.5 text-xs font-medium text-[var(--accent)]">{record.segment_speaker}</div>
             )}
           </div>
           <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
@@ -189,7 +190,7 @@ function EvidenceRow({
         <p className="whitespace-pre-wrap text-sm leading-6 text-[var(--ink)]">{record.content}</p>
 
         {showReason && (
-          <p className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-xs leading-5 text-[var(--ink-muted)]">
+          <p className="mt-2 rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-xs leading-5 text-[var(--ink-2)]">
             {record.ai_trust_reason}
           </p>
         )}
@@ -199,7 +200,7 @@ function EvidenceRow({
           {record.segment_id && (
             <Link
               href={`/projects/${projectId}/sources/${record.source_id}#segment-${record.segment_id}`}
-              className="text-xs font-medium text-[var(--ink-muted)] transition-colors hover:text-[var(--brand)]"
+              className="text-xs font-medium text-[var(--ink-2)] transition-colors hover:text-[var(--accent)]"
             >
               View source segment
             </Link>
@@ -229,6 +230,7 @@ export function EvidenceBrowser({
   trustedCount,
   excludedCount,
   researchContextEmpty,
+  themeFilter,
 }: EvidenceBrowserProps) {
   const [activeTab, setActiveTab] = useState<BucketKey>("pending");
   const [counts, setCounts] = useState<Record<BucketKey, number>>({
@@ -453,50 +455,73 @@ export function EvidenceBrowser({
   }
 
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)]">
-      {/* Tab bar */}
-      <div className="flex flex-wrap gap-2 border-b border-[var(--border)] p-3 sm:p-4">
-        {BUCKETS.map((bucket) => {
-          const active = bucket.key === activeTab;
-          return (
-            <button
-              key={bucket.key}
-              type="button"
-              onClick={() => switchTab(bucket.key)}
-              className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                active
-                  ? bucket.activeAccent
-                  : "border-[var(--border)] text-[var(--ink-muted)] hover:border-white/15 hover:text-[var(--ink)]"
-              }`}
-            >
-              {bucket.label}
-              <span className={`text-xs font-semibold ${active ? "" : bucket.accent}`}>
-                {counts[bucket.key]}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+    <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
+      {/* Theme filter banner — replaces tab bar when filtering by theme */}
+      {themeFilter ? (
+        <div className="flex items-center gap-3 border-b border-[var(--line)] px-4 py-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="flex-shrink-0 text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
+              Theme
+            </span>
+            <span className="truncate rounded-full border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-2.5 py-0.5 text-xs font-medium text-[var(--accent)]">
+              {themeFilter}
+            </span>
+            <span className="text-xs text-[var(--ink-2)]">
+              · {initialRecords.length} record{initialRecords.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+          <Link
+            href={`/projects/${projectId}/evidence`}
+            className="flex-shrink-0 rounded-lg border border-[var(--line)] px-2.5 py-1 text-xs font-medium text-[var(--ink-2)] transition-colors hover:border-[var(--line-strong)] hover:text-[var(--ink)]"
+          >
+            Clear ×
+          </Link>
+        </div>
+      ) : (
+        /* Normal tab bar */
+        <div className="flex flex-wrap gap-2 border-b border-[var(--line)] p-3 sm:p-4">
+          {BUCKETS.map((bucket) => {
+            const active = bucket.key === activeTab;
+            return (
+              <button
+                key={bucket.key}
+                type="button"
+                onClick={() => switchTab(bucket.key)}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                  active
+                    ? bucket.activeAccent
+                    : "border-[var(--line)] text-[var(--ink-2)] hover:border-white/15 hover:text-[var(--ink)]"
+                }`}
+              >
+                {bucket.label}
+                <span className={`text-xs font-semibold ${active ? "" : bucket.accent}`}>
+                  {counts[bucket.key]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
-      <div className="border-b border-[var(--border)] p-4 sm:p-5">
-        <p className="mb-3 text-sm text-[var(--ink-muted)]">{activeBucket.blurb}</p>
+      <div className="border-b border-[var(--line)] p-4 sm:p-5">
+        <p className="mb-3 text-sm text-[var(--ink-2)]">{activeBucket.blurb}</p>
 
         {showContextNudge && activeTab === "pending" && (
-          <div className="mb-4 flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-[var(--ink-muted)]">
+          <div className="mb-4 flex flex-col gap-3 rounded-lg border border-[var(--line)] bg-[var(--bg)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-[var(--ink-2)]">
               Add your research focus in settings so the AI can sort what matters automatically.
             </p>
             <div className="flex items-center gap-3">
               <Link
                 href={`/projects/${projectId}/settings`}
-                className="text-xs font-medium text-[var(--brand)] transition-colors hover:text-[var(--ink)]"
+                className="text-xs font-medium text-[var(--accent)] transition-colors hover:text-[var(--ink)]"
               >
                 Open settings
               </Link>
               <button
                 type="button"
                 onClick={dismissContextNudge}
-                className="text-xs font-medium text-[var(--ink-faint)] transition-colors hover:text-[var(--ink-muted)]"
+                className="text-xs font-medium text-[var(--ink-faint)] transition-colors hover:text-[var(--ink-2)]"
               >
                 Dismiss
               </button>
@@ -509,23 +534,23 @@ export function EvidenceBrowser({
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
+            className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
             placeholder={`Search ${activeBucket.label.toLowerCase()}`}
           />
           {records.length > 0 && (
-            <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-xs font-medium text-[var(--ink-muted)]">
+            <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-xs font-medium text-[var(--ink-2)]">
               <input
                 type="checkbox"
                 checked={selected.size === records.length && records.length > 0}
                 onChange={toggleAll}
-                className="h-4 w-4 cursor-pointer accent-[var(--brand)]"
+                className="h-4 w-4 cursor-pointer accent-[var(--accent)]"
               />
               Select all
             </label>
           )}
         </div>
 
-        <div className="mt-3 text-xs text-[var(--ink-muted)]">
+        <div className="mt-3 text-xs text-[var(--ink-2)]">
           {isSearching || isLoadingTab
             ? "Loading..."
             : trimmedQuery
@@ -536,7 +561,7 @@ export function EvidenceBrowser({
 
       {/* Bulk action bar */}
       {selected.size > 0 && (
-        <div className="sticky top-14 z-10 flex flex-wrap items-center gap-3 border-b border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 sm:px-5">
+        <div className="sticky top-14 z-10 flex flex-wrap items-center gap-3 border-b border-[var(--line)] bg-[var(--surface-2)] px-4 py-3 sm:px-5">
           <span className="text-sm font-medium text-[var(--ink)]">{selected.size} selected</span>
           <span className="flex-1" />
           {bulkTargets.map((action) => (
@@ -553,7 +578,7 @@ export function EvidenceBrowser({
           <button
             type="button"
             onClick={() => setSelected(new Set())}
-            className="text-xs font-medium text-[var(--ink-faint)] transition-colors hover:text-[var(--ink-muted)]"
+            className="text-xs font-medium text-[var(--ink-faint)] transition-colors hover:text-[var(--ink-2)]"
           >
             Clear
           </button>
@@ -577,7 +602,7 @@ export function EvidenceBrowser({
               ? "No trusted evidence yet"
               : "Nothing excluded"}
           </div>
-          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--ink-muted)]">
+          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--ink-2)]">
             {trimmedQuery
               ? "Try a broader search or clear the search field."
               : activeTab === "pending"
@@ -605,13 +630,13 @@ export function EvidenceBrowser({
           {!trimmedQuery && hasMore && (
             <div
               ref={sentinelRef}
-              className="border-t border-[var(--border)] p-5 text-center text-sm text-[var(--ink-muted)]"
+              className="border-t border-[var(--line)] p-5 text-center text-sm text-[var(--ink-2)]"
             >
               {isLoadingMore ? "Loading more…" : (
                 <button
                   type="button"
                   onClick={() => void loadMore()}
-                  className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
+                  className="rounded-lg border border-[var(--line)] px-4 py-2 text-sm font-medium text-[var(--ink)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
                 >
                   Load more
                 </button>

@@ -69,7 +69,7 @@ function SeverityPill({ severity }: { severity: ProblemSeverity }) {
       ? "border-neg/20 bg-neg-bg text-neg"
       : severity === "medium"
       ? "border-warn/20 bg-warn-bg text-warn"
-      : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
+      : "border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink-2)]";
 
   return (
     <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}>
@@ -80,7 +80,7 @@ function SeverityPill({ severity }: { severity: ProblemSeverity }) {
 
 function StatusPill({ status }: { status: ProblemStatus }) {
   return (
-    <span className="rounded-full border border-[var(--border)] bg-[var(--surface-0)] px-2 py-0.5 text-xs font-medium text-[var(--ink-muted)]">
+    <span className="rounded-full border border-[var(--line)] bg-[var(--bg)] px-2 py-0.5 text-xs font-medium text-[var(--ink-2)]">
       {statusLabels[status]}
     </span>
   );
@@ -104,7 +104,7 @@ function ProblemCard({ problem, projectId }: { problem: ProblemRow; projectId: s
   }
 
   return (
-    <article className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+    <article className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -116,10 +116,10 @@ function ProblemCard({ problem, projectId }: { problem: ProblemRow; projectId: s
       </div>
 
       {problem.description && (
-        <p className="text-sm leading-6 text-[var(--ink-muted)]">{problem.description}</p>
+        <p className="text-sm leading-6 text-[var(--ink-2)]">{problem.description}</p>
       )}
 
-      <div className="mt-4 flex flex-wrap gap-2 text-xs text-[var(--ink-muted)]">
+      <div className="mt-4 flex flex-wrap gap-2 text-xs text-[var(--ink-2)]">
         <span>{problem.source_theme_ids.length} themes</span>
         <span className="text-[var(--ink-faint)]">·</span>
         <span>{problem.source_evidence_ids.length} evidence records</span>
@@ -133,7 +133,7 @@ function ProblemCard({ problem, projectId }: { problem: ProblemRow; projectId: s
               type="button"
               disabled={isPending}
               onClick={() => updateStatus(transition.status)}
-              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-medium text-[var(--ink)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {transition.label}
             </button>
@@ -179,7 +179,7 @@ export function ProblemsList({ problems, projectId }: ProblemsListProps) {
 
   if (problems.length === 0) {
     return (
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-12 text-center text-sm text-[var(--ink-muted)]">
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-12 text-center text-sm text-[var(--ink-2)]">
         No problems have been surfaced yet.
       </div>
     );
@@ -196,7 +196,7 @@ export function ProblemsList({ problems, projectId }: ProblemsListProps) {
           <button
             type="button"
             onClick={() => setShowClosed((value) => !value)}
-            className="w-fit rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--ink-muted)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
+            className="w-fit rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-medium text-[var(--ink-2)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
           >
             {showClosed ? "Hide" : "Show"} resolved / dismissed ({closed.length})
           </button>

@@ -38,13 +38,6 @@
   /* Ease curve */
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
 
-  /* ── Migration aliases (theme-invariant) ──
-     Keep old var names alive so existing inline Tailwind
-     arbitrary values don't break during Phase 1/2 migration.
-     Remove these after Phase 2 is complete.
-  */
-  --brand:     var(--accent);
-  --brand-dim: var(--accent-hover);
 }
 
 /* ── Dark theme (navy) — default ────────────────────────────── */
@@ -94,7 +87,7 @@
 
   color-scheme: dark;
 
-  /* ── Migration aliases (theme-scoped) ── */
+  /* ── Compat aliases — kept for ArtifactReader.tsx (locked file) ── */
   --surface-0: var(--bg);
   --surface-1: var(--surface);
   --border:    var(--line);
@@ -152,7 +145,7 @@
 
   color-scheme: light;
 
-  /* ── Migration aliases (theme-scoped) ── */
+  /* ── Compat aliases — kept for ArtifactReader.tsx (locked file) ── */
   --surface-0: var(--bg);
   --surface-1: var(--surface);
   --border:    var(--line);

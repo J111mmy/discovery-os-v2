@@ -79,10 +79,10 @@ export function FrameDraftBanner({
     : null;
 
   return (
-    <div className="rounded-xl border border-[var(--brand)] bg-[var(--surface-1)] p-5">
+    <div className="rounded-xl border border-[var(--accent)] bg-[var(--surface)] p-5">
       <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-[var(--brand)]">AI-proposed frame</h2>
+          <h2 className="text-sm font-semibold text-[var(--accent)]">AI-proposed frame</h2>
           {formattedDate && (
             <p className="mt-1 text-xs text-[var(--ink-faint)]">
               Generated {formattedDate} from your first research session
@@ -94,7 +94,7 @@ export function FrameDraftBanner({
             type="button"
             onClick={discard}
             disabled={state !== "idle"}
-            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--ink-muted)] transition-colors hover:border-[var(--ink-muted)] disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-medium text-[var(--ink-2)] transition-colors hover:border-[var(--ink-2)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {state === "discarding" ? "Discarding..." : "Discard"}
           </button>
@@ -102,7 +102,7 @@ export function FrameDraftBanner({
             type="button"
             onClick={accept}
             disabled={state !== "idle"}
-            className="rounded-lg bg-[var(--brand)] px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {state === "accepting" ? "Applying..." : "Accept draft"}
           </button>
@@ -136,7 +136,7 @@ export function FrameDraftBanner({
             {draft.research_areas.map((area) => (
               <span
                 key={area}
-                className="rounded-full border border-[var(--border)] px-2.5 py-0.5 text-xs text-[var(--ink-muted)]"
+                className="rounded-full border border-[var(--line)] px-2.5 py-0.5 text-xs text-[var(--ink-2)]"
               >
                 {area}
               </span>

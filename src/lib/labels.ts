@@ -49,7 +49,7 @@ export function trustScopeClasses(scope: string): string {
     case "disputed":
       return "bg-red-900/30 text-red-400";
     default:
-      return "bg-[var(--surface-2)] text-[var(--ink-muted)]";
+      return "bg-[var(--surface-2)] text-[var(--ink-2)]";
   }
 }
 
@@ -75,7 +75,7 @@ export function priorityClasses(signal: string): string {
     case "important":
       return "border-amber-400/40 bg-amber-500/10 text-amber-300";
     default:
-      return "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
+      return "border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink-2)]";
   }
 }
 
@@ -99,7 +99,7 @@ export function aiGradeClasses(grade: string | null): string {
     case "uncertain":
       return "border-amber-500/30 bg-amber-500/10 text-amber-300";
     case "weak":
-      return "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
+      return "border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink-2)]";
     default:
       return "";
   }

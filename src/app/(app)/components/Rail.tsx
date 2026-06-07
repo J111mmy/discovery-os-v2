@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { CmdK } from "./CmdK";
+import { NewProjectModal } from "./NewProjectModal";
+import { AddEvidenceModal } from "./AddEvidenceModal";
 
 // ── Types ──────────────────────────────────────────────────────────
 export interface RailProject {
@@ -31,16 +33,10 @@ const DOT_COLORS = [
 ];
 
 // ── Sub-nav for an active project ─────────────────────────────────
-// Routes that exist today and are wired.
 const PROJECT_NAV = [
   { id: "workspace", label: "Workspace", href: "" },
   { id: "evidence",  label: "Evidence",  href: "evidence" },
-  { id: "ask",       label: "Ask",        href: "ask" },
-  { id: "problems",  label: "Problems",   href: "problems" },
-  { id: "sources",   label: "Sources",    href: "sources" },
-  { id: "compose",   label: "Compose",    href: "compose" },
-  { id: "documents", label: "Documents",  href: "documents" },
-  { id: "settings",  label: "Settings",   href: "settings" },
+  { id: "documents", label: "Documents", href: "documents" },
 ];
 
 // ── Directory items ────────────────────────────────────────────────
@@ -207,99 +203,6 @@ function AvatarDot({ email, size = 30 }: { email: string; size?: number }) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// NewProjectModal
-// ══════════════════════════════════════════════════════════════════
-
-function NewProjectModal({ onClose }: { onClose: () => void }) {
-  const [name, setName] = useState("");
-  const [focus, setFocus] = useState("");
-
-  return (
-    <div
-      role="dialog"
-      aria-modal
-      aria-label="New project"
-      onClick={onClose}
-      style={{
-        position: "fixed", inset: 0, zIndex: 80,
-        background: "rgba(5,8,18,0.6)", backdropFilter: "blur(4px)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        padding: 20, animation: "fadeIn .18s",
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: "100%", maxWidth: 460,
-          background: "var(--surface)", border: "1px solid var(--line)",
-          borderRadius: "var(--r-lg)", boxShadow: "var(--shadow-lg)",
-          overflow: "hidden", animation: "popIn .2s var(--ease)",
-        }}
-      >
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 22px", borderBottom: "1px solid var(--line)" }}>
-          <div style={{ width: 34, height: 34, borderRadius: 10, background: "var(--accent-soft)", color: "var(--accent)", display: "grid", placeItems: "center" }}>
-            <IcoPlus size={18} />
-          </div>
-          <div>
-            <div style={{ fontWeight: 640, fontSize: 16, color: "var(--ink)" }}>New project</div>
-            <div style={{ fontSize: 12.5, color: "var(--ink-3)", marginTop: 1 }}>Create a discovery workspace for a new research focus.</div>
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            style={{ marginLeft: "auto", width: 30, height: 30, display: "grid", placeItems: "center", borderRadius: "var(--r-sm)", border: "none", background: "transparent", color: "var(--ink-3)", cursor: "pointer", fontSize: 18, lineHeight: 1 }}
-          >
-            ×
-          </button>
-        </div>
-
-        {/* Body */}
-        <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
-          <div>
-            <label style={{ fontSize: 13, fontWeight: 540, color: "var(--ink-2)", display: "block", marginBottom: 7 }}>Project name</label>
-            <input
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Formwork Hire Discovery"
-              style={{ width: "100%", padding: "11px 13px", borderRadius: 10, background: "var(--surface-2)", border: "1px solid var(--line)", color: "var(--ink)", fontSize: 14, outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
-            />
-          </div>
-          <div>
-            <label style={{ fontSize: 13, fontWeight: 540, color: "var(--ink-2)", display: "block", marginBottom: 7 }}>What are you trying to learn?</label>
-            <textarea
-              value={focus}
-              onChange={(e) => setFocus(e.target.value)}
-              placeholder="Describe the research focus…"
-              rows={3}
-              style={{ width: "100%", padding: "11px 13px", borderRadius: 10, background: "var(--surface-2)", border: "1px solid var(--line)", color: "var(--ink)", fontSize: 13.5, resize: "vertical", outline: "none", fontFamily: "inherit", boxSizing: "border-box" }}
-            />
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 22px", borderTop: "1px solid var(--line)", background: "var(--surface-2)" }}>
-          <button
-            onClick={onClose}
-            style={{ padding: "9px 14px", borderRadius: "var(--r-sm)", background: "var(--surface-2)", border: "1px solid var(--line)", color: "var(--ink)", fontWeight: 540, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" }}
-          >
-            Cancel
-          </button>
-          <Link
-            href={`/projects/new${name ? `?name=${encodeURIComponent(name)}` : ""}`}
-            onClick={onClose}
-            style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", borderRadius: "var(--r-md)", background: "var(--accent)", color: "#fff", fontWeight: 580, fontSize: 14, textDecoration: "none" }}
-          >
-            <IcoPlus size={15} /> Create project
-          </Link>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════════════════
 // Rail — main component
 // ══════════════════════════════════════════════════════════════════
 
@@ -317,6 +220,8 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
   const [collapsed, setCollapsed] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [newProjOpen, setNewProjOpen] = useState(false);
+  const [addEvidenceOpen, setAddEvidenceOpen] = useState(false);
+  const [addEvidenceProjectId, setAddEvidenceProjectId] = useState<string | null>(null);
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>("dark");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -496,20 +401,24 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
           </button>
 
           {/* Add evidence */}
-          <Link
-            href={openProject ? `/projects/${openProjectId}/ingest` : "/projects"}
+          <button
             title="Add evidence"
+            aria-label="Add evidence"
+            disabled={!openProject}
+            onClick={() => openProject && setAddEvidenceOpen(true)}
             style={{
               width: 34, height: 34, borderRadius: "50%",
-              background: "var(--accent)", color: "#fff",
+              background: openProject ? "var(--accent)" : "var(--surface-2)",
+              color: openProject ? "#fff" : "var(--ink-faint)",
               display: "grid", placeItems: "center",
-              textDecoration: "none", margin: "4px 0",
-              boxShadow: "0 4px 14px -6px var(--accent)",
-              flexShrink: 0,
+              border: "none", margin: "4px 0",
+              boxShadow: openProject ? "0 4px 14px -6px var(--accent)" : "none",
+              flexShrink: 0, cursor: openProject ? "pointer" : "default",
+              transition: ".14s",
             }}
           >
             <IcoPlus size={17} />
-          </Link>
+          </button>
 
           {/* Avatar */}
           <button
@@ -521,7 +430,12 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
           </button>
         </div>
 
-        {newProjOpen && <NewProjectModal onClose={() => setNewProjOpen(false)} />}
+        {newProjOpen && <NewProjectModal open={newProjOpen} onClose={() => setNewProjOpen(false)} />}
+        <AddEvidenceModal
+          open={addEvidenceOpen}
+          onClose={() => { setAddEvidenceOpen(false); setAddEvidenceProjectId(null); }}
+          projectId={addEvidenceProjectId ?? openProjectId}
+        />
         <CmdK
           open={cmdkOpen}
           onClose={() => setCmdkOpen(false)}
@@ -613,38 +527,66 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
                       </div>
                       {/* Add evidence — compact action scoped to this project */}
                       <div style={{ padding: "0 5px 8px" }}>
-                        <Link
-                          href={`/projects/${p.id}/ingest`}
+                        <button
+                          onClick={() => setAddEvidenceOpen(true)}
                           style={{
                             display: "flex", alignItems: "center", gap: 7,
                             padding: "6px 9px", borderRadius: 7,
                             color: "var(--accent)", fontSize: 13,
-                            fontWeight: 560, textDecoration: "none",
+                            fontWeight: 560, border: "none",
                             transition: ".13s", background: "transparent",
+                            cursor: "pointer", width: "100%",
+                            fontFamily: "inherit",
                           }}
                           onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--accent-soft)"; }}
                           onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
                         >
                           <IcoPlus size={12} /> Add evidence
-                        </Link>
+                        </button>
                       </div>
                     </>
                   ) : (
-                    <Link
-                      href={`/projects/${p.id}`}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 9,
-                        padding: "8px 10px", borderRadius: 9,
-                        textDecoration: "none", transition: ".13s",
-                        color: "var(--ink-3)", fontSize: 13.5,
-                        background: "transparent",
+                    <div
+                      style={{ display: "flex", alignItems: "center", borderRadius: 9, marginBottom: 0, transition: "background .13s" }}
+                      onMouseEnter={(e) => {
+                        const el = e.currentTarget as HTMLElement;
+                        el.style.background = "var(--sel)";
+                        const btn = el.querySelector<HTMLElement>("[data-add-btn]");
+                        if (btn) btn.style.opacity = "1";
                       }}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--sel)"; }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                      onMouseLeave={(e) => {
+                        const el = e.currentTarget as HTMLElement;
+                        el.style.background = "transparent";
+                        const btn = el.querySelector<HTMLElement>("[data-add-btn]");
+                        if (btn) btn.style.opacity = "0";
+                      }}
                     >
-                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0, opacity: 0.7 }} />
-                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                    </Link>
+                      <Link
+                        href={`/projects/${p.id}`}
+                        style={{
+                          flex: 1, display: "flex", alignItems: "center", gap: 9,
+                          padding: "8px 10px", borderRadius: 9,
+                          textDecoration: "none", color: "var(--ink-3)", fontSize: 13.5,
+                        }}
+                      >
+                        <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0, opacity: 0.7 }} />
+                        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                      </Link>
+                      <button
+                        data-add-btn=""
+                        title={`Add evidence to ${p.name}`}
+                        onClick={(e) => { e.stopPropagation(); setAddEvidenceProjectId(p.id); setAddEvidenceOpen(true); }}
+                        style={{
+                          width: 26, height: 26, display: "grid", placeItems: "center",
+                          borderRadius: 6, border: "none", background: "transparent",
+                          color: "var(--ink-3)", cursor: "pointer", flexShrink: 0,
+                          marginRight: 5, opacity: 0, transition: "opacity .13s",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        <IcoPlus size={12} />
+                      </button>
+                    </div>
                   )}
                 </div>
               );
@@ -906,17 +848,32 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
           </div>
 
           {/* FAB */}
-          <Link
-            href={openProject ? `/projects/${openProjectId}/ingest` : "/projects"}
+          <button
             aria-label="Add evidence"
-            style={{ width: 54, height: 54, borderRadius: "50%", background: "var(--accent)", color: "#fff", display: "grid", placeItems: "center", position: "fixed", bottom: 72, right: 20, boxShadow: "var(--shadow-pop)", zIndex: 50, textDecoration: "none" }}
+            disabled={!openProject}
+            onClick={() => openProject && setAddEvidenceOpen(true)}
+            style={{
+              width: 54, height: 54, borderRadius: "50%",
+              background: "var(--accent)", color: "#fff",
+              display: "grid", placeItems: "center",
+              position: "fixed", bottom: 72, right: 20,
+              boxShadow: "var(--shadow-pop)", zIndex: 50,
+              border: "none", cursor: openProject ? "pointer" : "default",
+              opacity: openProject ? 1 : 0.5,
+              transition: ".14s",
+            }}
           >
             <IcoPlus size={22} />
-          </Link>
+          </button>
         </>
       )}
 
-      {newProjOpen && <NewProjectModal onClose={() => setNewProjOpen(false)} />}
+      <NewProjectModal open={newProjOpen} onClose={() => setNewProjOpen(false)} />
+      <AddEvidenceModal
+        open={addEvidenceOpen}
+        onClose={() => setAddEvidenceOpen(false)}
+        projectId={openProjectId}
+      />
       <CmdK
         open={cmdkOpen}
         onClose={() => setCmdkOpen(false)}
