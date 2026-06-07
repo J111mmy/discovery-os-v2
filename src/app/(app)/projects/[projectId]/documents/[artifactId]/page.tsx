@@ -1,4 +1,6 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import { ArtifactHtmlValidationError, sanitizeArtifactHtml } from "@/lib/sanitize/artifact-html";
+import { markdownToSanitizedArtifactHtml } from "@/lib/sanitize/artifact-markdown";
 import { createClient } from "@/lib/supabase/server";
 import type { ArtifactType } from "@/types/database";
 import { notFound, redirect } from "next/navigation";
@@ -13,10 +15,39 @@ type ArtifactRow = {
   title: string;
   type: ArtifactType;
   content_md: string;
+  content_html: string | null;
   created_at: string;
   word_count: number | null;
   metadata: Record<string, unknown> | null;
 };
+
+function dateLabel(value: string) {
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(value));
+}
+
+function toSafeContentHtml(rawContentHtml: string | null, contentMd: string): string | null {
+  const trimmedHtml = rawContentHtml?.trim();
+
+  if (trimmedHtml) {
+    try {
+      return sanitizeArtifactHtml(trimmedHtml);
+    } catch (error) {
+      if (!(error instanceof ArtifactHtmlValidationError)) throw error;
+      return null;
+    }
+  }
+
+  try {
+    return markdownToSanitizedArtifactHtml(contentMd);
+  } catch (error) {
+    if (!(error instanceof ArtifactHtmlValidationError)) throw error;
+    return null;
+  }
+}
 
 export default async function ArtifactDetailPage({ params }: Props) {
   const supabase = await createClient();
@@ -36,7 +67,7 @@ export default async function ArtifactDetailPage({ params }: Props) {
 
   const { data: artifact } = await supabase
     .from("artifacts")
-    .select("id, title, type, content_md, created_at, word_count, metadata")
+    .select("id, title, type, content_md, content_html, created_at, word_count, metadata")
     .eq("org_id", project.org_id)
     .eq("project_id", project.id)
     .eq("id", params.artifactId)
@@ -47,25 +78,9 @@ export default async function ArtifactDetailPage({ params }: Props) {
   const artifactRow = artifact as ArtifactRow;
   const rawSourceId = artifactRow.metadata?.source_id;
   const sourceId = typeof rawSourceId === "string" ? rawSourceId : null;
-
-  // Try to fetch content_html — only available after the content_html migration.
-  // Graceful degradation: if the column doesn't exist yet, contentHtml stays null
-  // and ArtifactReader falls back to the markdown viewer.
-  let contentHtml: string | null = null;
-  const { data: htmlRow, error: htmlError } = await supabase
-    .from("artifacts")
-    .select("content_html")
-    .eq("id", params.artifactId)
-    .maybeSingle();
-  if (!htmlError && htmlRow) {
-    const raw = (htmlRow as Record<string, unknown>).content_html;
-    if (typeof raw === "string" && raw.length > 0) contentHtml = raw;
-  }
-
-  const backHref = sourceId
-    ? `/projects/${project.id}/sources/${sourceId}`
-    : `/projects/${project.id}/documents`;
+  const backHref = sourceId ? `/projects/${project.id}/sources/${sourceId}` : `/projects/${project.id}/documents`;
   const backLabel = sourceId ? "Back to source" : "All documents";
+  const contentHtml = toSafeContentHtml(artifactRow.content_html, artifactRow.content_md);
 
   return (
     <ArtifactReader

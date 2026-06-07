@@ -3,14 +3,19 @@
 /**
  * ArtifactReader — premium HTML artifact reader.
  *
- * Renders sanitized content_html from the DB with:
+ * Renders sanitized content_html with:
  *   • Sticky toolbar (back nav, title, type badge, word count)
  *   • Reading progress bar keyed to .app-content scroll
- *   • Sticky TOC extracted from [data-section] headings
- *   • <cite data-n> chips styled by doc_kit.css (popover wired by #14)
+ *   • Sticky TOC extracted from h2[data-section] headings
+ *   • cite[data-n] chips styled by doc_kit.css (popover wired by #14)
  *
- * Falls back to the existing ArtifactViewer when content_html is null
- * (i.e. before the content_html migration has run).
+ * Sanitisation contract: contentHtml is produced by toSafeContentHtml()
+ * in page.tsx (server component) which runs sanitize-html before this
+ * component ever receives the string. This component renders the output
+ * as-is — it is NOT responsible for sanitisation.
+ *
+ * Falls back to the existing ArtifactViewer (markdown) when contentHtml
+ * is null (pre-migration or sanitiser validation failure).
  */
 
 import "../doc.css";
@@ -20,10 +25,10 @@ import Link from "next/link";
 import { ArtifactViewer } from "./ArtifactViewer";
 
 // ── Types ──────────────────────────────────────────────────────
-interface ArtifactReaderProps {
+export interface ArtifactReaderProps {
   artifactId: string;
   projectId: string;
-  /** Sanitized HTML from content_html column. Null = use markdown fallback. */
+  /** Sanitized HTML from toSafeContentHtml(). Null → markdown fallback. */
   contentHtml: string | null;
   /** Markdown fallback — used when contentHtml is null */
   contentMd: string;
@@ -59,8 +64,7 @@ export function ArtifactReader({
   backHref,
   backLabel,
 }: ArtifactReaderProps) {
-
-  // ── Fallback to markdown viewer ──────────────────────────────
+  // Fallback: render markdown until content_html migration lands
   if (!contentHtml) {
     return (
       <div className="mx-auto max-w-3xl">
@@ -89,7 +93,7 @@ export function ArtifactReader({
     );
   }
 
-  // ── Full HTML reader ─────────────────────────────────────────
+  // Full HTML reader — split into inner component to avoid conditional hook calls
   return (
     <HtmlReader
       contentHtml={contentHtml}
@@ -103,7 +107,12 @@ export function ArtifactReader({
   );
 }
 
-// ── HtmlReader (inner — avoids conditional hook calls) ──────────
+// ── HtmlReader ─────────────────────────────────────────────────
+type HtmlReaderProps = Omit<
+  ArtifactReaderProps,
+  "artifactId" | "projectId" | "contentMd" | "contentHtml"
+> & { contentHtml: string };
+
 function HtmlReader({
   contentHtml,
   title,
@@ -112,51 +121,51 @@ function HtmlReader({
   wordCount,
   backHref,
   backLabel,
-}: Omit<ArtifactReaderProps, "artifactId" | "projectId" | "contentMd"> & {
-  contentHtml: string;
-}) {
+}: HtmlReaderProps) {
   const [progress, setProgress] = useState(0);
   const [tocItems, setTocItems] = useState<TocItem[]>([]);
   const [activeSec, setActiveSec] = useState<string | null>(null);
   const articleRef = useRef<HTMLDivElement>(null);
 
-  // ── Extract TOC from rendered HTML ───────────────────────────
+  // Extract TOC from rendered HTML after mount
   useEffect(() => {
     const el = articleRef.current;
     if (!el) return;
-    const headings = Array.from(el.querySelectorAll<HTMLElement>("h2[data-section]"));
+    const headings = Array.from(
+      el.querySelectorAll<HTMLElement>("h2[data-section]")
+    );
     setTocItems(
       headings
-        .map((h) => {
-          const sec = h.closest("section");
-          return { id: sec?.id ?? "", label: h.getAttribute("data-section") ?? "" };
-        })
+        .map((h) => ({
+          id: h.closest("section")?.id ?? "",
+          label: h.getAttribute("data-section") ?? "",
+        }))
         .filter((t) => t.id && t.label)
     );
   }, [contentHtml]);
 
-  // ── Scroll: progress + active TOC section ───────────────────
+  // Scroll: progress bar + active TOC section
   useEffect(() => {
-    // The scrollable element is .app-content, not window
     const scrollEl =
-      (typeof document !== "undefined" && document.querySelector(".app-content")) ??
-      null;
+      typeof document !== "undefined"
+        ? document.querySelector(".app-content")
+        : null;
     if (!scrollEl) return;
 
     function onScroll() {
-      if (!scrollEl) return;
-      const { scrollTop, scrollHeight, clientHeight } = scrollEl as HTMLElement;
+      const { scrollTop, scrollHeight, clientHeight } =
+        scrollEl as HTMLElement;
       const max = scrollHeight - clientHeight;
       setProgress(max > 0 ? Math.min(100, (scrollTop / max) * 100) : 0);
 
-      // Active section: last section whose top is above 110px from viewport top
       const el = articleRef.current;
       if (!el) return;
-      const sections = Array.from(el.querySelectorAll<HTMLElement>("section.sec[id]"));
+      const sections = Array.from(
+        el.querySelectorAll<HTMLElement>("section.sec[id]")
+      );
       let active: string | null = null;
       for (const sec of sections) {
-        const rect = sec.getBoundingClientRect();
-        if (rect.top <= 110) active = sec.id;
+        if (sec.getBoundingClientRect().top <= 110) active = sec.id;
       }
       setActiveSec(active);
     }
@@ -165,7 +174,7 @@ function HtmlReader({
     return () => scrollEl.removeEventListener("scroll", onScroll);
   }, []);
 
-  // ── TOC click — smooth scroll inside .app-content ───────────
+  // TOC click: smooth-scroll inside .app-content
   function scrollToSection(id: string) {
     const target = document.getElementById(id);
     if (!target) return;
@@ -174,14 +183,17 @@ function HtmlReader({
       target.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
-    const offset = target.getBoundingClientRect().top + scrollEl.scrollTop - 80;
+    const offset =
+      target.getBoundingClientRect().top +
+      (scrollEl as HTMLElement).scrollTop -
+      80;
     scrollEl.scrollTo({ top: offset, behavior: "smooth" });
   }
 
   return (
     <div className="docview">
 
-      {/* ── Sticky toolbar ── */}
+      {/* Sticky toolbar */}
       <div className="doc-toolbar">
         <Link href={backHref} className="doc-toolbar-back">
           ← {backLabel}
@@ -195,16 +207,16 @@ function HtmlReader({
         </div>
       </div>
 
-      {/* ── Progress bar ── */}
+      {/* Reading progress bar */}
       <div className="doc-progress" aria-hidden>
         <i style={{ width: `${progress}%` }} />
       </div>
 
-      {/* ── Reader body ── */}
+      {/* Reader body */}
       <div className="doc-scroll">
         <div className="reader">
 
-          {/* TOC */}
+          {/* Sticky TOC */}
           {tocItems.length > 0 && (
             <nav className="reader-toc" aria-label="Contents">
               <div className="toc-label">Contents</div>
@@ -222,15 +234,14 @@ function HtmlReader({
 
           {/* Paper */}
           <main className="reader-main">
+            {/*
+             * contentHtml is the output of toSafeContentHtml() (server, page.tsx).
+             * sanitize-html has already enforced the v1 contract allowlist.
+             * This component receives clean HTML — rendering it is safe.
+             */}
             <div
               ref={articleRef}
               className="docpaper dp-art"
-              /**
-               * Content is sanitized server-side by sanitize-html before storage
-               * and again at render (defence in depth per the contract).
-               * Client renders the already-clean output — no additional
-               * sanitization here to avoid double-encoding.
-               */
               dangerouslySetInnerHTML={{ __html: contentHtml }}
             />
           </main>
