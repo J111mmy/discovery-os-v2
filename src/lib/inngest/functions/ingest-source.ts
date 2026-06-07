@@ -86,6 +86,7 @@ type SourceSpeaker = {
 };
 
 const MAX_TURN_TOKENS = 800;
+const DEFAULT_MAX_CLAIMS_PER_SOURCE = 200;
 
 const ExtractedClaimSchema = z.object({
   content: z.string().trim().min(1),
@@ -135,6 +136,13 @@ function normalizeName(value: string) {
 
 function tokenEstimate(text: string) {
   return Math.ceil(wordCount(text) * 1.3);
+}
+
+function maxClaimsPerSource() {
+  const configured = Number(process.env.INGEST_MAX_CLAIMS_PER_SOURCE);
+  return Number.isInteger(configured) && configured > 0
+    ? configured
+    : DEFAULT_MAX_CLAIMS_PER_SOURCE;
 }
 
 function isTimestamp(value: string) {
@@ -980,14 +988,25 @@ export const ingestSource = inngest.createFunction(
         );
       }
 
+      const claimCap = maxClaimsPerSource();
+      const claimsToStore = extractedClaims.slice(0, claimCap);
+      if (extractedClaims.length > claimsToStore.length) {
+        console.warn("Trimming extracted claims to source cap", {
+          source_id,
+          extracted_claim_count: extractedClaims.length,
+          stored_claim_count: claimsToStore.length,
+          cap: claimCap,
+        });
+      }
+
       const evidenceRecords = await step.run("embed-and-store", async () => {
-        if (extractedClaims.length === 0) return [];
+        if (claimsToStore.length === 0) return [];
 
         const batchSize = 20;
         const stored: Array<{ id: string; metadata: Record<string, unknown> | null }> = [];
 
-        for (let i = 0; i < extractedClaims.length; i += batchSize) {
-          const batch = extractedClaims.slice(i, i + batchSize);
+        for (let i = 0; i < claimsToStore.length; i += batchSize) {
+          const batch = claimsToStore.slice(i, i + batchSize);
           const embeddings = await embedBatch(batch.map((claim) => claim.content));
 
           const evidenceBatch = batch.map((claim, idx) => {

@@ -1,5 +1,7 @@
 import { getProjectForUser } from "@/lib/auth/org";
 import { inngest } from "@/lib/inngest/client";
+import { ArtifactHtmlValidationError } from "@/lib/sanitize/artifact-html";
+import { markdownToSanitizedArtifactHtml } from "@/lib/sanitize/artifact-markdown";
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -21,6 +23,13 @@ const SaveArtifactSchema = z.object({
 
 function wordCount(markdown: string) {
   return markdown.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function safeHtmlConversionError() {
+  return NextResponse.json(
+    { error: "Artifact content could not be converted to safe HTML." },
+    { status: 422 }
+  );
 }
 
 export async function POST(req: NextRequest) {
@@ -68,6 +77,16 @@ export async function POST(req: NextRequest) {
     version = existing.version + 1;
   }
 
+  let contentHtml: string;
+  try {
+    contentHtml = markdownToSanitizedArtifactHtml(body.content_md);
+  } catch (error) {
+    if (error instanceof ArtifactHtmlValidationError) {
+      return safeHtmlConversionError();
+    }
+    throw error;
+  }
+
   const payload = {
     ...(body.artifact_id ? { id: body.artifact_id } : {}),
     org_id: project.org_id,
@@ -76,6 +95,7 @@ export async function POST(req: NextRequest) {
     title: body.title,
     prompt: body.prompt,
     content_md: body.content_md,
+    content_html: contentHtml,
     version,
     word_count: wordCount(body.content_md),
     model_used: body.model_used ?? null,
@@ -104,6 +124,7 @@ export async function POST(req: NextRequest) {
     org_id: project.org_id,
     version,
     content_md: body.content_md,
+    content_html: contentHtml,
     saved_by: user.id,
   });
 

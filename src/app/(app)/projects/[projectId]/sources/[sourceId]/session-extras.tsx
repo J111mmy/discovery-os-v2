@@ -31,8 +31,8 @@ const priorityLabels: Record<PrioritySignal, string> = {
 };
 
 const priorityClasses: Record<PrioritySignal, string> = {
-  critical: "border-red-400/40 bg-red-500/10 text-red-300",
-  important: "border-amber-400/40 bg-amber-500/10 text-amber-300",
+  critical: "border-neg/40 bg-neg-bg text-neg",
+  important: "border-warn/40 bg-warn-bg text-warn",
   nice_to_have: "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]",
 };
 
@@ -113,7 +113,7 @@ export function SessionExtras({ sourceId }: { sourceId: string }) {
 
   if (error && actions.length === 0 && requests.length === 0) {
     return (
-      <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
+      <div className="mb-6 rounded-xl border border-neg/20 bg-neg-bg p-4 text-sm text-neg">
         {error}
       </div>
     );
@@ -126,7 +126,7 @@ export function SessionExtras({ sourceId }: { sourceId: string }) {
   return (
     <div className="mb-8 space-y-6">
       {error && (
-        <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
+        <div className="rounded-xl border border-neg/20 bg-neg-bg p-4 text-sm text-neg">
           {error}
         </div>
       )}
@@ -179,7 +179,7 @@ export function SessionExtras({ sourceId }: { sourceId: string }) {
                       type="button"
                       onClick={() => updateActionStatus(action, "dismissed")}
                       disabled={updatingId === action.id}
-                      className="shrink-0 rounded-lg border border-[var(--border)] px-2 py-1 text-xs font-medium text-[var(--ink-muted)] transition-colors hover:border-red-400/40 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="shrink-0 rounded-lg border border-[var(--border)] px-2 py-1 text-xs font-medium text-[var(--ink-muted)] transition-colors hover:border-neg/40 hover:text-neg disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Dismiss
                     </button>

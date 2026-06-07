@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DiscOS · Gate 2 — AI Improve prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --s0: #0d0d10; --s1: #141418; --s2: #1c1c22; --s3: #25252d; --s4: #2e2e38;
+    --brand: #7c6dfa; --brand-dim: #5a4fd4;
+    --brand-bg: rgba(124,109,250,0.08); --brand-border: rgba(124,109,250,0.25);
+    --ink: #e8e8f0; --ink-muted: #9090a8; --ink-faint: #5a5a72;
+    --border: rgba(255,255,255,0.07); --border-b: rgba(255,255,255,0.12);
+    --green: #34d399; --green-bg: rgba(52,211,153,0.07); --green-border: rgba(52,211,153,0.25);
+    --shadow: 0 8px 32px rgba(0,0,0,0.6);
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', sans-serif; background: var(--s0); color: var(--ink); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+
+  /* ═══ PROTOTYPE CONTROL BAR ═══════════════════════════════════════════ */
+  .proto-bar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+    background: var(--s3); border-bottom: 1px solid var(--border-b);
+    padding: 0 20px; height: 48px;
+    display: flex; align-items: center; gap: 0;
+  }
+  .proto-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--brand); margin-right: 20px; white-space: nowrap;
+    background: var(--brand-bg); border: 1px solid var(--brand-border);
+    padding: 3px 10px; border-radius: 20px;
+  }
+  .steps { display: flex; align-items: center; gap: 0; flex: 1; overflow-x: auto; }
+  .step {
+    display: flex; align-items: center; gap: 7px; cursor: pointer;
+    padding: 5px 10px; border-radius: 6px; transition: background 0.12s; flex-shrink: 0;
+  }
+  .step:hover { background: var(--s4); }
+  .step.active { background: var(--brand-bg); }
+  .step-num {
+    width: 19px; height: 19px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700;
+    background: var(--s4); color: var(--ink-faint);
+    transition: background 0.15s, color 0.15s;
+  }
+  .step.active .step-num { background: var(--brand); color: #fff; }
+  .step.done .step-num { background: var(--green-bg); border: 1px solid var(--green-border); color: var(--green); }
+  .step-text { font-size: 11px; font-weight: 500; color: var(--ink-faint); white-space: nowrap; }
+  .step.active .step-text { color: var(--brand); }
+  .step.done .step-text { color: var(--green); }
+  .step-conn { width: 16px; height: 1px; background: var(--border-b); flex-shrink: 0; }
+  .mobile-toggle {
+    margin-left: 12px; font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+    padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border-b);
+    background: transparent; color: var(--ink-faint); cursor: pointer;
+    transition: all 0.12s; white-space: nowrap; flex-shrink: 0;
+  }
+  .mobile-toggle:hover, .mobile-toggle.on { background: var(--brand-bg); border-color: var(--brand-border); color: var(--brand); }
+
+  /* ═══ APP SHELL ════════════════════════════════════════════════════════ */
+  .app-shell { padding-top: 48px; display: flex; flex-direction: column; min-height: 100vh; }
+
+  /* Top nav */
+  .app-nav {
+    height: 56px; border-bottom: 1px solid var(--border);
+    background: rgba(13,13,16,0.96); backdrop-filter: blur(8px);
+    display: flex; align-items: center; padding: 0 24px; gap: 4px;
+    position: sticky; top: 48px; z-index: 100;
+  }
+  .nav-wordmark { font-size: 13px; font-weight: 700; color: var(--ink); margin-right: 12px; }
+  .nav-link { font-size: 13px; font-weight: 500; color: var(--ink-muted); padding: 6px 10px; border-radius: 8px; cursor: default; }
+  .nav-link:hover { background: var(--s2); color: var(--ink); }
+  .nav-sep { font-size: 11px; color: var(--ink-faint); padding: 0 2px; }
+  .nav-dir { font-size: 11px; color: var(--ink-faint); padding: 5px 8px; border-radius: 6px; cursor: default; }
+  .nav-dir:hover { background: var(--s2); color: var(--ink-muted); }
+  .nav-avatar {
+    width: 32px; height: 32px; border-radius: 50%; background: var(--brand);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; color: #fff; margin-left: auto; cursor: pointer;
+  }
+
+  /* Main layout */
+  .main-layout { display: flex; flex: 1; }
+
+  /* Sidebar */
+  .sidebar {
+    width: 210px; flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    background: var(--s1); padding: 18px 10px;
+  }
+  .sidebar-project {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--ink-faint); padding: 4px 8px; margin-bottom: 6px;
+  }
+  .sidebar-item {
+    font-size: 13px; color: var(--ink-muted);
+    padding: 7px 10px; border-radius: 8px; cursor: default;
+    display: flex; align-items: center; gap: 8px; transition: background 0.12s, color 0.12s;
+  }
+  .sidebar-item:hover { background: var(--s2); color: var(--ink); }
+  .sidebar-item.active { background: var(--brand-bg); color: var(--brand); font-weight: 500; }
+  .s-icon { font-size: 13px; width: 18px; text-align: center; }
+
+  /* ═══ DOCUMENT AREA ═════════════════════════════════════════════════════ */
+  .doc-area { flex: 1; padding: 44px 64px 80px; max-width: 900px; }
+
+  .doc-meta {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    font-size: 11px; color: var(--ink-faint);
+  }
+  .doc-type-pill {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+    padding: 2px 9px; border-radius: 20px;
+    background: var(--brand-bg); border: 1px solid var(--brand-border); color: var(--brand);
+  }
+  .doc-title { font-size: 28px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.15; color: var(--ink); margin-bottom: 6px; }
+  .doc-sub { font-size: 13px; color: var(--ink-muted); margin-bottom: 30px; }
+  .doc-rule { border: none; border-top: 1px solid var(--border); margin-bottom: 30px; }
+
+  /* Document-level action bar */
+  .doc-actions {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 30px;
+  }
+  .btn-doc-improve {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 12px; font-weight: 600; padding: 8px 16px; border-radius: 8px;
+    background: var(--brand-bg); color: var(--brand);
+    border: 1px solid var(--brand-border); cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .btn-doc-improve:hover { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .btn-doc-improve.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .doc-action-hint { font-size: 11px; color: var(--ink-faint); }
+
+  /* AI hint strip */
+  .ai-hint {
+    display: flex; align-items: center; gap: 7px; margin-bottom: 28px;
+    font-size: 11px; color: var(--brand);
+    background: var(--brand-bg); border: 1px solid var(--brand-border);
+    border-radius: 20px; padding: 5px 14px; width: fit-content;
+  }
+
+  /* Article */
+  .article { display: flex; flex-direction: column; gap: 30px; }
+  .art-h { font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 10px; }
+  .art-p { font-size: 15px; line-height: 1.78; color: var(--ink-muted); border-radius: 6px; padding: 2px 0; }
+  .art-p.selectable { cursor: default; }
+  .art-ul { list-style: none; display: flex; flex-direction: column; gap: 9px; }
+  .art-ul li { font-size: 15px; line-height: 1.65; color: var(--ink-muted); display: flex; gap: 10px; }
+  .art-ul li::before { content: '—'; color: var(--brand); flex-shrink: 0; }
+
+  /* Selected paragraph */
+  .art-p.selected {
+    background: rgba(124,109,250,0.07) !important;
+    border: 1px solid var(--brand-border) !important;
+    color: var(--ink) !important;
+    padding: 12px 14px !important;
+    margin: 0 !important;
+    cursor: default;
+  }
+
+  /* Accepted paragraph */
+  .art-p.accepted {
+    background: var(--green-bg) !important;
+    border: 1px solid var(--green-border) !important;
+    color: var(--ink) !important;
+    padding: 12px 14px !important;
+    margin: 0 !important;
+    position: relative;
+  }
+  .accepted-tag {
+    position: absolute; top: 10px; right: 12px;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--green); background: var(--green-bg); border: 1px solid var(--green-border);
+    border-radius: 20px; padding: 2px 8px;
+  }
+
+  /* ═══ SELECTION TOOLBAR (fixed, tracks selection) ══════════════════════ */
+  .sel-toolbar {
+    position: absolute; z-index: 500;
+    background: var(--s3); border: 1px solid var(--border-b); border-radius: 8px;
+    padding: 4px; box-shadow: var(--shadow);
+    display: none; align-items: center; gap: 2px;
+    pointer-events: auto;
+  }
+  .tb-btn {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 12px; font-weight: 500; padding: 6px 10px; border-radius: 6px;
+    border: none; background: transparent; color: var(--ink-muted); cursor: pointer;
+    transition: background 0.1s, color 0.1s; white-space: nowrap;
+  }
+  .tb-btn:hover { background: var(--s4); color: var(--ink); }
+  .tb-btn.primary { background: var(--brand-bg); color: var(--brand); border: 1px solid var(--brand-border); }
+  .tb-btn.primary:hover { background: var(--brand); color: #fff; }
+  .tb-divider { width: 1px; height: 18px; background: var(--border-b); margin: 0 2px; }
+
+  /* Selection highlight in article */
+  .art-p ::selection { background: rgba(124,109,250,0.25); }
+  .art-p::-moz-selection { background: rgba(124,109,250,0.25); }
+
+  /* ═══ INLINE PROMPT ═════════════════════════════════════════════════════ */
+  .inline-prompt {
+    display: none; flex-direction: column; gap: 10px;
+    margin-top: 10px; background: var(--s2); border: 1px solid var(--border-b);
+    border-radius: 10px; padding: 14px;
+  }
+  .ip-label { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint); }
+  .ip-input {
+    width: 100%; background: var(--s3); border: 1px solid var(--border-b);
+    border-radius: 8px; padding: 10px 12px; font-size: 13px; color: var(--ink);
+    font-family: 'Inter', sans-serif; outline: none; resize: none; line-height: 1.5;
+    transition: border-color 0.15s;
+  }
+  .ip-input:focus { border-color: var(--brand-border); }
+  .ip-row { display: flex; align-items: center; gap: 8px; }
+  .btn-primary {
+    font-size: 12px; font-weight: 600; padding: 8px 16px; border-radius: 8px;
+    background: var(--brand); color: #fff; border: none; cursor: pointer;
+    display: flex; align-items: center; gap: 6px; transition: background 0.12s;
+  }
+  .btn-primary:hover { background: var(--brand-dim); }
+  .btn-ghost {
+    font-size: 12px; font-weight: 500; padding: 8px 12px; border-radius: 8px;
+    background: transparent; color: var(--ink-muted); border: 1px solid var(--border-b); cursor: pointer;
+    transition: border-color 0.12s, color 0.12s;
+  }
+  .btn-ghost:hover { border-color: var(--ink-faint); color: var(--ink); }
+
+  /* ═══ GENERATING ════════════════════════════════════════════════════════ */
+  .generating {
+    display: none; align-items: center; gap: 12px;
+    margin-top: 10px; background: var(--s2); border: 1px solid var(--border-b);
+    border-radius: 10px; padding: 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner {
+    width: 16px; height: 16px; border: 2px solid var(--border-b);
+    border-top-color: var(--brand); border-radius: 50%;
+    animation: spin 0.75s linear infinite; flex-shrink: 0;
+  }
+  .gen-text { font-size: 13px; color: var(--ink-muted); }
+  .gen-context { font-size: 11px; color: var(--ink-faint); margin-left: auto; }
+
+  /* ═══ DIFF PANEL ════════════════════════════════════════════════════════ */
+  .diff-panel {
+    display: none; flex-direction: column; gap: 0;
+    margin-top: 10px; border: 1px solid var(--border-b); border-radius: 10px; overflow: hidden;
+  }
+  .diff-header {
+    background: var(--s3); border-bottom: 1px solid var(--border-b);
+    padding: 11px 18px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .diff-head-label { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint); }
+  .diff-intent {
+    font-size: 11px; color: var(--brand); background: var(--brand-bg);
+    border: 1px solid var(--brand-border); border-radius: 20px; padding: 2px 10px; margin-left: auto;
+    font-style: italic;
+  }
+  .diff-cols { display: grid; grid-template-columns: 1fr 1fr; }
+  .diff-col { padding: 20px 22px; }
+  .diff-col.orig { background: var(--s2); border-right: 1px solid var(--border-b); }
+  .diff-col.prop { background: rgba(52,211,153,0.09); border-left: 2px solid var(--green-border); }
+  .diff-col-label { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 12px; }
+  .diff-col.orig .diff-col-label { color: var(--ink-faint); }
+  .diff-col.prop .diff-col-label { color: var(--green); }
+  .diff-text { font-size: 14px; line-height: 1.75; }
+  .diff-col.orig .diff-text { color: var(--ink-faint); }
+  .diff-col.prop .diff-text { color: var(--ink); }
+  .diff-actions {
+    background: var(--s2); border-top: 1px solid var(--border-b);
+    padding: 14px 22px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .btn-accept {
+    font-size: 13px; font-weight: 600; padding: 9px 20px; border-radius: 8px;
+    background: var(--brand); color: #fff; border: none; cursor: pointer;
+    display: flex; align-items: center; gap: 6px; transition: background 0.12s;
+  }
+  .btn-accept:hover { background: var(--brand-dim); }
+  .btn-retry {
+    font-size: 13px; font-weight: 500; padding: 9px 16px; border-radius: 8px;
+    background: var(--s3); color: var(--ink-muted); border: 1px solid var(--border-b); cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+  }
+  .btn-retry:hover { background: var(--s4); color: var(--ink); }
+  .btn-keep {
+    font-size: 13px; font-weight: 500; padding: 9px 14px; border-radius: 8px;
+    background: transparent; color: var(--ink-faint); border: none; cursor: pointer;
+    transition: color 0.12s;
+  }
+  .btn-keep:hover { color: var(--ink-muted); }
+  .diff-prov { margin-left: auto; font-size: 10px; color: var(--ink-faint); display: flex; align-items: center; gap: 5px; }
+  .prov-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+
+  /* ═══ MOBILE SECTION ════════════════════════════════════════════════════ */
+  .mobile-section {
+    display: none; flex-direction: column; align-items: center;
+    border-top: 1px solid var(--border-b); padding: 40px 0 80px;
+    background: var(--s0);
+  }
+  .mobile-section.on { display: flex; }
+  .mobile-sec-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--ink-faint); margin-bottom: 20px;
+  }
+  .mobile-steps { display: flex; gap: 6px; margin-bottom: 24px; flex-wrap: wrap; justify-content: center; }
+  .m-step-btn {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+    padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border-b);
+    background: transparent; color: var(--ink-faint); cursor: pointer; transition: all 0.12s;
+  }
+  .m-step-btn.on { background: var(--brand-bg); border-color: var(--brand-border); color: var(--brand); }
+
+  /* Mobile phone frame */
+  .m-frame {
+    width: 375px; border: 2px solid var(--border-b); border-radius: 18px;
+    overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.7); position: relative;
+  }
+  .m-nav {
+    background: var(--s1); border-bottom: 1px solid var(--border);
+    padding: 14px 16px; display: flex; align-items: center;
+  }
+  .m-back { font-size: 13px; color: var(--brand); cursor: default; }
+  .m-nav-title { font-size: 14px; font-weight: 600; color: var(--ink); margin: 0 auto; }
+  .m-doc {
+    background: var(--s0); padding: 20px 16px;
+    max-height: 380px; overflow-y: auto;
+    min-height: 280px;
+  }
+  .m-doc-title { font-size: 18px; font-weight: 700; color: var(--ink); letter-spacing: -0.02em; margin-bottom: 20px; }
+  .m-sec { margin-bottom: 20px; }
+  .m-h { font-size: 10px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 7px; }
+  .m-p { font-size: 13px; line-height: 1.65; color: var(--ink-muted); }
+  .m-p.hi { background: rgba(124,109,250,0.08); border: 1px solid var(--brand-border); border-radius: 6px; padding: 9px 10px; color: var(--ink); }
+  .m-longpress {
+    display: none; align-items: center; gap: 5px;
+    font-size: 11px; color: var(--brand); margin-top: 8px;
+  }
+
+  /* Bottom sheet */
+  .m-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.55); display: none; z-index: 10; }
+  .m-sheet {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: var(--s2); border-top: 1px solid var(--border-b);
+    border-radius: 12px 12px 0 0;
+    padding: 14px 16px 20px;
+    z-index: 11; display: none; flex-direction: column; gap: 12px;
+  }
+  .m-handle { width: 36px; height: 4px; border-radius: 2px; background: var(--s4); margin: 0 auto 2px; }
+  .m-sheet-label { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint); }
+  .m-quote {
+    font-size: 12px; line-height: 1.6; color: var(--ink-muted);
+    background: var(--s3); border-left: 2px solid var(--brand);
+    border-radius: 6px; padding: 9px 11px;
+    max-height: 64px; overflow: hidden;
+  }
+  .m-input {
+    width: 100%; background: var(--s3); border: 1px solid var(--border-b);
+    border-radius: 8px; padding: 10px 12px; font-size: 13px; color: var(--ink);
+    font-family: 'Inter', sans-serif; outline: none;
+    transition: border-color 0.15s;
+  }
+  .m-input:focus { border-color: var(--brand-border); }
+  .m-submit {
+    width: 100%; background: var(--brand); color: #fff;
+    font-size: 13px; font-weight: 600; padding: 11px; border-radius: 8px;
+    border: none; cursor: pointer; text-align: center;
+  }
+
+  /* Mobile diff */
+  .m-diff-col { display: flex; flex-direction: column; gap: 5px; }
+  .m-diff-label { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+  .m-diff-orig .m-diff-label { color: var(--ink-faint); }
+  .m-diff-prop .m-diff-label { color: var(--green); }
+  .m-diff-text { font-size: 12px; line-height: 1.6; }
+  .m-diff-orig .m-diff-text { color: var(--ink-faint); }
+  .m-diff-prop .m-diff-text { color: var(--ink); }
+  .m-rule { border: none; border-top: 1px solid var(--border-b); }
+  .m-actions { display: flex; flex-direction: column; gap: 8px; }
+  .m-btn-accept {
+    width: 100%; background: var(--brand); color: #fff;
+    font-size: 13px; font-weight: 600; padding: 11px; border-radius: 8px;
+    border: none; cursor: pointer; text-align: center;
+  }
+  .m-btn-row { display: flex; gap: 8px; }
+  .m-btn-retry {
+    flex: 1; background: var(--s3); color: var(--ink-muted);
+    font-size: 12px; font-weight: 500; padding: 9px; border-radius: 8px;
+    border: 1px solid var(--border-b); cursor: pointer; text-align: center;
+  }
+  .m-btn-keep {
+    flex: 1; background: transparent; color: var(--ink-faint);
+    font-size: 12px; font-weight: 500; padding: 9px; border-radius: 8px;
+    border: 1px solid transparent; cursor: pointer; text-align: center;
+  }
+
+  /* ═══ DOCUMENT PREVIEW PANEL (doc-level review) ════════════════════════ */
+  .doc-preview-panel {
+    display: none; flex-direction: column; gap: 0;
+    margin-bottom: 28px;
+    border: 1px solid var(--brand-border); border-radius: 10px; overflow: hidden;
+  }
+  .doc-preview-header {
+    background: var(--brand-bg); border-bottom: 1px solid var(--brand-border);
+    padding: 11px 18px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .doc-preview-head-label { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--brand); }
+  .doc-preview-stats {
+    display: flex; gap: 10px; margin-left: auto;
+  }
+  .doc-preview-stat {
+    font-size: 10px; color: var(--ink-faint); background: var(--s3);
+    border: 1px solid var(--border-b); border-radius: 20px; padding: 2px 9px;
+  }
+  .doc-preview-stat.pos { color: var(--green); background: var(--green-bg); border-color: var(--green-border); }
+  .doc-preview-body {
+    padding: 24px 28px; background: var(--s1);
+    max-height: 420px; overflow-y: auto;
+  }
+  .doc-preview-body .art-h { font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 8px; }
+  .doc-preview-body .art-p { font-size: 14px; line-height: 1.75; color: var(--ink-muted); margin-bottom: 24px; }
+  .doc-preview-body .art-p.revised { color: var(--ink); }
+  .doc-preview-body .art-ul { list-style: none; display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
+  .doc-preview-body .art-ul li { font-size: 14px; line-height: 1.6; color: var(--ink-muted); display: flex; gap: 10px; }
+  .doc-preview-body .art-ul li::before { content: '—'; color: var(--brand); flex-shrink: 0; }
+  .doc-preview-intent {
+    font-size: 11px; color: var(--brand); background: var(--brand-bg);
+    border: 1px solid var(--brand-border); border-radius: 20px; padding: 2px 10px;
+    font-style: italic;
+  }
+  .doc-preview-actions {
+    background: var(--s2); border-top: 1px solid var(--brand-border);
+    padding: 14px 22px; display: flex; align-items: center; gap: 10px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ░░░ PROTOTYPE CONTROL BAR ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ -->
+<div class="proto-bar">
+  <span class="proto-label">Gate 2 · AI Improve</span>
+  <div class="steps">
+    <div class="step active" onclick="go(0)" id="s0">
+      <div class="step-num">1</div><span class="step-text">Reading</span>
+    </div>
+    <div class="step-conn"></div>
+    <div class="step" onclick="go(1)" id="s1">
+      <div class="step-num">2</div><span class="step-text">Selected</span>
+    </div>
+    <div class="step-conn"></div>
+    <div class="step" onclick="go(2)" id="s2">
+      <div class="step-num">3</div><span class="step-text">Prompting</span>
+    </div>
+    <div class="step-conn"></div>
+    <div class="step" onclick="go(3)" id="s3">
+      <div class="step-num">4</div><span class="step-text">Generating</span>
+    </div>
+    <div class="step-conn"></div>
+    <div class="step" onclick="go(4)" id="s4">
+      <div class="step-num">5</div><span class="step-text">Reviewing</span>
+    </div>
+    <div class="step-conn"></div>
+    <div class="step" onclick="go(5)" id="s5">
+      <div class="step-num">6</div><span class="step-text">Accepted</span>
+    </div>
+  </div>
+  <button class="mobile-toggle" id="mToggle" onclick="toggleMobile()">☰ Mobile view</button>
+</div>
+
+<!-- Selection toolbar — floats above selected text -->
+<div class="sel-toolbar" id="selToolbar">
+  <button class="tb-btn primary" id="selImproveBtn">✦ &nbsp;Improve</button>
+  <div class="tb-divider"></div>
+  <button class="tb-btn" style="color:var(--ink-faint); font-size:11px;" id="selSharpenBtn">Sharpen</button>
+  <button class="tb-btn" style="color:var(--ink-faint); font-size:11px;" id="selEvidenceBtn">Back with evidence</button>
+</div>
+
+<!-- ░░░ APP SHELL ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ -->
+<div class="app-shell">
+
+  <!-- App nav bar -->
+  <nav class="app-nav">
+    <span class="nav-wordmark">DiscOS</span>
+    <span class="nav-link">Projects</span>
+    <span class="nav-sep">·</span>
+    <span class="nav-dir">People</span>
+    <span class="nav-sep">·</span>
+    <span class="nav-dir">Companies</span>
+    <span class="nav-sep">·</span>
+    <span class="nav-dir">Competitors</span>
+    <div class="nav-avatar">J</div>
+  </nav>
+
+  <!-- Content -->
+  <div class="main-layout">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-project">Procurement Tracking</div>
+      <div class="sidebar-item"><span class="s-icon">⬡</span> Overview</div>
+      <div class="sidebar-item"><span class="s-icon">◎</span> Evidence</div>
+      <div class="sidebar-item"><span class="s-icon">◇</span> Ask</div>
+      <div class="sidebar-item"><span class="s-icon">△</span> Problems</div>
+      <div class="sidebar-item"><span class="s-icon">◈</span> Sources</div>
+      <div class="sidebar-item"><span class="s-icon">✦</span> Compose</div>
+      <div class="sidebar-item active"><span class="s-icon">▣</span> Documents</div>
+      <div class="sidebar-item"><span class="s-icon">◉</span> Settings</div>
+    </aside>
+
+    <!-- Document -->
+    <main class="doc-area">
+
+      <div class="doc-meta">
+        <span class="doc-type-pill">Go-to-market</span>
+        <span>Generated 1 Jun 2026</span>
+        <span>·</span>
+        <span>Built from 24 sources</span>
+      </div>
+      <h1 class="doc-title">GTM Positioning Brief</h1>
+      <p class="doc-sub">Veyor Procurement Tracking · Q3 2026 launch readiness</p>
+      <hr class="doc-rule">
+
+      <!-- Document-level action bar -->
+      <div class="doc-actions" id="docActions">
+        <button class="btn-doc-improve" id="docImproveBtn" onclick="scopeMode='document'; capturedSelection=''; go(2);">✦&nbsp; Improve this document</button>
+        <span class="doc-action-hint" id="docActionHint">Change tone, tighten the whole piece, or ask a question about it</span>
+      </div>
+
+      <!-- Prompt panel — state 2 (doc-level or selection) -->
+      <div class="inline-prompt" id="docPrompt" style="margin-bottom:28px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div class="ip-label">What would you like to change?</div>
+          <span id="scopeBadge" style="font-size:10px; padding:2px 9px; border-radius:20px; border:1px solid; margin-left:auto;"></span>
+        </div>
+        <!-- Selected text preview — only shown for selection scope -->
+        <div id="selPreview" style="display:none; font-size:12px; color:var(--ink-muted); background:var(--s3); border-left:2px solid var(--brand); border-radius:6px; padding:8px 11px; line-height:1.6; font-style:italic;"></div>
+        <textarea class="ip-input" rows="2" id="promptText">Tighten this up — it reads like a feature list, not a positioning statement</textarea>
+        <div class="ip-row">
+          <button class="btn-primary" onclick="go(3)">✦ &nbsp;Improve</button>
+          <button class="btn-ghost" onclick="go(0)">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Document preview panel — doc-level review -->
+      <div class="doc-preview-panel" id="docPreviewPanel">
+        <div class="doc-preview-header">
+          <span class="doc-preview-head-label">Proposed revision</span>
+          <span class="doc-preview-intent" id="docPreviewIntent"></span>
+          <div class="doc-preview-stats">
+            <span class="doc-preview-stat">Full document</span>
+            <span class="doc-preview-stat pos">↓ 38% shorter</span>
+            <span class="doc-preview-stat pos">4 sections revised</span>
+          </div>
+        </div>
+        <div class="doc-preview-body">
+          <div class="art-h">Market context</div>
+          <p class="art-p revised">Construction lead times are up 40–60% since 2021. Most site teams still track procurement in spreadsheets. The gap between the programme and what's actually on site stays invisible until it's critical.</p>
+          <div class="art-h">Target buyer</div>
+          <p class="art-p revised">Construction PMs running £5M–£100M projects across 3–8 contracts. Programme certainty is the job. They don't buy software — they buy confidence the programme holds.</p>
+          <div class="art-h">Core positioning statement</div>
+          <p class="art-p revised">Veyor Procurement gives construction PMs real-time visibility into procurement, submittals, and deliveries — so they catch delays before they hit the programme, not after.</p>
+          <div class="art-h">Key messages</div>
+          <ul class="art-ul">
+            <li>One screen for every order, submittal, and delivery</li>
+            <li>Critical path items flagged before they slip</li>
+            <li>From reactive firefighting to proactive programme management</li>
+          </ul>
+        </div>
+        <div class="doc-preview-actions">
+          <button class="btn-accept" onclick="go(5)">✓ &nbsp;Accept revision</button>
+          <button class="btn-retry" onclick="go(2)">Try again</button>
+          <button class="btn-keep" onclick="go(0)">Keep original</button>
+          <div class="diff-prov" style="margin-left:auto;"><div class="prov-dot"></div> AI-revised · provenance logged</div>
+        </div>
+      </div>
+
+      <!-- Generating — state 3 -->
+      <div class="generating" id="generatingDoc" style="margin-bottom:28px;">
+        <div class="spinner"></div>
+        <span class="gen-text">Rewriting with project context…</span>
+        <span class="gen-context">24 sources · GTM context loaded</span>
+      </div>
+
+      <article class="article">
+
+        <div>
+          <div class="art-h">Market context</div>
+          <p class="art-p">Construction projects in the UK and Ireland consistently run over schedule due to procurement delays. Material lead times have extended by 40–60% since 2021, and most site teams are still tracking submissions and deliveries in spreadsheets. The gap between what the programme says and what the site receives is invisible — until it's critical.</p>
+        </div>
+
+        <div>
+          <div class="art-h">Target buyer</div>
+          <p class="art-p">Mid-market construction PMs running projects of £5M–£100M, managing 3–8 concurrent contracts. They care about programme certainty above everything else. They don't buy software — they buy confidence that the programme won't blow out.</p>
+        </div>
+
+        <!-- ── THE INTERACTIVE SECTION ── -->
+        <div style="position:relative;" id="posSection">
+
+          <div class="art-h">Core positioning statement</div>
+
+          <!-- The paragraph — no hover, no click -->
+          <p class="art-p selectable" id="para">
+            Veyor Procurement is purpose-built for construction and infrastructure project managers who need real-time visibility into material procurement timelines, submittal workflows, and on-site delivery scheduling — enabling them to proactively identify delays before they impact project completion dates, rather than discovering schedule risk only after it has already cascaded through the programme.
+          </p>
+
+          <!-- Selection scope: inline prompt (state 2, sel only) -->
+          <div class="inline-prompt" id="selPrompt" style="margin-top:12px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div class="ip-label">What would you like to change?</div>
+              <span style="font-size:10px; padding:2px 9px; border-radius:20px; border:1px solid var(--brand-border); background:var(--brand-bg); color:var(--brand); margin-left:auto;">Selected text</span>
+            </div>
+            <div id="selTextPreview" style="display:none; font-size:12px; color:var(--ink-muted); background:var(--s3); border-left:2px solid var(--brand); border-radius:6px; padding:8px 11px; line-height:1.6; font-style:italic;"></div>
+            <textarea class="ip-input" rows="2" id="selPromptText">Tighten this up — it reads like a feature list, not a positioning statement</textarea>
+            <div class="ip-row">
+              <button class="btn-primary" onclick="go(3)">✦ &nbsp;Improve</button>
+              <button class="btn-ghost" onclick="go(0)">Cancel</button>
+            </div>
+          </div>
+
+          <!-- Selection scope: inline generating (state 3, sel only) -->
+          <div class="generating" id="genSel" style="margin-top:12px;">
+            <div class="spinner"></div>
+            <span class="gen-text">Rewriting with project context…</span>
+            <span class="gen-context">Selected text · GTM context</span>
+          </div>
+
+          <!-- Diff — state 4, sel scope only -->
+          <div class="diff-panel" id="diffPanel">
+            <div class="diff-header">
+              <span class="diff-head-label">Proposed change</span>
+              <span class="diff-head-scope" style="font-size:10px; color:var(--ink-faint); background:var(--s4); border:1px solid var(--border-b); border-radius:20px; padding:2px 9px;">Full document</span>
+              <span class="diff-intent" id="diffIntent">"Tighten this up — it reads like a feature list, not a positioning statement"</span>
+            </div>
+            <div class="diff-cols">
+              <div class="diff-col orig">
+                <div class="diff-col-label">Original</div>
+                <div class="diff-text">Veyor Procurement is purpose-built for construction and infrastructure project managers who need real-time visibility into material procurement timelines, submittal workflows, and on-site delivery scheduling — enabling them to proactively identify delays before they impact project completion dates, rather than discovering schedule risk only after it has already cascaded through the programme.</div>
+              </div>
+              <div class="diff-col prop">
+                <div class="diff-col-label">Proposed</div>
+                <div class="diff-text">Veyor Procurement gives construction PMs real-time visibility into procurement, submittals, and deliveries — so they catch delays before they hit the programme, not after.</div>
+              </div>
+            </div>
+            <div class="diff-actions">
+              <button class="btn-accept" onclick="go(5)">✓ &nbsp;Accept</button>
+              <button class="btn-retry" onclick="go(2)">Try again</button>
+              <button class="btn-keep" onclick="go(0)">Keep original</button>
+              <div class="diff-prov"><div class="prov-dot"></div> AI-revised · provenance logged</div>
+            </div>
+          </div>
+
+        </div><!-- /interactive section -->
+
+        <div>
+          <div class="art-h">Key messages</div>
+          <ul class="art-ul">
+            <li>See every submittal, order, and delivery on one screen</li>
+            <li>Know which items are on the critical path before they slip</li>
+            <li>Move from reactive firefighting to proactive programme management</li>
+          </ul>
+        </div>
+
+      </article>
+    </main>
+
+  </div><!-- /main-layout -->
+
+  <!-- ░░░ MOBILE SECTION ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ -->
+  <div class="mobile-section" id="mobileSection">
+
+    <div class="mobile-sec-label">Mobile — bottom sheet pattern</div>
+
+    <div class="mobile-steps">
+      <button class="m-step-btn on" onclick="mgo(0)">Document</button>
+      <button class="m-step-btn" onclick="mgo(1)">Long-press</button>
+      <button class="m-step-btn" onclick="mgo(2)">Prompt</button>
+      <button class="m-step-btn" onclick="mgo(3)">Review</button>
+    </div>
+
+    <div class="m-frame">
+      <!-- Mobile nav -->
+      <div class="m-nav">
+        <span class="m-back">← Docs</span>
+        <span class="m-nav-title">GTM Positioning</span>
+      </div>
+
+      <!-- Mobile document -->
+      <div class="m-doc">
+        <div class="m-doc-title">GTM Positioning Brief</div>
+        <div class="m-sec">
+          <div class="m-h">Market context</div>
+          <p class="m-p">Construction projects consistently run over schedule due to procurement delays. Lead times have extended 40–60% since 2021, and most teams still track in spreadsheets.</p>
+        </div>
+        <div class="m-sec">
+          <div class="m-h">Core positioning statement</div>
+          <p class="m-p" id="mPara">Veyor Procurement is purpose-built for construction PMs who need real-time visibility into procurement timelines, submittals, and delivery scheduling — so they catch delays before they cascade through the programme.</p>
+          <div class="m-longpress" id="mLongPress">
+            <span>↑</span> Long-press to improve with AI
+          </div>
+        </div>
+        <div class="m-sec">
+          <div class="m-h">Key messages</div>
+          <p class="m-p">See every order and delivery on one screen · Know critical path items before they slip</p>
+        </div>
+      </div>
+
+      <!-- Sheet backdrop -->
+      <div class="m-backdrop" id="mBackdrop" onclick="mgo(0)"></div>
+
+      <!-- Bottom sheet -->
+      <div class="m-sheet" id="mSheet">
+        <div class="m-handle"></div>
+
+        <!-- Prompt content -->
+        <div id="mPromptContent">
+          <div class="m-sheet-label" style="margin-bottom:8px;">Improve with AI</div>
+          <div class="m-quote">Veyor Procurement is purpose-built for construction PMs who need real-time visibility into procurement timelines, submittals, and delivery scheduling…</div>
+          <input class="m-input" type="text" placeholder="What would you like to change?" value="Tighten this up">
+          <button class="m-submit" onclick="mgo(3)">✦ &nbsp;Improve</button>
+        </div>
+
+        <!-- Review content -->
+        <div id="mReviewContent" style="display:none; flex-direction:column; gap:12px;">
+          <div class="m-sheet-label">Proposed change</div>
+          <div class="m-diff-col m-diff-orig">
+            <div class="m-diff-label">Original</div>
+            <div class="m-diff-text">Veyor Procurement is purpose-built for construction PMs who need real-time visibility into procurement timelines, submittals, and delivery scheduling — so they catch delays before they cascade through the programme.</div>
+          </div>
+          <hr class="m-rule">
+          <div class="m-diff-col m-diff-prop">
+            <div class="m-diff-label">Proposed</div>
+            <div class="m-diff-text">Veyor Procurement gives construction PMs real-time visibility into procurement, submittals, and deliveries — so they catch delays before they hit the programme, not after.</div>
+          </div>
+          <div class="m-actions">
+            <button class="m-btn-accept" onclick="mgo(0)">✓ &nbsp;Accept</button>
+            <div class="m-btn-row">
+              <button class="m-btn-retry" onclick="mgo(2)">Try again</button>
+              <button class="m-btn-keep" onclick="mgo(0)">Keep original</button>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /m-sheet -->
+    </div><!-- /m-frame -->
+  </div><!-- /mobile-section -->
+
+</div><!-- /app-shell -->
+
+<script>
+  /* ── Desktop state machine ───────────────────── */
+  let cur = 0;
+  let scopeMode = 'document'; // 'document' | 'selection'
+  let capturedSelection = '';
+
+  const ORIGINAL = "Veyor Procurement is purpose-built for construction and infrastructure project managers who need real-time visibility into material procurement timelines, submittal workflows, and on-site delivery scheduling — enabling them to proactively identify delays before they impact project completion dates, rather than discovering schedule risk only after it has already cascaded through the programme.";
+  const PROPOSED = "Veyor Procurement gives construction PMs real-time visibility into procurement, submittals, and deliveries — so they catch delays before they hit the programme, not after.";
+
+  /* ── Selection toolbar logic ─────────────────── */
+  const selToolbar = document.getElementById('selToolbar');
+
+  document.addEventListener('mouseup', function(e) {
+    // Don't interfere with toolbar clicks
+    if (selToolbar.contains(e.target)) return;
+    if (document.getElementById('docPrompt').contains(e.target)) return;
+
+    const sel = window.getSelection();
+    const text = sel ? sel.toString().trim() : '';
+
+    if (text.length > 10 && sel.rangeCount > 0) {
+      // Only trigger inside the article
+      const range = sel.getRangeAt(0);
+      const articleEl = document.querySelector('.article');
+      if (!articleEl.contains(range.commonAncestorContainer)) {
+        hideSelToolbar(); return;
+      }
+
+      capturedSelection = text;
+      const rect = range.getBoundingClientRect();
+      selToolbar.style.display = 'flex';
+      const tbW = 280;
+      // rect.* is viewport-relative; add scroll offsets to get document-relative coords
+      // for position:absolute anchoring
+      let left = (rect.left + window.scrollX) + rect.width / 2 - tbW / 2;
+      left = Math.max(10, Math.min(left, document.documentElement.scrollWidth - tbW - 10));
+      selToolbar.style.left = left + 'px';
+      selToolbar.style.top  = (rect.top + window.scrollY - 48) + 'px';
+      selToolbar.style.width = tbW + 'px';
+    } else {
+      hideSelToolbar();
+    }
+  });
+
+  document.addEventListener('mousedown', function(e) {
+    if (!selToolbar.contains(e.target) && cur === 0) hideSelToolbar();
+  });
+
+  function hideSelToolbar() {
+    selToolbar.style.display = 'none';
+  }
+
+  document.getElementById('selImproveBtn').onclick = function() {
+    hideSelToolbar();
+    scopeMode = 'selection';
+    go(2);
+  };
+  document.getElementById('selSharpenBtn').onclick = function() {
+    hideSelToolbar();
+    scopeMode = 'selection';
+    document.getElementById('promptText').value = 'Sharpen this';
+    go(2);
+  };
+  document.getElementById('selEvidenceBtn').onclick = function() {
+    hideSelToolbar();
+    scopeMode = 'selection';
+    document.getElementById('promptText').value = 'Back this up with evidence from the project';
+    go(2);
+  };
+
+  function go(n) {
+    cur = n;
+    const para        = document.getElementById('para');
+    const docActions  = document.getElementById('docActions');
+    // Doc-scope panels (top area)
+    const docPrompt   = document.getElementById('docPrompt');
+    const genDoc      = document.getElementById('generatingDoc');
+    const docPreview  = document.getElementById('docPreviewPanel');
+    // Sel-scope panels (inline, inside posSection)
+    const selPrompt   = document.getElementById('selPrompt');
+    const genSel      = document.getElementById('genSel');
+    const diff        = document.getElementById('diffPanel');
+
+    // Reset paragraph
+    para.className   = 'art-p selectable';
+    para.textContent = ORIGINAL;
+    para.querySelectorAll('.accepted-tag').forEach(e => e.remove());
+
+    // Reset ALL panels
+    docActions.style.display  = 'flex';
+    docPrompt.style.display   = 'none';
+    genDoc.style.display      = 'none';
+    docPreview.style.display  = 'none';
+    selPrompt.style.display   = 'none';
+    genSel.style.display      = 'none';
+    diff.style.display        = 'none';
+
+    // Reset hint text and button
+    document.getElementById('docActionHint').textContent = 'Change tone, tighten the whole piece, or ask a question about it';
+    document.getElementById('docImproveBtn').classList.remove('active');
+
+    // Step indicator
+    for (let i = 0; i < 6; i++) {
+      const el = document.getElementById('s'+i);
+      el.classList.remove('active','done');
+      if (i === n) el.classList.add('active');
+      if (i < n)  el.classList.add('done');
+    }
+
+    if (n === 0) {
+      scopeMode = 'document';
+      capturedSelection = '';
+    }
+
+    if (n === 1) { go(2); return; }
+
+    if (n === 2) {
+      if (scopeMode === 'selection') {
+        // Inline prompt right after the selected text
+        selPrompt.style.display = 'flex';
+        // Show the captured text as a quote
+        const preview = document.getElementById('selTextPreview');
+        if (capturedSelection) {
+          preview.style.display = 'block';
+          preview.textContent = '“' + capturedSelection.slice(0, 160) + (capturedSelection.length > 160 ? '…' : '') + '”';
+        } else {
+          preview.style.display = 'none';
+        }
+        // Sync intent to diff header on open
+        document.getElementById('diffIntent').textContent = '“' + document.getElementById('selPromptText').value + '”';
+        document.querySelector('.diff-head-scope').textContent = 'Selected text';
+      } else {
+        // Doc-scope prompt at the top
+        document.getElementById('docImproveBtn').classList.add('active');
+        docPrompt.style.display = 'flex';
+        // Update scope badge in doc prompt
+        const badge   = document.getElementById('scopeBadge');
+        const preview = document.getElementById('selPreview');
+        badge.textContent = 'Full document';
+        badge.style.background  = 'var(--s4)';
+        badge.style.borderColor = 'var(--border-b)';
+        badge.style.color       = 'var(--ink-faint)';
+        preview.style.display   = 'none';
+        document.getElementById('diffIntent').textContent = '“' + document.getElementById('promptText').value + '”';
+        document.querySelector('.diff-head-scope').textContent = 'Full document';
+      }
+    }
+
+    if (n === 3) {
+      if (scopeMode === 'selection') {
+        // Inline spinner
+        genSel.style.display = 'flex';
+        // Capture intent now so diff header is ready
+        document.getElementById('diffIntent').textContent = '“' + document.getElementById('selPromptText').value + '”';
+      } else {
+        document.getElementById('docImproveBtn').classList.add('active');
+        genDoc.style.display = 'flex';
+        document.getElementById('docPreviewIntent').textContent = '“' + document.getElementById('promptText').value + '”';
+      }
+      setTimeout(() => { if (cur === 3) go(4); }, 1400);
+    }
+
+    if (n === 4) {
+      if (scopeMode === 'selection') {
+        // Side-by-side diff, inline below the selected text
+        diff.style.display = 'flex';
+      } else {
+        // Full document preview at the top
+        document.getElementById('docImproveBtn').classList.add('active');
+        docPreview.style.display = 'flex';
+      }
+    }
+
+    if (n === 5) {
+      para.className   = 'art-p accepted';
+      para.textContent = PROPOSED;
+      const badge = document.createElement('span');
+      badge.className  = 'accepted-tag';
+      badge.textContent = 'AI-revised';
+      para.appendChild(badge);
+      if (scopeMode === 'document') {
+        document.getElementById('docActionHint').textContent = '✓ Document revised · provenance logged';
+      }
+    }
+  }
+
+  /* ── Mobile state machine ─────────────────────── */
+  let mcur = 0;
+
+  function mgo(n) {
+    mcur = n;
+    document.querySelectorAll('.m-step-btn').forEach((b, i) => b.classList.toggle('on', i === n));
+
+    const mPara       = document.getElementById('mPara');
+    const mLong       = document.getElementById('mLongPress');
+    const mBackdrop   = document.getElementById('mBackdrop');
+    const mSheet      = document.getElementById('mSheet');
+    const mPrompt     = document.getElementById('mPromptContent');
+    const mReview     = document.getElementById('mReviewContent');
+
+    // Reset
+    mPara.className     = 'm-p';
+    mLong.style.display = 'none';
+    mBackdrop.style.display = 'none';
+    mSheet.style.display    = 'none';
+    mPrompt.style.display   = 'block';
+    mReview.style.display   = 'none';
+
+    if (n === 1) {
+      mPara.classList.add('hi');
+      mLong.style.display = 'flex';
+    }
+    if (n === 2) {
+      mPara.classList.add('hi');
+      mBackdrop.style.display = 'block';
+      mSheet.style.display    = 'flex';
+      mPrompt.style.display   = 'flex';
+      mPrompt.style.flexDirection = 'column';
+      mPrompt.style.gap = '10px';
+    }
+    if (n === 3) {
+      mPara.classList.add('hi');
+      mBackdrop.style.display = 'block';
+      mSheet.style.display    = 'flex';
+      mPrompt.style.display   = 'none';
+      mReview.style.display   = 'flex';
+    }
+  }
+
+  /* ── Mobile panel toggle ─────────────────────── */
+  let mobileOn = false;
+  function toggleMobile() {
+    mobileOn = !mobileOn;
+    document.getElementById('mobileSection').classList.toggle('on', mobileOn);
+    document.getElementById('mToggle').classList.toggle('on', mobileOn);
+    if (mobileOn) {
+      setTimeout(() => {
+        document.getElementById('mobileSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
+    }
+  }
+</script>
+
+</body>
+</html>

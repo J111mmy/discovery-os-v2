@@ -64,11 +64,11 @@ function briefPreview(markdown: string) {
 function TrustBadge({ trustScope }: { trustScope: TrustScope | "missing" }) {
   const classes =
     trustScope === "trusted"
-      ? "border-green-500/20 bg-green-500/10 text-green-300"
+      ? "border-pos/20 bg-pos-bg text-pos"
       : trustScope === "pending"
-      ? "border-yellow-500/20 bg-yellow-500/10 text-yellow-300"
+      ? "border-warn/20 bg-warn-bg text-warn"
       : trustScope === "excluded"
-      ? "border-red-500/20 bg-red-500/10 text-red-300"
+      ? "border-neg/20 bg-neg-bg text-neg"
       : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
 
   return (
@@ -89,11 +89,11 @@ function StatusBadge({ status }: { status: JobStatus | "not_started" }) {
       : status;
   const classes =
     status === "done"
-      ? "border-green-500/20 bg-green-500/10 text-green-300"
+      ? "border-pos/20 bg-pos-bg text-pos"
       : status === "failed"
-      ? "border-red-500/20 bg-red-500/10 text-red-300"
+      ? "border-neg/20 bg-neg-bg text-neg"
       : status === "processing"
-      ? "border-yellow-500/20 bg-yellow-500/10 text-yellow-300"
+      ? "border-warn/20 bg-warn-bg text-warn"
       : status === "pending"
       ? "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]"
       : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
@@ -219,7 +219,7 @@ export default async function SourceDetailPage({ params }: Props) {
       </div>
 
       {latestJob?.error && (
-        <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
+        <div className="mb-6 rounded-xl border border-neg/20 bg-neg-bg p-4 text-sm text-neg">
           {latestJob.error}
         </div>
       )}
@@ -235,7 +235,7 @@ export default async function SourceDetailPage({ params }: Props) {
       )}
 
       {isAnalyzing && (
-        <div className="mb-6 rounded-xl border border-yellow-500/20 bg-yellow-500/10 p-4 text-sm leading-6 text-yellow-100">
+        <div className="mb-6 rounded-xl border border-warn/20 bg-warn-bg p-4 text-sm leading-6 text-warn">
           <div className="font-semibold">Analyzing source.</div>
           <p className="mt-1">
             The ingest agent is segmenting the source and extracting citable evidence. Long transcripts
@@ -245,8 +245,8 @@ export default async function SourceDetailPage({ params }: Props) {
       )}
 
       {staleJob && !latestJob?.error && (
-        <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm leading-6 text-red-200">
-          <div className="font-semibold text-red-100">Processing took too long.</div>
+        <div className="mb-6 rounded-xl border border-neg/20 bg-neg-bg p-4 text-sm leading-6 text-neg">
+          <div className="font-semibold">Processing took too long.</div>
           <p className="mt-1">
             This source appears to be stuck. Use Retry to clear the partial segments and run ingest again.
           </p>
@@ -254,8 +254,8 @@ export default async function SourceDetailPage({ params }: Props) {
       )}
 
       {zeroEvidenceDone && (
-        <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm leading-6 text-red-200">
-          <div className="font-semibold text-red-100">No evidence was created from this source.</div>
+        <div className="mb-6 rounded-xl border border-neg/20 bg-neg-bg p-4 text-sm leading-6 text-neg">
+          <div className="font-semibold">No evidence was created from this source.</div>
           <p className="mt-1">
             {sourceLooksLikeMarker
               ? "This looks like a processed marker file rather than the original transcript. Delete this source and upload the original transcript text."

@@ -452,7 +452,7 @@ export function SettingsForms({
                       <button
                         type="button"
                         onClick={() => removeResearchQuestion(index)}
-                        className="h-10 w-10 rounded-lg border border-[var(--border)] text-sm font-medium text-[var(--ink-muted)] transition-colors hover:border-red-400/40 hover:text-red-300"
+                        className="h-10 w-10 rounded-lg border border-[var(--border)] text-sm font-medium text-[var(--ink-muted)] transition-colors hover:border-neg/40 hover:text-neg"
                         aria-label="Remove question"
                       >
                         x
@@ -510,12 +510,12 @@ export function SettingsForms({
               />
             </div>
             {settingsError && (
-              <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+              <div className="rounded-lg border border-neg/20 bg-neg-bg px-3 py-2 text-sm text-neg">
                 {settingsError}
               </div>
             )}
             {settingsMessage && (
-              <div className="rounded-lg border border-green-500/20 bg-green-500/10 px-3 py-2 text-sm text-green-300">
+              <div className="rounded-lg border border-pos/20 bg-pos-bg px-3 py-2 text-sm text-pos">
                 {settingsMessage}
               </div>
             )}
@@ -583,8 +583,8 @@ export function SettingsForms({
                   {isInviting ? "Sending..." : "Invite"}
                 </button>
               </div>
-              {inviteError && <div className="mt-3 text-sm text-red-300">{inviteError}</div>}
-              {inviteMessage && <div className="mt-3 text-sm text-green-300">{inviteMessage}</div>}
+              {inviteError && <div className="mt-3 text-sm text-neg">{inviteError}</div>}
+              {inviteMessage && <div className="mt-3 text-sm text-pos">{inviteMessage}</div>}
             </form>
 
             <section className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">

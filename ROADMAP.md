@@ -27,13 +27,93 @@ These are not build work — they are operational steps needed right now before 
 - [x] Add `INNGEST_SIGNING_KEY` to Vercel environment variables — confirmed present 2026-05-24
 - [x] `git add -A && git commit -m "feat: AI evidence grading backend" && git push`
 - [x] Hand `CODEX_BRIEF_PROJECT_CONTEXT_UI.md` to Codex
-- [ ] Apply migration `0020_super_admins.sql` in Supabase SQL editor (local + remote)
-- [ ] Grant super admin: `INSERT INTO super_admins (user_id, granted_by) VALUES ('<your_user_uuid>', '<your_user_uuid>');` — run via service role key
-- [ ] `git add -A && git commit -m "feat: super admin — cross-org dashboard, org detail, impersonation" && git push`
+- [x] Apply migration `0020_super_admins.sql` in Supabase SQL editor (local + remote) — applied; confirmed working 2026-06-02
+- [x] Grant super admin: `INSERT INTO super_admins (user_id, granted_by) VALUES ('<your_user_uuid>', '<your_user_uuid>');` — granted; `/admin` access confirmed
+- [x] `git add -A && git commit -m "feat: super admin — cross-org dashboard, org detail, impersonation" && git push` — pushed; deployed to prod (62a7510)
+- [ ] **Before billing goes live:** Set a monthly spend limit on your Anthropic account (console.anthropic.com → Settings → Limits). Start at 2–3× your expected monthly LLM cost based on projected users. This is a 2-minute console action, not a build task — it's the backstop against any session entitlement bug or unexpected usage spike that slips through.
+
+---
+
+## ⭐ Milestone 0 — Veyor as first design-partner org (unpaid)
+
+**Goal:** Jimmy's Veyor team all log into the *same* Veyor org and see every project in it, securely, with real confidential GC research loaded. This is the first real multi-user test. **Billing is NOT on this critical path — "unpaid" means no entitlement/Stripe work is required.** The entire billing epic below defers until after this milestone.
+
+**Critical path: 0 → 1 → 2 → 3 → 4.**
+
+- **0. Super admin active** — ✅ done (Jimmy confirms `/admin` access works today; migration 0020 applied, grant in place).
+- **1. Security assessment (the gate, `L`)** — see active build below. Run by **Opus 4.8 as an independent reviewer** (Codex wrote the backend, so review is deliberately separated from the author). Must clear tenant isolation, RLS, super-admin/impersonation bleed, and the invite flow before teammates load confidential research.
+- **2. Active org context cleanup (`S`)** — pulled UP out of the billing epic; it is the functional blocker for cross-project team access. See item below.
+- **3. Resolve blocker findings** from the assessment.
+- **4. Invite the team** — 🔄 **IN PROGRESS (2026-06-04).** Test member (`onetendegrees+member@gmail.com`) manually added to org via SQL workaround (accept-invite journey was interrupted by magic-link sign-in; `next=` param dropped). Awaiting email rate-limit reset to confirm sign-in + project visibility. Two Codex tasks queued before real teammates are invited: (a) fix `next=` param persistence through magic-link auth; (b) convert `accept-invite/page.tsx` from Server Component to Server Action so `setActiveOrgId` cookie actually persists. Migration `0025_standardize_membership_policies.sql` (34 policy cleanup, authored + Opus-reviewed) pending apply after invite test confirmed.
+
+> **Onboarding runbook — invite-only.** Never tell a teammate to "just sign up." Self-signup + first-project creation auto-provisions a *new isolated org* (`ensureUserOrg` in `src/lib/auth/org.ts`, called from `projects/new/actions.ts:29`). Teammates must arrive through an invite link, which correctly attaches them to the existing org (`accept-invite/page.tsx:77`).
+
+### Org-model findings from initial code review (2026-05-31, Opus)
+
+| ID | Severity | Finding | Action |
+|---|---|---|---|
+| GOOD | — | Tenancy is **not** domain-based. Boundary = explicit `org_members` rows + RLS. Email domain only sets a new org's default display name (`org.ts:25`). | No change. Disproves the domain-tenancy worry. |
+| ORG-1 | High (verify) | `accept-invite` inserts `org_members` via the **regular** client (`accept-invite/page.tsx:77`), depending on RLS. Confirm RLS permits the invited insert but **forbids a user self-inserting a membership into an arbitrary `org_id`** (would be a critical self-join hole). | Assessment task; fix RLS or move to service-role insert with server-side invite validation. |
+| ORG-2 | Med (verify) | `org_invites` read by token via regular client (`:42`). Confirm RLS read policy can't be abused to enumerate invites. | Assessment task. |
+| ORG-3 | Med (verify) | Super admin gets **unrestricted, no-org-filter** project access when not impersonating (`org.ts:110-119`). Intentional support path. | Confirm `isSuperAdmin` is strictly table-backed and unreachable by non-admins. |
 
 ---
 
 ## Now — active build
+
+### ✅ Security technical assessment — full audit pass
+**Completed 2026-06-03.** Verdict: LOW risk. Invite-only for Veyor milestone.
+**Output:** `SECURITY_ASSESSMENT_MILESTONE_0.md` — executive summary, 7-row findings table, tenant isolation proof (dynamic, anon key + real JWT). All blocker/high/med findings RESOLVED. SEC-RLS-2 (34 inline `org_members` subqueries) authored as `0025_standardize_membership_policies.sql` — Opus-reviewed + approved, pending apply after Jimmy invite test.
+**Residual (non-blocking):** 0025 apply, Vercel env audit (Codex), Inngest signing-key confirmation (Codex).
+**Size:** L
+
+### 💡 #9 — Companies area: categorisation (NEEDS JIMMY PRODUCT DECISION, not a build yet)
+**Status correction (2026-06-04):** Inline field editing **already exists** — `company-profile-editor.tsx` does per-field save-on-blur (name, website, industry, size, notes) via `PATCH /api/companies/[companyId]`. The "make it editable" half of #9 is shipped.
+**The actual open question (from issue #9):** the Companies list conflates distinct categories — real customer companies, potential integrations (EC3, SharePoint), Jimmy's own company (Veyor), and competitors (Procore). Jimmy explicitly said "we need to discuss before applying solutions." Options to decide: tabs/categories on companies, a `company_type` field, or folding competitors into this surface. **No Codex brief until the categorisation model is decided with Jimmy.**
+**Size:** TBD (depends on the decision)
+
+### 🔜 #14 — MD → HTML document surface (prerequisite for AI-Improve)
+**Why:** The artifact/document surface currently renders Markdown. Moving to HTML: (a) unlocks the AI-Improve diff view and richer document editing; (b) is required before text-selection AI-Improve (#18) is safe (MD byte-offset mapping is brittle under edits).
+**Security note (C5 from Gate 3 review):** Once `proposed_content` can be HTML, unsanitised AI output is a stored-XSS vector. Server-side HTML sanitisation (allowlist on `proposed_content` at write and render) must land with this migration. Tracked on this issue.
+**Dependency for:** AI-Improve thin slice — do not start that build until #14 is deployed.
+**Size:** S
+
+### 🔜 AI-Improve — thin first slice (#10: AI-assisted document revision)
+**Design gates passed:** Gate 1 ✅ frame agreed · Gate 2 ✅ look & feel (`GATE2_AI_IMPROVE.html` prototype approved) · Gate 3 ✅ security (`GATE3_SECURITY_REVIEW_AI_PROPOSALS.md`, conditional pass C1–C7, 2026-06-04).
+**What Gate 4 builds (whole-document only):**
+- `ai_proposals` table (migration — Codex authors, Opus reviews before apply)
+- Accept RPC — `SECURITY INVOKER` (C1); stale-state guard → 409 (C5); immutable content columns (C3)
+- `/api/artifacts/[id]/improve` route — auth gate per C6; prompt fencing per C4; rate-limit stub per C7
+- UI: "Improve" button on document scope + diff panel + Accept / Try again / Keep original (per Gate 2 prototype)
+- `artifact_versions.from_proposal_id` FK — audit loop closes from day one
+**Deferred:** Text-selection improve (#18 — brittle until #14 ships). Duplicate-person merge (#1 — graph consequences, much later).
+**Gate 4 decision:** Jimmy uses it on real content → decides whether pattern rolls to next surface.
+**Dependency:** #14 must be deployed first.
+**Security:** All C1–C7 from `GATE3_SECURITY_REVIEW_AI_PROPOSALS.md` must be implemented. `ai_proposals` migration gets same before-apply Opus review as every DB change.
+**Size:** M
+
+### 🔜 Stripe billing + self-serve onboarding
+**Why:** The app needs to become a real product — users should be able to sign up, create a workspace, start a trial, and subscribe without Jimmy's involvement.
+**Pricing model decided:** Subscription + Credits (mirrors Anthropic/Cursor pricing). Flat monthly tier with included session allowance; credit top-ups for overages. Sessions are the metered unit — one session per ingest, compose, synthesis, ask query, or digest trigger.
+
+**Tiers:** Free (5 sessions), Starter $19/50, Growth $49/130, Pro $99/230, Team $249/600, Enterprise $499/1,300. Annual = 20% off (monthly × 10). Credit blocks from $25/45 sessions to $200/367 sessions — no expiry, org-scoped.
+
+**What to build:**
+- `0021_billing_schema.sql` — `org_subscriptions`, `credit_ledger`, `stripe_events` tables
+- `0022_credit_system.sql` — Postgres functions for session consumption and entitlement checks
+- Stripe webhook handler (`/api/stripe/webhook`) — subscription lifecycle events
+- Checkout + customer portal routes (`/api/billing/checkout`, `/api/billing/portal`)
+- Entitlement enforcement in API routes — check session budget before queuing any AI job
+- `/onboarding` flow — explicit org creation, plan selection, trial start, first project CTA
+- `/settings/billing` — current plan, session usage, credit balance, upgrade/top-up
+- Admin billing section in `/admin/orgs/[orgId]` — current plan, force-upgrade, grant credits
+- UI banners for trial countdown, usage warnings, hard-blocked state
+
+**How API costs work:** Anthropic bills monthly in arrears on a single account — no pre-buying tokens. All customer usage flows through one Anthropic API key; the `credit_ledger` table tracks cost attribution per org. The session entitlement system (`consume_session` Postgres function) blocks any API call the moment an org's session budget is exhausted, which handles the *volume* spike risk. The residual risk is cost variance *within* a session (a 3-hour transcript costs ~10× more than a 10-minute one, both count as one session). An Anthropic account-level monthly spend limit is a one-minute console setting that acts as the final backstop — not a build task, just an operational action before go-live (see below).
+
+**Reference docs:** `MONETIZATION_REQUIREMENTS.md`, `SAAS_BILLING_ONBOARDING_REQUIREMENTS.md`, `CODEX_BRIEF_ORG_ONBOARDING_BILLING.md`
+**Dependency:** Security assessment should complete first — billing touches auth, org creation, and entitlements, which must be clean before money flows through them.
+**Size:** L (multi-session, probably 3–4 Codex sessions)
 
 ### ✅ Internal speaker flagging (backend)
 **What was built:** `affiliation` field on people table, ingest pipeline now queries internal people before extraction and passes them to Claude so their turns are treated as context, not evidence. New source types (`customer_interview`, `sales_call`, `usability_study`, `internal_meeting`) parse as conversations. Ingest API route updated to accept new values.
@@ -83,6 +163,96 @@ These are not build work — they are operational steps needed right now before 
 
 ---
 
+## 🔜 SaaS billing and monetisation — next major milestone
+
+**When this ships, DiscOS can take a credit card from a stranger and guide them to their first discovery session without any help from Jimmy.**
+
+Pricing model decided: **Sub+Credits tiered subscription** — flat monthly fee with included session allowance, credit top-up blocks for overages. Full spec in `MONETIZATION_REQUIREMENTS.md`. Build instructions in `CODEX_BRIEF_ORG_ONBOARDING_BILLING.md`.
+
+Estimated build: **17–19 engineering days (~4 weeks full-time).**
+
+### ✅ Active org context cleanup → **moved to Milestone 0, done (commit f2b8b97, deployed 62a7510)**
+**What was built:** `getActiveOrgId()` helper (`src/lib/auth/org.ts`) — impersonation cookie → `disco_active_org` cookie → `joined_at`-first deterministic fallback. `setActiveOrgId` fires on accept-invite + org creation. All ad-hoc first-row org lookups replaced. Opus audited: no remaining unscoped lookups.
+**Known gap (non-blocking):** `setActiveOrgId` silently fails when called from a Server Component (Next.js App Router limitation — try/catch swallows the error). Single-membership users are unaffected (fallback resolves correctly). Multi-org users need the accept-invite Server Component → Server Action conversion (Codex task, queued for Milestone 0 close-out).
+**Size:** S
+
+### ✅ Invite acceptance — RLS authz path + delivery (DONE, validated 2026-06-04)
+**Why:** Live test (2026-06-04) proved invitees **cannot accept their own invite**. Two RLS walls: `org_invites` SELECT is owner/admin-only (0023) → invitee can't read their invite (`not-found`); `org_members` INSERT is owner/admin-only (0012) → invitee can't add themselves (`insert-failed`). 0025 does NOT fix this. The route hardening (commit d8a0671) was necessary but insufficient.
+**Fix (shipped):** `SECURITY DEFINER` RPC `accept_invite(p_token)` — escalates in one place, authorizes caller by `auth.jwt()->>'email'` vs invite email; no widened invitee RLS. Plus delivery fix: carry invite token in redirect **path**, not the dropped `next` query param.
+**Outcome:** migration `0027` + route refactor Opus-reviewed & applied; member2 went `No projects yet` → org's 3 projects (`memberships: 1`, `accepted_at` stamped). Acceptance path confirmed working.
+**Reference:** `CODEX_BRIEF_INVITE_RLS_AND_DELIVERY.md`.
+**Note:** acceptance only fires via the invite link (token in path) or pending-invite cookie — a plain `/login` magic link authenticates but does NOT accept (e.g. member4 stuck pending until sent to `/accept-invite?token=…`). Onboarding must route invitees through the invite link.
+**Size:** M
+
+### ⛔ Invite email delivery — branded app-sent email (built, Opus-approved; BLOCKED on Resend config + live Gate #0)
+**Why:** Confirmed 2026-06-04 — Supabase's built-in email service is "testing only" and hard-throttled (a few/hour, per project). We hit `email rate limit exceeded` (surfaced in the Invite UI), blocking end-to-end invite testing. Built-in template also says "Sign in" and can't be reworded (it serves normal login too).
+**Fix (shipped, awaiting deploy):** invite path now uses `auth.admin.generateLink()` (no Supabase email sent) + app-sent **branded** email via Resend. Off Supabase's email *send* throttle; correct "You've been invited to DiscOS" copy; one click. `invite`→`magiclink` type fallback for new vs existing users. **Codex built it (5 files); Opus reviewed the diff 2026-06-05 — APPROVED, cleared to commit + push.** Reference: `CODEX_BRIEF_BRANDED_INVITE_EMAIL.md`.
+**Remaining (Jimmy-side):**
+1. Resend account + `RESEND_API_KEY`/`EMAIL_FROM` in Vercel (free tier: 100/day, no domain needed via `onboarding@resend.dev`; swap to own domain when bought).
+2. **Live Gate #0 (make-or-break):** first real click must land on `/auth/callback/<token>?code=…`. If `#access_token=…`/implicit-flow shape, resolve flow type before trusting prod.
+3. Existing-user invite exercises the `magiclink` fallback; missing-env returns clean failure with no link leak.
+**Separate, complementary (config, not blocking this):** custom SMTP in Supabase → Auth → SMTP Settings fixes sender + throttle for *normal `/login`* magic links (still Supabase-sent). Different surface from the invite email above.
+**Backlog (non-blocking):** repeated invites to same email pile up duplicate pending `org_invites` rows (member3/member4 live data) — future `on conflict`/dedupe ticket.
+**Size:** S (Resend config) + done (branded email code) + S (optional Supabase SMTP for login mail)
+
+### 🔜 Billing schema — plans, credits, ledger
+**Why:** Foundation for everything. No billing UI or enforcement can be built without the schema.
+**What:** Migrations 0021 and 0022. `plans`, `credit_packages`, `org_credits`, `credit_ledger` tables. `consume_session` and `credit_sessions` Postgres functions. Backfill existing orgs as Growth trial.
+**Reference:** Task 1 in `CODEX_BRIEF_ORG_ONBOARDING_BILLING.md`, Sections 4 and 5 in `MONETIZATION_REQUIREMENTS.md`
+**Size:** S
+
+### 🔜 Org onboarding flow
+**Why:** New users currently land with no workspace and no guidance. Needs explicit workspace creation → trial activation → first project path.
+**What:** `/onboarding/workspace` → `/onboarding/trial` → `/onboarding/first-project`. Middleware redirect for users with no org. Trial activation without a card (14-day Growth trial).
+**Reference:** Task 3 in `CODEX_BRIEF_ORG_ONBOARDING_BILLING.md`, Section 9 in `SAAS_BILLING_ONBOARDING_REQUIREMENTS.md`
+**Size:** M
+
+### 🔜 Stripe checkout, portal, and webhook
+**Why:** The payment rails. Without these, subscriptions and credit purchases cannot be processed.
+**What:** `POST /api/billing/checkout` (subscription), `POST /api/billing/portal`, `POST /api/billing/credits/checkout` (one-time credit blocks). Webhook handler for all subscription lifecycle events. Idempotent event processing via `billing_events` table.
+**Reference:** Tasks 4 and 5 in `CODEX_BRIEF_ORG_ONBOARDING_BILLING.md`
+**Size:** M
+
+### 🔜 Session entitlement enforcement
+**Why:** Without server-side gating, paying and non-paying users get the same access. This is the moment billing becomes real.
+**What:** `getOrgEntitlements()` helper. `consumeSession()` call added to ingest, compose, ask, digest, and frame draft routes. 402 responses with clear `code: no_sessions` error shape for the UI to act on.
+**Reference:** Task 6 in `CODEX_BRIEF_ORG_ONBOARDING_BILLING.md`, Section 7 in `MONETIZATION_REQUIREMENTS.md`
+**Size:** M
+
+### 🔜 Billing UI — settings page, session counter, banners
+**Why:** Users need to see their plan, session usage, and credit balance. Owners need to manage billing and buy credits without calling anyone.
+**What:** `/settings/billing` page with plan info, session progress bar, credit purchase grid, usage history. Session counter in nav. Global billing banners (trial expiring, payment failed, no sessions). Disabled states on operation buttons.
+**Reference:** Task 7 in `CODEX_BRIEF_ORG_ONBOARDING_BILLING.md`, Section 8 in `SAAS_BILLING_ONBOARDING_REQUIREMENTS.md`
+**Size:** M
+
+### 🔜 Admin billing view
+**Why:** Support tooling. Jimmy needs to be able to inspect any org's billing state, resync from Stripe, add sessions manually, and extend trials.
+**What:** Billing section added to `/admin/orgs/[orgId]`. Resync from Stripe, add sessions (admin adjustment), extend trial — all with audit trail.
+**Reference:** Task 8 in `CODEX_BRIEF_ORG_ONBOARDING_BILLING.md`, Section 12 in `SAAS_BILLING_ONBOARDING_REQUIREMENTS.md`
+**Size:** S
+
+---
+
+## Pricing model — decided
+
+| Tier | Monthly | Sessions included |
+|---|---|---|
+| Free | $0 | 5 (one-time, not monthly) |
+| Starter | $19 | 50 |
+| Growth | $49 | 130 |
+| Pro | $99 | 230 |
+| Team | $249 | 600 |
+| Enterprise | $499 | 1,300 |
+
+Credit top-ups: $25 / $50 / $100 / $200 blocks. Do not expire. Org-scoped.
+Annual: 20% discount (monthly price × 10).
+
+Full model decision rationale in `MONETIZATION_REQUIREMENTS.md`.
+
+> ⚠️ **Pricing needs a reassessment before billing ships (Jimmy, 2026-05-31).** Two concerns: (1) the Sub+Credits model with six tiers may be more complicated than it needs to be; (2) the **signup backfill problem** — a new user's first instinct is to bulk-load their entire history of old research, which collides head-on with a 5-session free tier. A user with 30 archived transcripts is hard-blocked on day one. Options to think through: a one-time onboarding "import allowance" separate from the monthly session meter, a higher/uncapped trial window for initial backfill, or pricing the first bulk import differently. **Do not finalise tiers until this is resolved.** Parked deliberately late — revisit at the start of the billing epic, not before.
+
+---
+
 ## Medium priority
 
 ### ✅ Action extraction
@@ -92,6 +262,12 @@ These are not build work — they are operational steps needed right now before 
 ### ✅ Frame auto-generation from first transcript
 **What was built:** `draft-frame.ts` Inngest function, `frame-draft-v1` prompt, migration 0015 (`frame_draft` jsonb + `frame_draft_generated_at` on projects), chained from `ingest-source`. UI shipped by Codex (8b19ede): draft banner in project settings (the app's frame surface) with Accept/Discard controls. `PATCH /api/projects/[projectId]` updated to accept partial updates safely, fixing a latent bug where omitted fields could null settings.
 **Size:** S
+
+### 🔜 Project settings page UX overhaul
+**Why:** The settings page form has broken textarea behaviour (fixed height with scrollbars), misaligned navigation, paired fields at different heights, and a "Suggest from evidence" button that only fills the Research focus section — leaving Project Frame, Operating Style, and GTM Context empty. Post-save, there is no prompt to re-assess existing evidence against the updated criteria.
+**What:** Five targeted fixes: auto-expanding textareas (CSS grid mirror pattern), equal-height paired fields, nav/content alignment at max-w-[780px], expanded "Suggest from evidence" that fills all 9 fields in one AI call, and a persistent post-save banner with a "Re-assess now" action that fires a new `regrade-evidence` Inngest function. New route: `POST /api/projects/[projectId]/regrade`.
+**Reference:** `CODEX_BRIEF_PROJECT_SETTINGS_UX.md` — full spec with implementation patterns for each fix.
+**Size:** M
 
 ### 💡 Adjacent signal routing UI
 **Why:** When Claude detects that a signal from one transcript is relevant to a different project, it sets `adjacent_project_hint` in the evidence metadata. But there's no UI to surface or act on this.
@@ -149,6 +325,12 @@ Settings are read by the LLM prompt builder at compose and ingest time. Writing 
 **To activate:** Apply migration 0020 in Supabase, then `INSERT INTO super_admins (user_id, granted_by) VALUES ('<jimmy_uuid>', '<jimmy_uuid>')` via service role.
 **Size:** M
 
+### ⏸ Bring Your Own Key (BYOK) — enterprise / power-user option
+**Why:** Some customers (larger teams, enterprises) already have their own Anthropic or OpenAI accounts and will prefer to use them. BYOK means their API calls don't touch your Anthropic account at all — your LLM cost for those orgs drops to zero, making their sessions almost pure margin.
+**How it works:** Owner pastes their API key into org settings. App stores it encrypted (Supabase vault or similar). All LLM calls for that org use the customer's key instead of the platform key. Customer pays Anthropic directly; they don't pay session credits for LLM-heavy operations (though a reduced platform fee still applies to cover Supabase/support).
+**Why parked:** Adds friction at signup and requires maintaining two code paths in the LLM client. Not worth it until the standard managed-account model is proven and there's a specific enterprise customer asking for it. Revisit when the first customer raises it.
+**Size:** M
+
 ### ⏸ GTM cascade
 **Why:** After each ingest, beta candidate signals and outreach gaps should propagate automatically to GTM artifacts. Important for closing the loop from discovery to sales motion.
 **What:** After ingest, check for positive evidence with beta interest signals → update beta candidate table → flag missing outreach drafts → optionally sync to CRM/Confluence.
@@ -203,4 +385,13 @@ Settings are read by the LLM prompt builder at compose and ingest time. Writing 
 
 ---
 
-*Last updated: May 2026. Maintained alongside CLAUDE.md — if a feature is built, mark it ✅ here.*
+---
+
+## Recommended sequencing (locked 2026-06-04)
+
+1. **Close Milestone 0** — confirm member sign-in (awaiting email rate-limit reset), apply 0025, accept-invite hardening (Codex).
+2. **#9 inline editing + #14 MD→HTML** — both S-sized, brief Codex together. #14 is a hard prerequisite for AI-Improve; #9 is a quick UX win.
+3. **Billing epic** — the critical path to revenue (17–19 engineering days). Start immediately after M0 closes.
+4. **AI-Improve thin slice** — builds in parallel with or immediately after #14 lands. M-sized. Gate 4: Jimmy validates on real content before rolling to next surface.
+
+*Last updated: 2026-06-04. Maintained alongside CLAUDE.md — if a feature is built, mark it ✅ here.*

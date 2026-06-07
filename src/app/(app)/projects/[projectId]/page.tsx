@@ -99,8 +99,8 @@ function activityPulse(runs: ActivityRun[]) {
 }
 
 function confidenceClasses(confidence: ProjectOpportunityConfidence) {
-  if (confidence === "high") return "border-green-500/20 bg-green-500/10 text-green-300";
-  if (confidence === "medium") return "border-yellow-500/20 bg-yellow-500/10 text-yellow-300";
+  if (confidence === "high") return "border-pos/20 bg-pos-bg text-pos";
+  if (confidence === "medium") return "border-warn/20 bg-warn-bg text-warn";
   return "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
 }
 
@@ -331,9 +331,9 @@ export default async function ProjectPage({ params }: Props) {
         <div
           className={`mb-5 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium ${
             pulse.tone === "attention"
-              ? "border-red-500/20 bg-red-500/10 text-red-200"
+              ? "border-neg/20 bg-neg-bg text-neg"
               : pulse.tone === "running"
-              ? "border-[var(--brand)] bg-[rgba(124,109,250,0.10)] text-[var(--ink)]"
+              ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--ink)]"
               : "border-[var(--border)] bg-[var(--surface-1)] text-[var(--ink-muted)]"
           }`}
         >
@@ -349,11 +349,11 @@ export default async function ProjectPage({ params }: Props) {
         <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
           <span className="text-[var(--ink-muted)]">{evidenceCount} evidence</span>
           <span className="text-[var(--ink-faint)]">·</span>
-          <span className="text-green-400">{trustedCount ?? 0} trusted</span>
+          <span className="text-pos">{trustedCount ?? 0} trusted</span>
           <span className="text-[var(--ink-faint)]">·</span>
           <Link
             href={`/projects/${project.id}/evidence`}
-            className={`transition-colors hover:text-[var(--ink)] ${(pendingCount ?? 0) > 0 ? "text-yellow-400" : "text-[var(--ink-muted)]"}`}
+            className={`transition-colors hover:text-[var(--ink)] ${(pendingCount ?? 0) > 0 ? "text-warn" : "text-[var(--ink-muted)]"}`}
           >
             {pendingCount ?? 0} needs review
           </Link>
@@ -432,7 +432,7 @@ export default async function ProjectPage({ params }: Props) {
             </div>
 
             {synthesisRunning ? (
-              <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/10 px-3 py-2 text-xs font-medium text-yellow-300">
+              <div className="rounded-lg border border-warn/20 bg-warn-bg px-3 py-2 text-xs font-medium text-warn">
                 Synthesis is updating themes.
               </div>
             ) : project.synthesis_stale || (themeRows.length === 0 && trustedTotal > 0) ? (
@@ -456,7 +456,7 @@ export default async function ProjectPage({ params }: Props) {
 
       {/* Research gaps */}
       {gapSignals && gapSignals.length > 0 && (
-        <section className="mb-8 rounded-xl border border-yellow-500/20 bg-[var(--surface-1)] p-5">
+        <section className="mb-8 rounded-xl border border-warn/20 bg-[var(--surface-1)] p-5">
           <h2 className="text-sm font-semibold text-[var(--ink)]">Research gaps</h2>
           <p className="mt-1 text-xs text-[var(--ink-muted)]">
             Areas from your project frame with little or no evidence coverage
@@ -470,9 +470,9 @@ export default async function ProjectPage({ params }: Props) {
                 <div className="flex items-start gap-2">
                   <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
                     gap.severity === "high"
-                      ? "bg-red-900/30 text-red-400"
+                      ? "bg-neg-bg text-neg"
                       : gap.severity === "medium"
-                      ? "bg-yellow-900/30 text-yellow-400"
+                      ? "bg-warn-bg text-warn"
                       : "bg-[var(--surface-2)] text-[var(--ink-muted)]"
                   }`}>
                     {gap.severity}
@@ -575,7 +575,7 @@ export default async function ProjectPage({ params }: Props) {
                         <input type="hidden" name="status" value="dismissed" />
                         <button
                           type="submit"
-                          className="rounded-lg border border-red-500/20 px-3 py-2 text-xs font-medium text-red-300 transition-colors hover:border-red-400/50 hover:bg-red-500/10"
+                          className="rounded-lg border border-neg/20 px-3 py-2 text-xs font-medium text-neg transition-colors hover:border-neg/50 hover:bg-neg-bg"
                         >
                           Dismiss
                         </button>

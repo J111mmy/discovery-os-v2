@@ -2,42 +2,351 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   DiscOS — design tokens + base reset
+   Phase 0: token swap. Navy dark + soft-grey light.
+   Indigo #5b63f0 accent — CTAs only.
+   Prototype source: New DiscOS app design/styles.css
+   ============================================================ */
+
+/* ── Theme-invariant root ────────────────────────────────────── */
 :root {
-  --surface-0: #0d0d10;
-  --surface-1: #141418;
-  --surface-2: #1c1c22;
-  --surface-3: #25252d;
-  --brand: #7c6dfa;
-  --brand-dim: #5a4fd4;
-  --tone-ok: #4ade80;
-  --tone-warn: #facc15;
-  --tone-error: #f87171;
-  --tone-info: #60a5fa;
-  --ink: #e8e8f0;
-  --ink-muted: #9090a8;
-  --ink-faint: #5a5a72;
-  --border: rgba(255,255,255,0.07);
+  /* Font families — vars populated by next/font at runtime */
+  --font-sans:  var(--font-geist-sans),  -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono:  var(--font-geist-mono),  ui-monospace, "SF Mono", Menlo, monospace;
+  --font-serif: var(--font-newsreader),  Georgia, "Times New Roman", serif;
+
+  /* Radii */
+  --r-xs:   3px;
+  --r-sm:   6px;
+  --r-md:   8px;
+  --r-lg:   10px;
+  --r-xl:   14px;
+  --r-full: 999px;
+
+  /* Spacing scale */
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px; --s5: 20px;
+  --s6: 24px; --s7: 32px; --s8: 40px; --s9: 56px; --s10: 72px;
+
+  /* Accent — indigo, one colour, one use: btn-primary only */
+  --accent:       #5b63f0;
+  --accent-hover: #4a52e6;
+  --accent-press: #3f47d4;
+  --accent-ink:   #ffffff;
+  --accent-soft:  rgba(91, 99, 240, 0.14);
+
+  /* Ease curve */
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* ── Migration aliases (theme-invariant) ──
+     Keep old var names alive so existing inline Tailwind
+     arbitrary values don't break during Phase 1/2 migration.
+     Remove these after Phase 2 is complete.
+  */
+  --brand:     var(--accent);
+  --brand-dim: var(--accent-hover);
 }
 
-* { box-sizing: border-box; }
+/* ── Dark theme (navy) — default ────────────────────────────── */
+[data-theme="dark"] {
+  --bg:           #0b1124;
+  --bg-grad-1:    #0c1430;
+  --bg-grad-2:    #0a0f20;
+  --surface:      #111a33;
+  --surface-2:    #15203d;
+  --surface-3:    #1b2949;
+  --surface-hover:#1a2647;
+  --line:         rgba(255, 255, 255, 0.08);
+  --line-strong:  rgba(255, 255, 255, 0.14);
+
+  --ink:       #eef1fa;
+  --ink-2:     #aab3cf;
+  --ink-3:     #717d9e;
+  --ink-faint: #4d587a;
+
+  --sel:      rgba(255, 255, 255, 0.06);
+  --sel-line: rgba(255, 255, 255, 0.10);
+
+  /* Semantic */
+  --pos:  #2fb574;
+  --warn: #d8a13a;
+  --neg:  #e0594f;
+  --info: #4a9fe0;
+
+  /* Semantic backgrounds */
+  --pos-bg:  rgba(47, 181, 116, 0.14);
+  --warn-bg: rgba(216, 161, 58, 0.15);
+  --neg-bg:  rgba(224, 89, 79, 0.15);
+  --info-bg: rgba(74, 159, 224, 0.15);
+
+  /* Shadows */
+  --shadow-sm:  0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md:  0 8px 24px -8px rgba(0, 0, 0, 0.55);
+  --shadow-lg:  0 24px 60px -16px rgba(0, 0, 0, 0.65);
+  --shadow-pop: 0 16px 48px -12px rgba(0, 0, 0, 0.7);
+
+  /* Document paper */
+  --doc-bg:    #0e1730;
+  --doc-paper: #131d39;
+
+  /* Nav active sub-item bg */
+  --nav-active-bg: rgba(0, 0, 0, 0.50);
+
+  color-scheme: dark;
+
+  /* ── Migration aliases (theme-scoped) ── */
+  --surface-0: var(--bg);
+  --surface-1: var(--surface);
+  --border:    var(--line);
+  --ink-muted: var(--ink-2);
+  --tone-ok:    var(--pos);
+  --tone-warn:  var(--warn);
+  --tone-error: var(--neg);
+  --tone-info:  var(--info);
+}
+
+/* ── Light theme (soft grey — never harsh white) ────────────── */
+[data-theme="light"] {
+  --bg:           #eef0f5;
+  --bg-grad-1:    #f2f3f8;
+  --bg-grad-2:    #e8eaf1;
+  --surface:      #ffffff;
+  --surface-2:    #f7f8fc;
+  --surface-3:    #eef0f7;
+  --surface-hover:#f1f3f9;
+  --line:         rgba(20, 28, 56, 0.10);
+  --line-strong:  rgba(20, 28, 56, 0.16);
+
+  --ink:       #1a2138;
+  --ink-2:     #4a5474;
+  --ink-3:     #717c9b;
+  --ink-faint: #9aa3bd;
+
+  --sel:      rgba(40, 52, 96, 0.05);
+  --sel-line: rgba(40, 52, 96, 0.10);
+
+  /* Semantic (slightly adjusted for light) */
+  --pos:  #1f9a64;
+  --warn: #b6862a;
+  --neg:  #d24a40;
+  --info: #3a8cd2;
+
+  /* Semantic backgrounds */
+  --pos-bg:  rgba(38, 160, 100, 0.13);
+  --warn-bg: rgba(190, 138, 38, 0.15);
+  --neg-bg:  rgba(208, 74, 64, 0.12);
+  --info-bg: rgba(58, 140, 210, 0.13);
+
+  /* Shadows */
+  --shadow-sm:  0 1px 2px rgba(30, 40, 80, 0.06);
+  --shadow-md:  0 10px 30px -12px rgba(30, 40, 80, 0.18);
+  --shadow-lg:  0 24px 60px -18px rgba(30, 40, 80, 0.22);
+  --shadow-pop: 0 16px 44px -12px rgba(30, 40, 80, 0.22);
+
+  /* Document paper */
+  --doc-bg:    #f4f5fa;
+  --doc-paper: #ffffff;
+
+  /* Nav active sub-item bg */
+  --nav-active-bg: rgba(20, 28, 56, 0.10);
+
+  color-scheme: light;
+
+  /* ── Migration aliases (theme-scoped) ── */
+  --surface-0: var(--bg);
+  --surface-1: var(--surface);
+  --border:    var(--line);
+  --ink-muted: var(--ink-2);
+  --tone-ok:    var(--pos);
+  --tone-warn:  var(--warn);
+  --tone-error: var(--neg);
+  --tone-info:  var(--info);
+}
+
+/* ── Base reset ──────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
 
 html, body {
-  background: var(--surface-0);
-  color: var(--ink);
-  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
   margin: 0;
   padding: 0;
   height: 100%;
 }
 
-::selection {
-  background: var(--brand);
-  color: #fff;
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 3px; }
+button  { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+input, textarea, select { font-family: inherit; }
+a { color: inherit; text-decoration: none; }
+
+::selection { background: var(--accent-soft); }
+
+/* ── Scrollbars ──────────────────────────────────────────────── */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-faint);
+  background-clip: content-box;
+}
+
+/* ── Focus ring ──────────────────────────────────────────────── */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ── Utility classes ─────────────────────────────────────────── */
+.mono  { font-family: var(--font-mono); }
+.serif { font-family: var(--font-serif); }
+.kbd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--ink-3);
+}
+
+/* ── Animations ──────────────────────────────────────────────── */
+@keyframes fadeIn  { from { opacity: 0; }                              to { opacity: 1; } }
+@keyframes fadeUp  { from { opacity: 0; transform: translateY(8px); }  to { opacity: 1; transform: none; } }
+@keyframes popIn   { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes slideL  { from { transform: translateX(100%); }             to { transform: none; } }
+@keyframes barGrow { from { width: 0; } }
+@keyframes spin    { to   { transform: rotate(360deg); } }
+@keyframes shimmer { 100% { background-position: 200% 0; } }
+@keyframes dots3 {
+  0%   { content: ""; }
+  25%  { content: "."; }
+  50%  { content: ".."; }
+  75%  { content: "..."; }
+}
+
+.spin      { display: inline-block; animation: spin 0.8s linear infinite; }
+.dots3::after { content: "…"; animation: dots3 1.2s steps(4, end) infinite; }
+
+/* ── Shell layout (Phase 1) ──────────────────────────────────── */
+
+/* Outer wrapper: full viewport, no scroll */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+/* Impersonation banner */
+.impersonation-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #dc2626;
+  padding: 6px 20px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+  flex-shrink: 0;
+  z-index: 40;
+}
+.impersonation-exit-btn {
+  border-radius: 5px;
+  border: 1px solid rgba(255,255,255,0.4);
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+.impersonation-exit-btn:hover { background: rgba(255,255,255,0.15); }
+
+/* Rail + content row */
+.app-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Scrollable content column */
+.app-content {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+/* Mobile elements — hidden on desktop */
+.mobile-top-bar { display: none; }
+.mobile-tab-bar { display: none; }
+.mobile-fab     { display: none !important; }
+
+/* ── Mobile breakpoint (< 860px) ────────────────────────────── */
+@media (max-width: 860px) {
+  /* Hide desktop rail */
+  .rail-expanded,
+  .rail-collapsed { display: none !important; }
+
+  /* Sticky mobile header */
+  .mobile-top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 54px;
+    padding: 0 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    z-index: 30;
+  }
+
+  /* Bottom tab bar */
+  .mobile-tab-bar {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+    z-index: 30;
+  }
+
+  /* FAB */
+  .mobile-fab {
+    display: grid !important;
+  }
+
+  /* Push content away from fixed bars */
+  .app-content {
+    padding-top: 54px;
+    padding-bottom: 56px;
+  }
+}
+
+/* ── Respect reduced-motion ──────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

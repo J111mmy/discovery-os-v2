@@ -146,7 +146,7 @@ export function FrameDraftBanner({
       </dl>
 
       {state === "error" && (
-        <p className="mt-3 text-xs text-red-300">Something went wrong. Please try again.</p>
+        <p className="mt-3 text-xs text-neg">Something went wrong. Please try again.</p>
       )}
 
       <p className="mt-4 text-xs text-[var(--ink-faint)]">

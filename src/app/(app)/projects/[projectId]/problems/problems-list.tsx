@@ -66,9 +66,9 @@ function sortProblems(problems: ProblemRow[]) {
 function SeverityPill({ severity }: { severity: ProblemSeverity }) {
   const classes =
     severity === "high"
-      ? "border-red-500/20 bg-red-500/10 text-red-300"
+      ? "border-neg/20 bg-neg-bg text-neg"
       : severity === "medium"
-      ? "border-yellow-500/20 bg-yellow-500/10 text-yellow-300"
+      ? "border-warn/20 bg-warn-bg text-warn"
       : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
 
   return (

@@ -82,12 +82,12 @@ export function SourceActions({
           type="button"
           onClick={deleteSource}
           disabled={isRetrying || isDeleting}
-          className="rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:border-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg border border-neg/20 px-3 py-1.5 text-xs font-medium text-neg transition-colors hover:border-neg disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isDeleting ? "Deleting..." : "Delete"}
         </button>
       </div>
-      {error && <div className="text-xs text-red-300">{error}</div>}
+      {error && <div className="text-xs text-neg">{error}</div>}
     </div>
   );
 }

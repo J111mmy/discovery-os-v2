@@ -311,6 +311,7 @@ export interface Artifact {
   title: string;
   prompt: string;
   content_md: string;
+  content_html: string | null;
   version: number;
   word_count: number | null;
   model_used: string | null;
@@ -354,6 +355,7 @@ export interface ArtifactVersion {
   org_id: string;
   version: number;
   content_md: string;
+  content_html: string | null;
   saved_by: string | null;
   saved_at: string;
 }
