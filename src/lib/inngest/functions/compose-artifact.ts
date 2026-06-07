@@ -5,6 +5,8 @@
 import { inngest } from "../client";
 import { createServiceClient } from "@/lib/supabase/server";
 import { composeDraft } from "@/lib/compose/draft";
+import { ArtifactHtmlValidationError } from "@/lib/sanitize/artifact-html";
+import { markdownToSanitizedArtifactHtml } from "@/lib/sanitize/artifact-markdown";
 
 function parseMarkdownSections(markdown: string): Array<{ heading: string; content: string }> {
   const lines = markdown.split("\n");
@@ -53,12 +55,23 @@ export const composeArtifact = inngest.createFunction(
           "",
           ...draft.sections.map((s) => `## ${s.heading}\n\n${s.content}`),
         ].join("\n\n");
+        let contentHtml: string;
+
+        try {
+          contentHtml = markdownToSanitizedArtifactHtml(contentMd);
+        } catch (error) {
+          if (error instanceof ArtifactHtmlValidationError) {
+            throw new Error("Generated artifact content did not satisfy the HTML safety contract.");
+          }
+          throw error;
+        }
 
         const { error } = await supabase
           .from("artifacts")
           .update({
             title: draft.title,
             content_md: contentMd,
+            content_html: contentHtml,
             word_count: wordCount(contentMd),
             model_used: draft.model_used,
             task_tier: draft.task_tier,
