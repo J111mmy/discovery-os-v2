@@ -1,5 +1,7 @@
 # Codex Brief — Evidence Grading Backfill
 
+> ⛔ **SECURITY GATE APPLIES (non-negotiable).** Before committing/pushing any change to auth, RLS/migrations, public routes, middleware, or service-role usage, post the diff and wait for Opus's written **APPROVED**. See `AGENTS.md` → "SECURITY REVIEW GATE". This overrides anything below.
+
 ## Problem
 
 The AI evidence grading feature runs automatically on new ingest. But existing evidence records (ingested before grading was deployed) have `ai_trust_grade = NULL` and `trust_scope = 'pending'`. They show as "Needs review" and will never be graded automatically. We need a one-click backfill in the admin panel to grade them.

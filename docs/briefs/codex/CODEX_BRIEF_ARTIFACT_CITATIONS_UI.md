@@ -1,5 +1,7 @@
 # Codex Brief — Artifact Citation Chips
 
+> ⛔ **SECURITY GATE APPLIES (non-negotiable).** Before committing/pushing any change to auth, RLS/migrations, public routes, middleware, or service-role usage, post the diff and wait for Opus's written **APPROVED**. See `AGENTS.md` → "SECURITY REVIEW GATE". This overrides anything below.
+
 ## Goal
 
 Composed documents now contain inline `[N]` citation markers that link back to specific evidence records. This brief makes those markers visible and interactive in the artifact detail page — so readers can tap any citation number to see exactly which source the claim came from.

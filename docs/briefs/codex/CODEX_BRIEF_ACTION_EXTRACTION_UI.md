@@ -1,5 +1,7 @@
 # Codex brief: Action extraction UI
 
+> ⛔ **SECURITY GATE APPLIES (non-negotiable).** Before committing/pushing any change to auth, RLS/migrations, public routes, middleware, or service-role usage, post the diff and wait for Opus's written **APPROVED**. See `AGENTS.md` → "SECURITY REVIEW GATE". This overrides anything below.
+
 **Size:** S
 **Depends on:** Migration `0017_actions_and_requests.sql` must be applied.
 **New API routes needed:** Two GET endpoints — see Task 1.

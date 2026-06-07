@@ -1,5 +1,7 @@
 # Codex Brief — Competitor Profiles UI
 
+> ⛔ **SECURITY GATE APPLIES (non-negotiable).** Before committing/pushing any change to auth, RLS/migrations, public routes, middleware, or service-role usage, post the diff and wait for Opus's written **APPROVED**. See `AGENTS.md` → "SECURITY REVIEW GATE". This overrides anything below.
+
 ## Goal
 
 Build the competitor detail page and wire up the on-demand digest refresh button. Competitors already have `positioning`, `known_strengths`, `known_gaps`, and `last_researched` columns from migration 0006. Migration 0018 adds `digest`, `digest_updated_at`, and `battle_card` (jsonb). The Inngest backend (`synthesise-competitor.ts`) writes all of these on demand and automatically after each ingest.

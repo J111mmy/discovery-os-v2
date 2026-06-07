@@ -1,5 +1,7 @@
 # Codex Brief — Vercel Deployment + Logout Button
 
+> ⛔ **SECURITY GATE APPLIES (non-negotiable).** Before committing/pushing any change to auth, RLS/migrations, public routes, middleware, or service-role usage, post the diff and wait for Opus's written **APPROVED**. See `AGENTS.md` → "SECURITY REVIEW GATE". This overrides anything below.
+
 ## Goal
 Get Discovery OS v2 live on Vercel and add a logout button to the app nav.
 

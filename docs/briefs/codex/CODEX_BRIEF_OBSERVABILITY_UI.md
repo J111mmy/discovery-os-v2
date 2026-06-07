@@ -1,5 +1,7 @@
 # Codex Brief — Intelligence Processing UI
 
+> ⛔ **SECURITY GATE APPLIES (non-negotiable).** Before committing/pushing any change to auth, RLS/migrations, public routes, middleware, or service-role usage, post the diff and wait for Opus's written **APPROVED**. See `AGENTS.md` → "SECURITY REVIEW GATE". This overrides anything below.
+
 ## Goal
 
 After a user uploads a source, show them that something meaningful is happening — but without revealing any backend mechanics, agent names, or internal pipeline structure. The UI should feel **magical and purposeful**, not technical. Think of it like a progress experience in a premium app: you feel cared for and informed, not overwhelmed by system detail.

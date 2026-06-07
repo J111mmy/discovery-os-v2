@@ -1,5 +1,7 @@
 # Codex brief: Session review UI surface
 
+> ⛔ **SECURITY GATE APPLIES (non-negotiable).** Before committing/pushing any change to auth, RLS/migrations, public routes, middleware, or service-role usage, post the diff and wait for Opus's written **APPROVED**. See `AGENTS.md` → "SECURITY REVIEW GATE". This overrides anything below.
+
 **Size:** S — one focused chunk
 **Depends on:** The session review Inngest function (already built by Claude). No migration required.
 
