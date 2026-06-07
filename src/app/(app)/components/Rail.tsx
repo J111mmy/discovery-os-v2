@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { CmdK } from "./CmdK";
 
 // ── Types ──────────────────────────────────────────────────────────
 export interface RailProject {
@@ -316,6 +317,7 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
   const [collapsed, setCollapsed] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [newProjOpen, setNewProjOpen] = useState(false);
+  const [cmdkOpen, setCmdkOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>("dark");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -357,6 +359,18 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
   // The "open" project: URL-based when on a project route, otherwise last visited
   const openProjectId = activeProjectId ?? lastProjectId;
   const openProject = projects.find((p) => p.id === openProjectId) ?? null;
+
+  // Global ⌘K / Ctrl+K — open command palette from anywhere
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setCmdkOpen((o) => !o);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   // Close avatar popover on outside click
   useEffect(() => {
@@ -508,6 +522,12 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
         </div>
 
         {newProjOpen && <NewProjectModal onClose={() => setNewProjOpen(false)} />}
+        <CmdK
+          open={cmdkOpen}
+          onClose={() => setCmdkOpen(false)}
+          projectId={openProjectId}
+          projectName={openProject?.name ?? null}
+        />
       </>
     );
   }
@@ -542,8 +562,10 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
           >
             <IcoChevronLeft size={13} />
           </button>
-          {/* Search bar — visual affordance only (⌘K wires in Phase 2) */}
+          {/* Search bar — opens ⌘K palette */}
           <button
+            onClick={() => setCmdkOpen(true)}
+            aria-label="Open command palette (⌘K)"
             style={{
               flex: 1, display: "flex", alignItems: "center", gap: 7,
               padding: "5px 9px", borderRadius: 7,
@@ -895,6 +917,12 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
       )}
 
       {newProjOpen && <NewProjectModal onClose={() => setNewProjOpen(false)} />}
+      <CmdK
+        open={cmdkOpen}
+        onClose={() => setCmdkOpen(false)}
+        projectId={openProjectId}
+        projectName={openProject?.name ?? null}
+      />
     </>
   );
 }
