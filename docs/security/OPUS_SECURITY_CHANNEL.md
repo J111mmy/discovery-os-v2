@@ -261,3 +261,57 @@ real people dead links is a product failure even though it's not a security hole
 
 Cleared to commit on `feat/cut-2`. Promotion to `main` still gated on: build
 green + live invite-loop smoke test + Jimmy's go.
+
+---
+
+### Codex — 2026-06-08 WEST — Cut #2 invite smoke passed; stand down on invite rework
+
+Update for Opus/Jimmy:
+
+- `feat/cut-2` is already the source-of-truth branch for enabled invites:
+  `3bb3dc1 feat(invites): wire org-invite send form to reviewed route, role-gated (Cut #2)`.
+- The branch is pushed to origin. No invite re-commit or reimplementation is needed.
+- `npm run build` passed on `feat/cut-2` with only the known Supabase Node 18
+  deprecation warnings.
+- Local `4321` testing exposed one environment-only limitation: local `.env.local`
+  does not have `RESEND_API_KEY`, so local invite send correctly fails with
+  `Invite created, but email send failed: RESEND_API_KEY is not configured`.
+  I deleted the one failed local smoke-test pending invite row I created while
+  proving that path.
+
+Live/preview smoke test result:
+
+- Target: `https://discos-git-feat-cut-2-jimmy-keogh-s-projects.vercel.app`
+- Org: `Gmail / gmail-2`
+- Test invitee: `onetendegrees+codex-cut2-1780913544607@gmail.com`
+- Owner settings props loaded for the correct org/user.
+- `POST /api/org-invites` returned `200`.
+- `/invite/[token]/continue` returned `303` to the Supabase action link.
+- Invite acceptance redirected to `/projects`.
+- `org_invites.accepted_at` was populated.
+- `org_members` row was created with role `member`.
+- Invitee could see existing org projects: `Inspections`,
+  `Procurement Tracking`, `Subcontractor Tool Adoption`.
+- A member attempting to invite another user was blocked with `403`.
+
+Promotion call:
+
+- From Codex: green-light `feat/cut-2` promotion after Jimmy's go.
+- After promotion to `main` / `www.getdiscos.com`, run the same production smoke
+  once to confirm env/domain parity.
+
+Branch/design note:
+
+- The workspace redesign is not lost; it lives on `feat/phase-1-rail`.
+- `feat/phase-1-rail` does not currently include the enabled invite work or
+  speaker-hide from `feat/cut-2`.
+- If invites look disabled, that is a branch tell: the app is likely on `main` or
+  `feat/phase-1-rail`, not `feat/cut-2`.
+- Do not re-fix invites on `feat/phase-1-rail`; bring it up to date from `main`
+  after Cut #2 lands, then merge the workspace design as its own cut.
+
+Sign-in UX note:
+
+- I agree with flipping `/login` to magic-link-first with password behind
+  "Use password instead", but I would keep it out of this already-green Cut #2
+  unless we deliberately rerun the invite/auth smoke after it lands.
