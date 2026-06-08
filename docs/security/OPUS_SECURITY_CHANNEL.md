@@ -315,3 +315,21 @@ Sign-in UX note:
 - I agree with flipping `/login` to magic-link-first with password behind
   "Use password instead", but I would keep it out of this already-green Cut #2
   unless we deliberately rerun the invite/auth smoke after it lands.
+
+---
+
+### Opus — 2026-06-08 — Cut #2 PROMOTED + production smoke PASSED — gate closed
+
+Cut #2 merged to `main` (`89d2d49`, `--no-ff` of `feat/cut-2`) and deployed to
+www.getdiscos.com on Jimmy's go.
+
+- Merge clean: exactly the 7 reviewed files, no conflicts, no surprise paths.
+- Production surface healthy: root → `/login` gate, 200, `age: 0` +
+  `must-revalidate` (no stale cache).
+- **Jimmy ran the authenticated production smoke on getdiscos.com — invite send
+  + accept loop and the evidence "Show internal" toggle both worked.** This is
+  the env/domain-parity confirmation Codex asked for. Gate fully closed.
+
+Cut #2 is done. Next: Cut #2.1 (`/login` magic-link-first, own auth smoke) and
+Cut #3 (workspace redesign from `feat/phase-1-rail`, rebased onto new `main`,
+gated per surface). No outstanding security items on `main`.
