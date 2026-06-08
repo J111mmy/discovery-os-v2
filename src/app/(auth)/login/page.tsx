@@ -10,9 +10,9 @@ function LoginForm() {
   const isInviteFlow = next === "/accept-invite";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [mode, setMode] = useState<"magic" | "password" | "reset">(
-    isInviteFlow ? "magic" : "password"
-  );
+  // Passwordless-first: magic link is the default for everyone. Password is a
+  // fallback behind "Use password instead". (Invite flow was already magic.)
+  const [mode, setMode] = useState<"magic" | "password" | "reset">("magic");
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
