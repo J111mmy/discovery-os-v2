@@ -1,10 +1,12 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 // ── Types ──────────────────────────────────────────────────────────────
 type Theme = "dark" | "light";
 type Tab = "appearance" | "team" | "billing";
+type InviteRole = "member" | "admin";
 
 interface Member {
   id: string;
@@ -26,6 +28,7 @@ interface SettingsClientProps {
   orgId: string;
   orgName: string;
   userEmail: string;
+  currentUserRole: string | null;
   members: Member[];
   invites: Invite[];
 }
@@ -96,11 +99,20 @@ export function SettingsClient({
   orgId,
   orgName,
   userEmail,
+  currentUserRole,
   members,
   invites,
 }: SettingsClientProps) {
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("appearance");
   const [theme, setTheme] = useState<Theme>("dark");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<InviteRole>("member");
+  const [isSubmittingInvite, setIsSubmittingInvite] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
+
+  const canInvite = currentUserRole === "owner" || currentUserRole === "admin";
 
   // Sync theme from document on mount
   useEffect(() => {
@@ -115,6 +127,52 @@ export function SettingsClient({
     setTheme(next);
     localStorage.setItem("discos-theme", next);
     document.documentElement.setAttribute("data-theme", next);
+  }
+
+  function errorMessageFromPayload(payload: unknown, fallback: string): string {
+    if (
+      payload &&
+      typeof payload === "object" &&
+      "error" in payload &&
+      typeof payload.error === "string"
+    ) {
+      return payload.error;
+    }
+
+    return fallback;
+  }
+
+  async function submitInvite(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const email = inviteEmail.trim();
+    if (!email || !canInvite || !orgId) return;
+
+    setIsSubmittingInvite(true);
+    setInviteError(null);
+    setInviteSuccess(null);
+
+    try {
+      const response = await fetch("/api/org-invites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ org_id: orgId, email, role: inviteRole }),
+      });
+
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(errorMessageFromPayload(payload, `Could not send invite (${response.status}).`));
+      }
+
+      setInviteEmail("");
+      setInviteRole("member");
+      setInviteSuccess(`Invite sent to ${email}.`);
+      router.refresh();
+    } catch (error) {
+      setInviteError(error instanceof Error ? error.message : "Could not send invite.");
+    } finally {
+      setIsSubmittingInvite(false);
+    }
   }
 
   const TABS: { id: Tab; label: string }[] = [
@@ -266,61 +324,66 @@ export function SettingsClient({
             )}
           </Section>
 
-          {/* Invite — coming soon */}
+          {/* Invite */}
           <Section title="Invite someone">
-            <div style={{ display: "flex", flexDirection: "column", gap: 14, opacity: 0.55, pointerEvents: "none", userSelect: "none" }}>
-              <div style={{ display: "flex", gap: 10 }}>
-                <div style={{ flex: 1 }}>
-                  <label style={labelStyle}>Email address</label>
-                  <input
-                    type="email"
-                    disabled
-                    placeholder="colleague@example.com"
-                    style={inputStyle}
-                    tabIndex={-1}
-                  />
+            {canInvite ? (
+              <form onSubmit={submitInvite} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={labelStyle}>Email address</label>
+                    <input
+                      type="email"
+                      value={inviteEmail}
+                      onChange={(event) => setInviteEmail(event.target.value)}
+                      placeholder="colleague@example.com"
+                      required
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div style={{ width: 140 }}>
+                    <label style={labelStyle}>Role</label>
+                    <select
+                      value={inviteRole}
+                      onChange={(event) => setInviteRole(event.target.value as InviteRole)}
+                      style={inputStyle}
+                    >
+                      <option value="member">Member</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </div>
                 </div>
-                <div style={{ width: 140 }}>
-                  <label style={labelStyle}>Role</label>
-                  <select disabled style={{ ...inputStyle, cursor: "not-allowed" }} tabIndex={-1}>
-                    <option value="member">Member</option>
-                  </select>
+                <div>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingInvite || !inviteEmail.trim() || !orgId}
+                    style={{
+                      padding: "9px 20px", borderRadius: "var(--r-sm)",
+                      background: "var(--brand)", color: "#fff",
+                      fontWeight: 580, fontSize: 13.5,
+                      cursor: isSubmittingInvite || !inviteEmail.trim() || !orgId ? "not-allowed" : "pointer",
+                      border: "1px solid transparent", fontFamily: "inherit",
+                      opacity: isSubmittingInvite || !inviteEmail.trim() || !orgId ? 0.6 : 1,
+                    }}
+                  >
+                    {isSubmittingInvite ? "Sending..." : "Send invite"}
+                  </button>
                 </div>
-              </div>
-              <div>
-                <button
-                  disabled
-                  style={{
-                    padding: "9px 20px", borderRadius: "var(--r-sm)",
-                    background: "var(--surface-3)", color: "var(--ink-3)",
-                    fontWeight: 580, fontSize: 13.5, cursor: "not-allowed",
-                    border: "1px solid var(--line)", fontFamily: "inherit",
-                  }}
-                >
-                  Send invite
-                </button>
-              </div>
-            </div>
-            <div style={{
-              marginTop: 14,
-              padding: "10px 14px",
-              borderRadius: "var(--r-sm)",
-              background: "var(--surface-2)",
-              border: "1px solid var(--line)",
-              display: "flex", alignItems: "center", gap: 8,
-            }}>
-              <span style={{
-                fontSize: 10, fontWeight: 700, letterSpacing: ".07em",
-                textTransform: "uppercase", padding: "2px 7px",
-                borderRadius: 999, background: "var(--warn-bg)", color: "var(--warn)",
-                flexShrink: 0,
-              }}>
-                Coming soon
-              </span>
-              <span style={{ fontSize: 12.5, color: "var(--ink-3)" }}>
-                Org-scoped invites are not yet wired. This will be enabled in an upcoming release.
-              </span>
-            </div>
+                {inviteError && (
+                  <div style={{ fontSize: 12.5, color: "var(--neg)" }}>
+                    {inviteError}
+                  </div>
+                )}
+                {inviteSuccess && (
+                  <div style={{ fontSize: 12.5, color: "var(--pos)" }}>
+                    {inviteSuccess}
+                  </div>
+                )}
+              </form>
+            ) : (
+              <p style={{ margin: 0, fontSize: 13.5, color: "var(--ink-3)" }}>
+                Ask an owner or admin to invite people to this workspace.
+              </p>
+            )}
           </Section>
 
           {/* Pending invites */}

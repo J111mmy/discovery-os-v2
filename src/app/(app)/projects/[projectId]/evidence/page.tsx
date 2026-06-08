@@ -116,28 +116,42 @@ export default async function EvidencePage({ params }: Props) {
 
   if (!project) notFound();
 
-  const [{ count: pendingCount }, { count: trustedCount }, { count: excludedCount }, records] =
-    await Promise.all([
-      supabase
-        .from("evidence")
-        .select("*", { count: "exact", head: true })
-        .eq("org_id", project.org_id)
-        .eq("project_id", project.id)
-        .eq("trust_scope", "pending"),
-      supabase
-        .from("evidence")
-        .select("*", { count: "exact", head: true })
-        .eq("org_id", project.org_id)
-        .eq("project_id", project.id)
-        .eq("trust_scope", "trusted"),
-      supabase
-        .from("evidence")
-        .select("*", { count: "exact", head: true })
-        .eq("org_id", project.org_id)
-        .eq("project_id", project.id)
-        .eq("trust_scope", "excluded"),
-      getRecentEvidence(project.org_id, project.id, "pending"),
-    ]);
+  const [
+    { count: pendingCount },
+    { count: trustedCount },
+    { count: excludedCount },
+    records,
+    { data: internalPeople },
+  ] = await Promise.all([
+    supabase
+      .from("evidence")
+      .select("*", { count: "exact", head: true })
+      .eq("org_id", project.org_id)
+      .eq("project_id", project.id)
+      .eq("trust_scope", "pending"),
+    supabase
+      .from("evidence")
+      .select("*", { count: "exact", head: true })
+      .eq("org_id", project.org_id)
+      .eq("project_id", project.id)
+      .eq("trust_scope", "trusted"),
+    supabase
+      .from("evidence")
+      .select("*", { count: "exact", head: true })
+      .eq("org_id", project.org_id)
+      .eq("project_id", project.id)
+      .eq("trust_scope", "excluded"),
+    getRecentEvidence(project.org_id, project.id, "pending"),
+    supabase
+      .from("people")
+      .select("display_name")
+      .eq("org_id", project.org_id)
+      .eq("affiliation", "internal"),
+  ]);
+
+  const internalSpeakerNames = (internalPeople ?? [])
+    .map((p: { display_name: string | null }) => (p.display_name ?? "").trim().toLowerCase())
+    .filter(Boolean);
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -160,6 +174,7 @@ export default async function EvidencePage({ params }: Props) {
         trustedCount={trustedCount ?? 0}
         excludedCount={excludedCount ?? 0}
         researchContextEmpty={researchContextIsEmpty(project.research_context)}
+        internalSpeakerNames={internalSpeakerNames}
       />
     </div>
   );

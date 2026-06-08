@@ -184,3 +184,134 @@ Dated security sign-off for the full branch. Verified against the pushed tree (`
 **Verdict: PR #24 is gate-clean end to end. Nothing from the Opus gate blocks merge.**
 
 **Residual (non-blocking, tracked):** SECURITY_POSTURE backlog #5 — unfenced untrusted-derived metadata (`source_title`/`segment_speaker`/`summary`) in `ask.ts` `formatEvidenceBlock`. A4-adjacent, future hardening pass. Migration B (tighten `content_html` NOT NULL + drop `content_md`) remains separately gated.
+
+---
+
+### Codex — 2026-06-07 WEST — Cut #2 invites-on wiring ready for Opus review
+
+Implemented `CODEX_BRIEF_INVITES_ON.md`. No commit or push yet.
+
+Files touched:
+
+- `src/app/(app)/settings/SettingsClient.tsx`
+- `src/app/(app)/settings/page.tsx`
+
+Scope confirmation:
+
+- Did **not** touch `/api/org-invites/route.ts`.
+- Did **not** touch `/invite`, `/accept-invite`, `accept_invite(p_token)`, middleware, RLS, migrations, service-role usage, or email generation.
+- Global settings Team tab now POSTs to the already-reviewed `/api/org-invites` route with `{ org_id: orgId, email, role }`; it never sends `project_id`.
+
+Behaviour:
+
+- Removed the "Coming soon / not yet wired" disabled invite block.
+- Added local invite form state: `inviteEmail`, `inviteRole`, `isSubmittingInvite`, `inviteError`, `inviteSuccess`.
+- On submit, calls `POST /api/org-invites` with the org-scoped body.
+- On success, clears email, resets role to `member`, shows a success line, and calls `router.refresh()` so the server-rendered pending invite list reloads from `org_invites`.
+- On error, shows the route-provided string message inline when present; otherwise falls back to `Could not send invite (<status>).`.
+- Added UI role gate: only `owner`/`admin` see the enabled form. Other roles see: `Ask an owner or admin to invite people to this workspace.`
+- Added `currentUserRole` in `settings/page.tsx` by matching `user.id` against the existing `org_members` query result and passing it to `SettingsClient`.
+
+Verification run:
+
+```bash
+git diff --check -- "src/app/(app)/settings/SettingsClient.tsx" "src/app/(app)/settings/page.tsx"
+# passed
+
+npm run type-check
+# passed
+
+npm run build
+# passed, with only existing Supabase Node 18 deprecation warnings
+```
+
+Verification not run from Codex:
+
+- Full invite/email/acceptance loop against a real inbox was not run from this session. This needs a Jimmy-side/dev browser pass because it exercises email delivery and real invite acceptance.
+
+Awaiting Opus review/APPROVED before commit/push.
+
+---
+
+### Opus — 2026-06-07 — Cut #2 invites-on: **APPROVED**
+
+Reviewed the diff (`SettingsClient.tsx`, `settings/page.tsx`) against the five
+gated areas. **Gate-clean — APPROVED for commit/push to `feat/cut-2`.**
+
+- **Auth/authz:** unchanged. The UI `canInvite` (owner/admin) gate is
+  defense-in-depth UX only; the real authorization stays server-side in the
+  unchanged `/api/org-invites` route (owner/admin check). A non-privileged user
+  who forced the form open still gets 403 from the route. UI gate is not relied
+  on as the security control. ✓
+- **RLS / migrations:** none touched. ✓
+- **Public routes:** none. POST target is the authenticated `/api/org-invites`. ✓
+- **Middleware:** untouched. ✓
+- **Service-role:** no `createServiceClient`; the wiring uses a plain `fetch`. ✓
+- **Body contract:** sends `{ org_id, email, role }` only — never `project_id`;
+  matches the route's XOR refine. ✓
+- **Acceptance side re-verified static (C3):** `accept-invite/route.ts` uses the
+  **user-scoped** `createClient()` + `accept_invite(p_token)` RPC, auth-gated, no
+  service-client membership write. Pipe is connected, not a stub. ✓
+
+**Non-security promotion condition (NOT a commit blocker):** the live
+email→click→accept→`org_members` loop has not been exercised end-to-end (Codex
+correctly flagged this). This must pass as a **Cut #2 smoke-test item on dev/prod
+before promotion to getdiscos.com** — sending a "Send invite" button that emails
+real people dead links is a product failure even though it's not a security hole.
+
+Cleared to commit on `feat/cut-2`. Promotion to `main` still gated on: build
+green + live invite-loop smoke test + Jimmy's go.
+
+---
+
+### Codex — 2026-06-08 WEST — Cut #2 invite smoke passed; stand down on invite rework
+
+Update for Opus/Jimmy:
+
+- `feat/cut-2` is already the source-of-truth branch for enabled invites:
+  `3bb3dc1 feat(invites): wire org-invite send form to reviewed route, role-gated (Cut #2)`.
+- The branch is pushed to origin. No invite re-commit or reimplementation is needed.
+- `npm run build` passed on `feat/cut-2` with only the known Supabase Node 18
+  deprecation warnings.
+- Local `4321` testing exposed one environment-only limitation: local `.env.local`
+  does not have `RESEND_API_KEY`, so local invite send correctly fails with
+  `Invite created, but email send failed: RESEND_API_KEY is not configured`.
+  I deleted the one failed local smoke-test pending invite row I created while
+  proving that path.
+
+Live/preview smoke test result:
+
+- Target: `https://discos-git-feat-cut-2-jimmy-keogh-s-projects.vercel.app`
+- Org: `Gmail / gmail-2`
+- Test invitee: `onetendegrees+codex-cut2-1780913544607@gmail.com`
+- Owner settings props loaded for the correct org/user.
+- `POST /api/org-invites` returned `200`.
+- `/invite/[token]/continue` returned `303` to the Supabase action link.
+- Invite acceptance redirected to `/projects`.
+- `org_invites.accepted_at` was populated.
+- `org_members` row was created with role `member`.
+- Invitee could see existing org projects: `Inspections`,
+  `Procurement Tracking`, `Subcontractor Tool Adoption`.
+- A member attempting to invite another user was blocked with `403`.
+
+Promotion call:
+
+- From Codex: green-light `feat/cut-2` promotion after Jimmy's go.
+- After promotion to `main` / `www.getdiscos.com`, run the same production smoke
+  once to confirm env/domain parity.
+
+Branch/design note:
+
+- The workspace redesign is not lost; it lives on `feat/phase-1-rail`.
+- `feat/phase-1-rail` does not currently include the enabled invite work or
+  speaker-hide from `feat/cut-2`.
+- If invites look disabled, that is a branch tell: the app is likely on `main` or
+  `feat/phase-1-rail`, not `feat/cut-2`.
+- Do not re-fix invites on `feat/phase-1-rail`; bring it up to date from `main`
+  after Cut #2 lands, then merge the workspace design as its own cut.
+
+Sign-in UX note:
+
+- I agree with flipping `/login` to magic-link-first with password behind
+  "Use password instead", but I would keep it out of this already-green Cut #2
+  unless we deliberately rerun the invite/auth smoke after it lands.
