@@ -77,18 +77,10 @@ export default async function ArtifactDetailPage({ params }: Props) {
 
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+      <div className="mb-3 flex justify-end">
         <Link
           href={`/projects/${project.id}/compose?artifactId=${artifactRow.id}`}
-          style={{
-            fontSize: 13, fontWeight: 500,
-            color: "var(--ink-2)",
-            border: "1px solid var(--line)",
-            borderRadius: "var(--r-md)",
-            padding: "5px 12px",
-            textDecoration: "none",
-            transition: "border-color .13s, color .13s",
-          }}
+          className="inline-flex rounded-md border border-[var(--line)] px-3 py-1.5 text-[13px] font-medium text-[var(--ink-2)] no-underline transition-colors hover:border-[var(--line-strong)] hover:text-[var(--ink)]"
         >
           Edit
         </Link>
