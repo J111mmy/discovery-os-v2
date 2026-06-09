@@ -333,3 +333,51 @@ www.getdiscos.com on Jimmy's go.
 Cut #2 is done. Next: Cut #2.1 (`/login` magic-link-first, own auth smoke) and
 Cut #3 (workspace redesign from `feat/phase-1-rail`, rebased onto new `main`,
 gated per surface). No outstanding security items on `main`.
+
+---
+
+### Opus — 2026-06-09 — Cut #3 (`feat/cut-3`) gated review — CLEAN, 1 hardening blocker routed to Codex
+
+`feat/cut-3` = `feat/phase-1-rail` rebased onto current `main` (Cut #2 + #2.1).
+Two expected conflicts resolved: `evidence-browser.tsx` (Sonnet's reconciled
+speaker-hide-in-new-tokens file, reviewed + approved) and `evidence/page.tsx`
+(merged both data paths). Build green on Node 22 — `✓ Compiled successfully`,
+33/33 pages.
+
+**Gated-area sweep across the whole cut diff (`main..feat/cut-3`):**
+- **service-role:** none. No `createServiceClient` / `service_role` in any changed file.
+- **middleware / `src/lib/supabase/**` / RLS / migrations:** unchanged. No diff.
+- **public routes / auth:** `login/page.tsx` is the Cut #2.1 magic-link-first change
+  (already reviewed); no new public routes.
+- **new endpoints / server actions:** none. The only modified action surface is
+  `sources/source-actions.tsx` — a pure token swap (`--border`→`--line`,
+  `--brand`→`--accent`), zero logic.
+
+**New client components reviewed:**
+- `AddEvidenceModal.tsx` → calls **pre-existing** `/api/ingest`, `/api/ingest/status`,
+  `/api/ingest/extract-text` (unchanged in this cut). New caller of already-gated endpoints.
+- `NewProjectModal.tsx` → imports **pre-existing** `createProjectAction` (unchanged). New caller.
+- `SourcesClient.tsx` → wraps existing `SourceActions`; no direct server calls.
+- `workspace-client.tsx` (1325 lines) → **zero** server data access; pure props-driven
+  presentational shell. Data is fetched by the server `page.tsx` and passed down.
+
+**Tenant scoping:** net **+8** `org_id`/`project_id` `.eq()` filters added across the cut
+(34 added / 26 removed). The only file with a negative delta is
+`projects/[projectId]/page.tsx` (-4), which is wholesale query removal from the
+altitude reduction, not dropped scoping — every one of its 12 remaining `.from()`
+queries carries `.eq("org_id").eq("project_id")` (the lone `.from("projects").eq("id",
+project.id)` is an already-authorized read after `getProjectForUser`). `evidence/page.tsx`'s
+new `internalPeople` query is `org_id`+`affiliation` scoped, read-only, `display_name` only.
+
+**One outstanding item (does NOT block the gate sweep, but blocks promotion per Jimmy):**
+- `evidence/page.tsx` `getRecentEvidence` builds `.filter("themes","cs", "{...themeFilter...}")`
+  with the user-controlled `?theme=` param **unescaped**. Tenant isolation is *not* at risk
+  (org/project `.eq()` + RLS bind every row; read-only) — risk is a malformed filter /
+  array-literal breakout *within* the caller's own tenant scope. **Low severity.** Pre-existing
+  redesign WIP, not introduced by the speaker-hide merge. Routed to Codex:
+  `docs/briefs/codex/CODEX_BRIEF_THEME_FILTER_HARDENING.md` (swap to `.contains("themes",
+  [themeFilter])`). I did **not** edit it — author≠gatekeeper.
+
+**Verdict:** Cut #3 has no hard-gated regressions. Holding promotion until the themeFilter
+fix lands (Codex) and I've eyeballed the remaining re-skin surfaces. No promotion without
+Jimmy's explicit go.
