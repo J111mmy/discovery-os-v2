@@ -97,18 +97,7 @@ export default async function ComposePage({ params, searchParams }: Props) {
       >
         <Link
           href={`/projects/${project.id}/documents`}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4,
-            fontSize: 12,
-            fontWeight: 500,
-            color: "var(--ink-2)",
-            textDecoration: "none",
-            transition: "color .15s",
-          }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--ink)")}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--ink-2)")}
+          className="inline-flex items-center gap-1 text-xs font-medium text-[var(--ink-2)] no-underline transition-colors hover:text-[var(--ink)]"
         >
           <svg
             width="13"
