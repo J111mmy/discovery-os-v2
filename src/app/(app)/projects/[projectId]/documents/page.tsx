@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { ArtifactType, ArtifactVerificationStatus } from "@/types/database";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { deleteArtifactAction } from "./actions";
+import { DeleteArtifactButton } from "./DeleteArtifactButton";
 
 interface Props {
   params: { projectId: string };
@@ -95,22 +95,7 @@ function ArtifactCard({
           >
             View
           </Link>
-          <Link
-            href={`/projects/${projectId}/compose?artifactId=${artifact.id}`}
-            className="rounded-lg border border-[var(--line)] px-2.5 py-1 text-xs font-medium text-[var(--ink-2)] transition-colors hover:border-[var(--line-strong)] hover:text-[var(--ink)]"
-          >
-            Edit
-          </Link>
-          <form action={deleteArtifactAction}>
-            <input type="hidden" name="project_id" value={projectId} />
-            <input type="hidden" name="artifact_id" value={artifact.id} />
-            <button
-              type="submit"
-              className="rounded-lg border border-neg/20 px-2.5 py-1 text-xs font-medium text-neg transition-colors hover:border-neg"
-            >
-              Delete
-            </button>
-          </form>
+          <DeleteArtifactButton projectId={projectId} artifactId={artifact.id} />
         </div>
       </div>
     </article>

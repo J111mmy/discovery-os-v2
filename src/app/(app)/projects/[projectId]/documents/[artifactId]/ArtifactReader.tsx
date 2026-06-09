@@ -204,6 +204,14 @@ function HtmlReader({
           <span className="doc-type-badge">{type}</span>
           <span>{dateLabel(createdAt)}</span>
           {wordCount !== null && <span>{wordCount} words</span>}
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="doc-toolbar-back"
+            aria-label="Print"
+          >
+            Print
+          </button>
         </div>
       </div>
 

@@ -131,6 +131,50 @@
 /* ── Body text ──────────────────────────────────────────────── */
 .dp-art {
   color: var(--ink);
+  padding-bottom: 48px; /* breathing room at the bottom of the paper card */
+}
+
+/*
+ * Fallback horizontal padding for block elements that land as direct children
+ * of .dp-art (i.e. outside any .sec wrapper).
+ *
+ * Background: artifact-markdown.ts emits <section class="sec"><h2>…</h2></section>
+ * and then closes the section immediately. Paragraph content after the heading
+ * is a sibling, not a child, of .sec, so it has no inherited padding. These
+ * rules give those orphaned blocks the same 54 px rail as .sec content.
+ * On mobile we mirror the .sec responsive override (20 px).
+ */
+.dp-art > p,
+.dp-art > ul.dp-list,
+.dp-art > ol,
+.dp-art > blockquote.pq,
+.dp-art > table.dp-table,
+.dp-art > pre,
+.dp-art > hr,
+.dp-art > .callout,
+.dp-art > .takeaway,
+.dp-art > .stat-grid,
+.dp-art > .barchart,
+.dp-art > .dp-split {
+  padding-left: 54px;
+  padding-right: 54px;
+}
+@media (max-width: 720px) {
+  .dp-art > p,
+  .dp-art > ul.dp-list,
+  .dp-art > ol,
+  .dp-art > blockquote.pq,
+  .dp-art > table.dp-table,
+  .dp-art > pre,
+  .dp-art > hr,
+  .dp-art > .callout,
+  .dp-art > .takeaway,
+  .dp-art > .stat-grid,
+  .dp-art > .barchart,
+  .dp-art > .dp-split {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
 }
 .dp-art p {
   font-size: 15.5px;

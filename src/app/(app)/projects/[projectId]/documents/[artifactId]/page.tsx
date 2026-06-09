@@ -3,7 +3,6 @@ import { ArtifactHtmlValidationError, sanitizeArtifactHtml } from "@/lib/sanitiz
 import { markdownToSanitizedArtifactHtml } from "@/lib/sanitize/artifact-markdown";
 import { createClient } from "@/lib/supabase/server";
 import type { ArtifactType } from "@/types/database";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArtifactReader } from "./ArtifactReader";
 
@@ -69,22 +68,14 @@ export default async function ArtifactDetailPage({ params }: Props) {
   if (!artifact) notFound();
 
   const artifactRow = artifact as ArtifactRow;
-  const rawSourceId = artifactRow.metadata?.source_id;
-  const sourceId = typeof rawSourceId === "string" ? rawSourceId : null;
-  const backHref = sourceId ? `/projects/${project.id}/sources/${sourceId}` : `/projects/${project.id}/documents`;
-  const backLabel = sourceId ? "Back to source" : "All documents";
+  // Always navigate back to Documents — source provenance lives in metadata but
+  // the user may have come from anywhere; "All documents" is always correct.
+  const backHref = `/projects/${project.id}/documents`;
+  const backLabel = "All documents";
   const contentHtml = toSafeContentHtml(artifactRow.content_html, artifactRow.content_md);
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
-        <Link
-          href={`/projects/${project.id}/compose?artifactId=${artifactRow.id}`}
-          className="inline-flex rounded-md border border-[var(--line)] px-3 py-1.5 text-[13px] font-medium text-[var(--ink-2)] no-underline transition-colors hover:border-[var(--line-strong)] hover:text-[var(--ink)]"
-        >
-          Edit
-        </Link>
-      </div>
       <ArtifactReader
         artifactId={artifactRow.id}
         projectId={project.id}
