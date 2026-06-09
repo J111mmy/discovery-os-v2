@@ -75,7 +75,7 @@ export function CompanyProfileEditor({ company }: { company: CompanyProfile }) {
   }
 
   return (
-    <section className="mb-8 rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-6">
+    <section className="mb-8 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-6">
       <div className="flex flex-col gap-4">
         <EditableInput
           label="Company name"
@@ -132,7 +132,7 @@ export function CompanyProfileEditor({ company }: { company: CompanyProfile }) {
             href={domainHref(values.domain.trim())}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex self-start text-sm text-[var(--brand)] transition-colors hover:text-[var(--ink)]"
+            className="inline-flex self-start text-sm text-[var(--accent)] transition-colors hover:text-[var(--ink)]"
           >
             Open website
           </a>
@@ -184,7 +184,7 @@ function EditableInput({
         onChange={(event) => onChange(event.target.value)}
         onBlur={onBlur}
         placeholder={placeholder}
-        className={`w-full rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)] ${inputClassName}`}
+        className={`w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)] ${inputClassName}`}
       />
     </label>
   );
@@ -217,7 +217,7 @@ function EditableTextarea({
         onBlur={onBlur}
         rows={3}
         placeholder={placeholder}
-        className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-sm leading-6 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
+        className="w-full resize-y rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-sm leading-6 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
       />
     </label>
   );

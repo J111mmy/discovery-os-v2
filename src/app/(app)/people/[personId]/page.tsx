@@ -73,7 +73,7 @@ function TrustBadge({ trustScope }: { trustScope: TrustScope }) {
       : trustScope === "pending"
       ? "border-yellow-500/20 bg-yellow-500/10 text-yellow-300"
       : trustScope === "disputed"
-      ? "border-[var(--brand)]/30 bg-[var(--brand)]/10 text-[var(--brand)]"
+      ? "border-[var(--accent)]/30 bg-[var(--accent)]/10 text-[var(--accent)]"
       : "border-red-500/20 bg-red-500/10 text-red-300";
 
   return (
@@ -88,7 +88,7 @@ function ClassificationBadge({ classification }: { classification: EvidenceClass
 
   const classes =
     classification === "insight"
-      ? "border-[var(--brand)]/30 bg-[var(--brand)]/10 text-[var(--brand)]"
+      ? "border-[var(--accent)]/30 bg-[var(--accent)]/10 text-[var(--accent)]"
       : classification === "verbatim"
       ? "border-blue-500/25 bg-blue-500/10 text-blue-300"
       : classification === "data_point"
@@ -115,7 +115,7 @@ function SentimentIndicator({ sentiment }: { sentiment: EvidenceSentiment | null
       : "bg-[var(--ink-faint)]";
 
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--ink-muted)]">
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--ink-2)]">
       <span className={`h-1.5 w-1.5 rounded-full ${classes}`} />
       {sentiment}
     </span>
@@ -131,7 +131,7 @@ function digestDateLabel(value: string) {
 
 function EvidenceCard({ evidence }: { evidence: EvidenceMention }) {
   return (
-    <article className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+    <article className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <ClassificationBadge classification={evidence.classification} />
         <SentimentIndicator sentiment={evidence.sentiment} />
@@ -141,7 +141,7 @@ function EvidenceCard({ evidence }: { evidence: EvidenceMention }) {
         {evidence.content}
       </p>
       {evidence.summary && (
-        <p className="mt-3 text-sm leading-6 text-[var(--ink-muted)]">{evidence.summary}</p>
+        <p className="mt-3 text-sm leading-6 text-[var(--ink-2)]">{evidence.summary}</p>
       )}
     </article>
   );
@@ -187,19 +187,19 @@ export default async function PersonDetailPage({ params }: Props) {
       <div className="mx-auto max-w-5xl">
         <Link
           href="/people"
-          className="mb-6 inline-flex text-sm font-medium text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
+          className="mb-6 inline-flex text-sm font-medium text-[var(--ink-2)] transition-colors hover:text-[var(--ink)]"
         >
           ← All people
         </Link>
 
-        <section className="mb-8 rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+        <section className="mb-8 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
           <PersonProfileEditor
             person={personRow}
             companyLink={
               company ? (
                 <Link
                   href={`/companies/${company.id}`}
-                  className="inline-flex text-sm font-medium text-[var(--brand)] transition-colors hover:text-[var(--ink)]"
+                  className="inline-flex text-sm font-medium text-[var(--accent)] transition-colors hover:text-[var(--ink)]"
                 >
                   {company.name}
                 </Link>
@@ -212,7 +212,7 @@ export default async function PersonDetailPage({ params }: Props) {
                   <Link
                     key={relation.project_id}
                     href={`/projects/${relation.project_id}`}
-                    className="rounded-full border border-[var(--border)] bg-[var(--surface-0)] px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
+                    className="rounded-full border border-[var(--line)] bg-[var(--bg)] px-2.5 py-1 text-xs font-medium text-[var(--ink-2)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
                   >
                     {projectName(relation.projects)}
                   </Link>
@@ -222,7 +222,7 @@ export default async function PersonDetailPage({ params }: Props) {
             }
           />
 
-          <div className="mt-5 border-t border-[var(--border)] pt-5">
+          <div className="mt-5 border-t border-[var(--line)] pt-5">
             <AffiliationToggle
               personId={personRow.id}
               initialAffiliation={personRow.affiliation}
@@ -244,14 +244,14 @@ export default async function PersonDetailPage({ params }: Props) {
           </div>
 
           {personRow.digest ? (
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-6">
+            <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-6">
               <p className="whitespace-pre-wrap text-sm leading-7 text-[var(--ink)]">
                 {personRow.digest}
               </p>
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-1)] p-8 text-center">
-              <p className="text-sm leading-6 text-[var(--ink-muted)]">
+            <div className="rounded-xl border border-dashed border-[var(--line)] bg-[var(--surface)] p-8 text-center">
+              <p className="text-sm leading-6 text-[var(--ink-2)]">
                 No digest yet. Digests are generated automatically after ingest once this person has
                 enough linked evidence. You can also generate one now.
               </p>
@@ -263,17 +263,17 @@ export default async function PersonDetailPage({ params }: Props) {
           <div className="mb-4 flex items-end justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold text-[var(--ink)]">Evidence mentions</h2>
-              <p className="mt-1 text-sm text-[var(--ink-muted)]">
+              <p className="mt-1 text-sm text-[var(--ink-2)]">
                 Evidence linked to this person by the entity extraction agent.
               </p>
             </div>
-            <span className="rounded-full border border-[var(--border)] px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)]">
+            <span className="rounded-full border border-[var(--line)] px-2.5 py-1 text-xs font-medium text-[var(--ink-2)]">
               {evidence.length} mentions
             </span>
           </div>
 
           {evidence.length === 0 ? (
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-12 text-center text-sm text-[var(--ink-muted)]">
+            <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-12 text-center text-sm text-[var(--ink-2)]">
               No linked evidence mentions yet.
             </div>
           ) : (

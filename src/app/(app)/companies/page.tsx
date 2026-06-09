@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getActiveOrgId } from "@/lib/auth/org";
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { DirectoryList, type DirectoryItem } from "@/app/(app)/components/DirectoryList";
 
 type ProjectRelation = {
   project_id: string;
@@ -45,63 +45,35 @@ export default async function CompaniesPage() {
 
   const rows = (companies ?? []) as CompanyRow[];
 
+  const items: DirectoryItem[] = rows.map((company) => {
+    const projectLinks = asArray(company.company_projects).map((rel) => ({
+      id: rel.project_id,
+      name: projectName(rel.projects),
+    }));
+
+    const meta =
+      projectLinks.length > 0
+        ? `${projectLinks.length} project${projectLinks.length !== 1 ? "s" : ""}`
+        : null;
+
+    return {
+      id: company.id,
+      name: company.name,
+      subtitle: company.domain ?? null,
+      meta,
+      projectLinks,
+      detailHref: `/companies/${company.id}`,
+      kind: "company" as const,
+    };
+  });
+
   return (
-    <main className="min-h-screen px-5 py-8 sm:px-8">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-8">
-          <h1 className="text-2xl font-semibold text-[var(--ink)]">Companies</h1>
-          <p className="mt-2 text-sm leading-6 text-[var(--ink-muted)]">
-            Organisations that appear across your research.
-          </p>
-        </div>
-
-        {rows.length === 0 ? (
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-12 text-center text-sm text-[var(--ink-muted)]">
-            No companies extracted yet.
-          </div>
-        ) : (
-          <div className="grid gap-3">
-            {rows.map((company) => {
-              const projectLinks = asArray(company.company_projects);
-
-              return (
-                <article
-                  key={company.id}
-                  className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5"
-                >
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <Link
-                        href={`/companies/${company.id}`}
-                        className="font-semibold text-[var(--ink)] transition-colors hover:text-[var(--brand)]"
-                      >
-                        {company.name}
-                      </Link>
-                      {company.domain && (
-                        <p className="mt-1 text-sm text-[var(--ink-muted)]">{company.domain}</p>
-                      )}
-                    </div>
-
-                    {projectLinks.length > 0 && (
-                      <div className="flex flex-wrap gap-2 sm:justify-end">
-                        {projectLinks.map((relation) => (
-                          <Link
-                            key={relation.project_id}
-                            href={`/projects/${relation.project_id}`}
-                            className="rounded-full border border-[var(--border)] bg-[var(--surface-0)] px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
-                          >
-                            {projectName(relation.projects)}
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </main>
+    <DirectoryList
+      title="Companies"
+      lead="Organisations that appear across your research."
+      searchPlaceholder="Search companies…"
+      items={items}
+      emptyMessage="No companies extracted yet. Companies are surfaced automatically during ingest."
+    />
   );
 }

@@ -1,5 +1,6 @@
 import { getProjectForUser } from "@/lib/auth/org";
 import { createClient } from "@/lib/supabase/server";
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ComposeEditor } from "./compose-editor";
 
@@ -83,14 +84,60 @@ export default async function ComposePage({ params, searchParams }: Props) {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="mb-8">
-        <div className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
+      {/* Studio chrome header */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          marginBottom: 24,
+          paddingBottom: 16,
+          borderBottom: "1px solid var(--line)",
+        }}
+      >
+        <Link
+          href={`/projects/${project.id}/documents`}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            fontSize: 12,
+            fontWeight: 500,
+            color: "var(--ink-2)",
+            textDecoration: "none",
+            transition: "color .15s",
+          }}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--ink)")}
+          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--ink-2)")}
+        >
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M10 4L6 8l4 4" />
+          </svg>
+          Artifact library
+        </Link>
+        <span style={{ color: "var(--line)", userSelect: "none" }}>·</span>
+        <span style={{ fontSize: 12, color: "var(--ink-faint)" }}>{project.name}</span>
+        <div style={{ flex: 1 }} />
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            color: "var(--ink)",
+            letterSpacing: "0.02em",
+            textTransform: "uppercase",
+          }}
+        >
           Compose
-        </div>
-        <h1 className="text-2xl font-semibold text-[var(--ink)]">Draft from trusted evidence</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-muted)]">
-          Ask for a persona, PRD, opportunity brief, or GTM draft. The editor keeps the generated sections editable before you save.
-        </p>
+        </span>
       </div>
 
       <ComposeEditor projectId={project.id} initialDraft={initialDraft} />

@@ -102,7 +102,7 @@ function TrustBadge({ trustScope }: { trustScope: TrustScope }) {
       : trustScope === "pending"
         ? "border-yellow-500/20 bg-yellow-500/10 text-yellow-300"
         : trustScope === "disputed"
-          ? "border-[var(--brand)]/30 bg-[var(--brand)]/10 text-[var(--brand)]"
+          ? "border-[var(--accent)]/30 bg-[var(--accent)]/10 text-[var(--accent)]"
           : "border-red-500/20 bg-red-500/10 text-red-300";
 
   return (
@@ -117,7 +117,7 @@ function ClassificationBadge({ classification }: { classification: EvidenceClass
 
   const classes =
     classification === "insight"
-      ? "border-[var(--brand)]/30 bg-[var(--brand)]/10 text-[var(--brand)]"
+      ? "border-[var(--accent)]/30 bg-[var(--accent)]/10 text-[var(--accent)]"
       : classification === "verbatim"
         ? "border-blue-500/25 bg-blue-500/10 text-blue-300"
         : classification === "data_point"
@@ -144,7 +144,7 @@ function SentimentIndicator({ sentiment }: { sentiment: EvidenceSentiment | null
           : "bg-[var(--ink-faint)]";
 
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--ink-muted)]">
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--ink-2)]">
       <span className={`h-1.5 w-1.5 rounded-full ${classes}`} />
       {sentiment}
     </span>
@@ -159,15 +159,15 @@ function ReadOnlyBattleCardField({
   value: string | null | undefined;
 }) {
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-0)] p-4">
+    <div className="rounded-xl border border-[var(--line)] bg-[var(--bg)] p-4">
       <div className="mb-2 flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold text-[var(--ink)]">{label}</h3>
-        <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-xs font-medium text-[var(--ink-faint)]">
+        <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-xs font-medium text-[var(--ink-faint)]">
           AI
         </span>
       </div>
       {value?.trim() ? (
-        <p className="whitespace-pre-wrap text-sm leading-6 text-[var(--ink-muted)]">{value}</p>
+        <p className="whitespace-pre-wrap text-sm leading-6 text-[var(--ink-2)]">{value}</p>
       ) : (
         <p className="text-sm leading-6 text-[var(--ink-faint)]">Not generated yet.</p>
       )}
@@ -179,11 +179,11 @@ function PositionField({ label, value }: { label: string; value: string | null }
   if (!value?.trim()) return null;
 
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-4">
+    <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">
       <div className="text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
         {label}
       </div>
-      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[var(--ink-muted)]">{value}</p>
+      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[var(--ink-2)]">{value}</p>
     </div>
   );
 }
@@ -193,7 +193,7 @@ function EvidenceCard({ evidence }: { evidence: EvidenceMention }) {
   const preview = evidence.summary ?? `${evidence.content.slice(0, 200)}${evidence.content.length > 200 ? "..." : ""}`;
 
   return (
-    <article className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+    <article className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <ClassificationBadge classification={evidence.classification} />
         <SentimentIndicator sentiment={evidence.sentiment} />
@@ -205,14 +205,14 @@ function EvidenceCard({ evidence }: { evidence: EvidenceMention }) {
         {evidence.project_name && (
           <Link
             href={`/projects/${evidence.project_id}`}
-            className="text-[var(--brand)] transition-colors hover:text-[var(--ink)]"
+            className="text-[var(--accent)] transition-colors hover:text-[var(--ink)]"
           >
             {evidence.project_name}
           </Link>
         )}
         <Link
           href={`/projects/${evidence.project_id}/sources/${evidence.source_id}`}
-          className="text-[var(--ink-muted)] transition-colors hover:text-[var(--brand)]"
+          className="text-[var(--ink-2)] transition-colors hover:text-[var(--accent)]"
         >
           {evidence.source_title ?? "View source"}
         </Link>
@@ -327,26 +327,26 @@ export default async function CompetitorDetailPage({ params }: Props) {
       <div className="mx-auto max-w-5xl">
         <Link
           href="/competitors"
-          className="mb-6 inline-flex text-sm font-medium text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
+          className="mb-6 inline-flex text-sm font-medium text-[var(--ink-2)] transition-colors hover:text-[var(--ink)]"
         >
           All competitors
         </Link>
 
-        <section className="mb-8 rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-6">
+        <section className="mb-8 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-6">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <div className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
                 Competitor profile
               </div>
               <h1 className="text-2xl font-semibold text-[var(--ink)]">{competitor.name}</h1>
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--ink-muted)]">
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--ink-2)]">
                 <span>{competitor.slug}</span>
                 {competitor.website && (
                   <a
                     href={websiteUrl(competitor.website)}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-[var(--brand)] transition-colors hover:text-[var(--ink)]"
+                    className="text-[var(--accent)] transition-colors hover:text-[var(--ink)]"
                   >
                     {competitor.website} →
                   </a>
@@ -368,7 +368,7 @@ export default async function CompetitorDetailPage({ params }: Props) {
                 </p>
               )}
             </div>
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-6">
+            <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-6">
               <p className="whitespace-pre-wrap text-sm leading-7 text-[var(--ink)]">
                 {competitor.digest}
               </p>
@@ -380,7 +380,7 @@ export default async function CompetitorDetailPage({ params }: Props) {
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-[var(--ink)]">Battle Card</h2>
-              <p className="mt-1 text-sm text-[var(--ink-muted)]">
+              <p className="mt-1 text-sm text-[var(--ink-2)]">
                 Evidence-backed competitive positioning plus your field counter-message.
               </p>
             </div>
@@ -408,8 +408,8 @@ export default async function CompetitorDetailPage({ params }: Props) {
               />
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-1)] p-8 text-center">
-              <p className="text-sm leading-6 text-[var(--ink-muted)]">
+            <div className="rounded-xl border border-dashed border-[var(--line)] bg-[var(--surface)] p-8 text-center">
+              <p className="text-sm leading-6 text-[var(--ink-2)]">
                 Run the intelligence digest to generate a battle card.
               </p>
             </div>
@@ -435,14 +435,14 @@ export default async function CompetitorDetailPage({ params }: Props) {
               <h2 className="text-lg font-semibold text-[var(--ink)]">
                 Evidence ({evidence.length} records)
               </h2>
-              <p className="mt-1 text-sm text-[var(--ink-muted)]">
+              <p className="mt-1 text-sm text-[var(--ink-2)]">
                 Evidence linked to this competitor by the entity extraction agent.
               </p>
             </div>
           </div>
 
           {evidence.length === 0 ? (
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-12 text-center text-sm text-[var(--ink-muted)]">
+            <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-12 text-center text-sm text-[var(--ink-2)]">
               No evidence collected yet. This competitor will appear here after they're mentioned in an interview.
             </div>
           ) : (

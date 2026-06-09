@@ -1,11 +1,12 @@
 import { getProjectForUser } from "@/lib/auth/org";
 import { isStaleIngestJob } from "@/lib/ingest/quality";
-import { sourceTypeLabel, trustScopeClasses, trustScopeLabel } from "@/lib/labels";
+import { sourceTypeLabel, trustScopeLabel } from "@/lib/labels";
 import { createClient } from "@/lib/supabase/server";
 import type { JobStatus, SourceType, TrustScope } from "@/types/database";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { SourceActions } from "./source-actions";
+import { PipelineRail } from "../PipelineRail";
+import { SourcesClient, type SourceItem } from "./SourcesClient";
 
 interface Props {
   params: { projectId: string };
@@ -31,31 +32,6 @@ type JobRow = {
   created_at: string;
   completed_at: string | null;
 };
-
-function StatusBadge({ status }: { status: JobStatus | "not_started" }) {
-  const label =
-    status === "done" ? "ready" :
-    status === "failed" ? "check needed" :
-    status === "processing" ? "analyzing" :
-    status === "pending" ? "queued" :
-    "not started";
-  const classes =
-    status === "done"
-      ? "border-pos/20 bg-pos-bg text-pos"
-      : status === "failed"
-      ? "border-neg/20 bg-neg-bg text-neg"
-      : status === "processing"
-      ? "border-warn/20 bg-warn-bg text-warn"
-      : status === "pending"
-      ? "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]"
-      : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--ink-muted)]";
-
-  return (
-    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}>
-      {label}
-    </span>
-  );
-}
 
 function dateLabel(value: string) {
   return new Intl.DateTimeFormat("en", {
@@ -91,28 +67,43 @@ export default async function SourcesPage({ params }: Props) {
 
   const sources = (sourceData ?? []) as SourceRow[];
   const sourceIds = sources.map((source) => source.id);
-  const [jobsResult, evidenceResult, segmentsResult] =
-    sourceIds.length > 0
-      ? await Promise.all([
-          supabase
+
+  const [jobsResult, evidenceResult, segmentsResult, totalEvidenceResult, totalProblemResult] =
+    await Promise.all([
+      sourceIds.length > 0
+        ? supabase
             .from("ingest_jobs")
             .select("id, org_id, source_id, status, error, result, created_at, completed_at")
             .eq("org_id", project.org_id)
             .in("source_id", sourceIds)
-            .order("created_at", { ascending: false }),
-          supabase
+            .order("created_at", { ascending: false })
+        : { data: [] },
+      sourceIds.length > 0
+        ? supabase
             .from("evidence")
             .select("id, org_id, project_id, source_id")
             .eq("org_id", project.org_id)
             .eq("project_id", project.id)
-            .in("source_id", sourceIds),
-          supabase
+            .in("source_id", sourceIds)
+        : { data: [] },
+      sourceIds.length > 0
+        ? supabase
             .from("source_segments")
             .select("id, org_id, source_id")
             .eq("org_id", project.org_id)
-            .in("source_id", sourceIds),
-        ])
-      : [{ data: [] }, { data: [] }, { data: [] }];
+            .in("source_id", sourceIds)
+        : { data: [] },
+      supabase
+        .from("evidence")
+        .select("*", { count: "exact", head: true })
+        .eq("org_id", project.org_id)
+        .eq("project_id", project.id),
+      supabase
+        .from("problems")
+        .select("*", { count: "exact", head: true })
+        .eq("org_id", project.org_id)
+        .eq("project_id", project.id),
+    ]);
 
   const latestJobBySource = new Map<string, JobRow>();
   ((jobsResult.data ?? []) as JobRow[]).forEach((job) => {
@@ -137,110 +128,76 @@ export default async function SourcesPage({ params }: Props) {
     );
   });
 
+  // Transform sources into serialisable SourceItem[] for the client component
+  const sourceItems: SourceItem[] = sources.map((source) => {
+    const job = latestJobBySource.get(source.id);
+    const evidenceCount = evidenceCountBySource.get(source.id) ?? 0;
+    const segmentCount = segmentCountBySource.get(source.id) ?? 0;
+
+    const jobStatus = job?.status ?? "not_started";
+    const isStale = isStaleIngestJob(jobStatus, job?.created_at ?? null);
+    const needsCheck = jobStatus === "done" && evidenceCount === 0 && segmentCount > 0;
+    const displayStatus = (needsCheck || isStale ? "failed" : jobStatus) as SourceItem["displayStatus"];
+    const isQueued = !isStale && jobStatus === "pending";
+    const isAnalyzing = !isStale && jobStatus === "processing";
+    const hasFailed = jobStatus === "failed" || needsCheck || isStale;
+
+    const message = isAnalyzing
+      ? "Analyzing — extracting citable evidence from the source."
+      : isQueued
+      ? "Queued — sources run one at a time for better quality and lower cost."
+      : hasFailed
+      ? needsCheck
+        ? "Processing completed but produced no evidence. Check the source text, then retry."
+        : isStale
+        ? "Processing took too long. Use Retry to run it again."
+        : "Processing did not complete. Use Retry to try again."
+      : `${evidenceCount} evidence record${evidenceCount === 1 ? "" : "s"}`;
+
+    return {
+      id: source.id,
+      title: source.title,
+      typeLabel: sourceTypeLabel(source.type),
+      trustLabel: trustScopeLabel(source.trust_scope),
+      trustScope: source.trust_scope,
+      dateLabel: dateLabel(source.ingested_at),
+      displayStatus,
+      evidenceCount,
+      hasFailed,
+      isAnalyzing,
+      isQueued,
+      message,
+    };
+  });
+
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
             Sources
           </div>
           <h1 className="text-2xl font-semibold text-[var(--ink)]">Manage source material</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-muted)]">
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-2)]">
             Inspect ingest jobs, retry source processing, and remove inputs that should not feed evidence.
           </p>
         </div>
         <Link
           href={`/projects/${project.id}/ingest`}
-          className="inline-flex rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)]"
+          className="inline-flex rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90"
         >
-          Add evidence
+          Add source
         </Link>
       </div>
 
-      {sources.length === 0 ? (
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-12 text-center">
-          <div className="text-sm font-medium text-[var(--ink)]">No sessions yet</div>
-          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--ink-muted)]">
-            Add a transcript, document, or note to start creating source-backed evidence.
-          </p>
-          <Link
-            href={`/projects/${project.id}/ingest`}
-            className="mt-5 inline-flex rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)]"
-          >
-            Add your first transcript →
-          </Link>
-        </div>
-      ) : (
-        <div className="grid gap-3">
-          {sources.map((source) => {
-            const job = latestJobBySource.get(source.id);
-            const evidenceCount = evidenceCountBySource.get(source.id) ?? 0;
-            const segmentCount = segmentCountBySource.get(source.id) ?? 0;
+      <PipelineRail
+        projectId={project.id}
+        sourcesCount={sources.length}
+        evidenceCount={totalEvidenceResult.count ?? 0}
+        problemCount={totalProblemResult.count ?? 0}
+      />
 
-            const jobStatus = job?.status ?? "not_started";
-            const isStale = isStaleIngestJob(jobStatus, job?.created_at ?? null);
-            const needsCheck = jobStatus === "done" && evidenceCount === 0 && segmentCount > 0;
-            const displayStatus = needsCheck || isStale ? "failed" : jobStatus;
-            const isQueued = !isStale && jobStatus === "pending";
-            const isAnalyzing = !isStale && jobStatus === "processing";
-            const hasFailed = jobStatus === "failed" || needsCheck || isStale;
-
-            return (
-              <article
-                key={source.id}
-                className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5"
-              >
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="min-w-0">
-                    <div className="mb-2 flex flex-wrap items-center gap-2">
-                      <StatusBadge status={displayStatus} />
-                      <span className="text-xs text-[var(--ink-muted)]">
-                        {sourceTypeLabel(source.type)}
-                      </span>
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${trustScopeClasses(source.trust_scope)}`}>
-                        {trustScopeLabel(source.trust_scope)}
-                      </span>
-                      <span className="text-xs text-[var(--ink-faint)]">{dateLabel(source.ingested_at)}</span>
-                    </div>
-                    <Link
-                      href={`/projects/${project.id}/sources/${source.id}`}
-                      className="text-base font-semibold text-[var(--ink)] transition-colors hover:text-[var(--brand)]"
-                    >
-                      {source.title}
-                    </Link>
-                    <div className="mt-2 text-xs text-[var(--ink-muted)]">
-                      {isAnalyzing
-                        ? "Analyzing — extracting citable evidence from the source."
-                        : isQueued
-                        ? "Queued — sources run one at a time for better quality and lower cost."
-                        : hasFailed
-                        ? needsCheck
-                          ? "Processing completed but produced no evidence. Check the source text, then retry."
-                          : isStale
-                          ? "Processing took too long. Use Retry to run it again."
-                          : "Processing did not complete. Use Retry to try again."
-                        : `${evidenceCount} evidence record${evidenceCount === 1 ? "" : "s"}`}
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-3 lg:items-end">
-                    <Link
-                      href={`/projects/${project.id}/sources/${source.id}`}
-                      className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
-                    >
-                      View source
-                    </Link>
-                    <SourceActions
-                      projectId={project.id}
-                      sourceId={source.id}
-                      showRetry={hasFailed}
-                    />
-                  </div>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      )}
+      <SourcesClient projectId={project.id} sources={sourceItems} />
     </div>
   );
 }

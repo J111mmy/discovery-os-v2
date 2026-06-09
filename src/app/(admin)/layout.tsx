@@ -14,7 +14,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!admin) redirect("/projects");
 
   return (
-    <div className="min-h-screen bg-[var(--surface-0)] text-[var(--ink)]">
+    <div className="min-h-screen bg-[var(--bg)] text-[var(--ink)]">
       <header className="sticky top-0 z-30 border-b border-red-900/40 bg-red-950/80 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-3 sm:px-8">
           <div className="flex items-center gap-3">

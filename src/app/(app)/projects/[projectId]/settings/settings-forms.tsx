@@ -47,14 +47,14 @@ interface SettingsFormsProps {
   initialProject: ProjectSettings;
   members: TeamMember[];
   invites: Invite[];
-  initialTab: "project" | "team";
+  initialTab: "project" | "team" | "billing";
 }
 
 function tabClass(active: boolean) {
   return `rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
     active
-      ? "bg-[var(--brand)] text-white"
-      : "text-[var(--ink-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"
+      ? "bg-[var(--accent)] text-white"
+      : "text-[var(--ink-2)] hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"
   }`;
 }
 
@@ -294,21 +294,24 @@ export function SettingsForms({
 
   return (
     <div className="space-y-6">
-      <div className="inline-flex rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-1">
+      <div className="inline-flex rounded-xl border border-[var(--line)] bg-[var(--surface)] p-1">
         <button type="button" onClick={() => setTab("project")} className={tabClass(tab === "project")}>
           Project
         </button>
         <button type="button" onClick={() => setTab("team")} className={tabClass(tab === "team")}>
           Team
         </button>
+        <button type="button" onClick={() => setTab("billing")} className={tabClass(tab === "billing")}>
+          Billing
+        </button>
       </div>
 
       {tab === "project" && (
-        <form onSubmit={saveProjectSettings} className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)]">
-          <div className="flex flex-col gap-3 border-b border-[var(--border)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <form onSubmit={saveProjectSettings} className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
+          <div className="flex flex-col gap-3 border-b border-[var(--line)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-sm font-semibold text-[var(--ink)]">Project context</h2>
-              <p className="mt-1 text-xs leading-5 text-[var(--ink-muted)]">
+              <p className="mt-1 text-xs leading-5 text-[var(--ink-2)]">
                 Let AI draft this from evidence, then edit before saving.
               </p>
             </div>
@@ -316,7 +319,7 @@ export function SettingsForms({
               type="button"
               onClick={suggestProjectSettings}
               disabled={isSuggestingSettings}
-              className="inline-flex rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-medium text-[var(--ink)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSuggestingSettings ? "Suggesting..." : "Suggest settings from evidence"}
             </button>
@@ -338,11 +341,11 @@ export function SettingsForms({
                 }}
               />
             )}
-            <section className="rounded-xl border border-[var(--border)] bg-[var(--surface-0)] p-4">
+            <section className="rounded-xl border border-[var(--line)] bg-[var(--bg)] p-4">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <h3 className="text-sm font-semibold text-[var(--ink)]">Research focus</h3>
-                  <p className="mt-1 text-sm leading-6 text-[var(--ink-muted)]">
+                  <p className="mt-1 text-sm leading-6 text-[var(--ink-2)]">
                     The more context you add here, the smarter the system gets at sorting what matters from what doesn't - automatically.
                   </p>
                 </div>
@@ -363,7 +366,7 @@ export function SettingsForms({
                     onChange={(event) => updateResearchContextField("goals", event.target.value)}
                     onBlur={() => void saveResearchContext()}
                     placeholder="Why procurement teams switch away from spreadsheets"
-                    className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-1)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
+                    className="w-full resize-y rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
                   />
                 </div>
                 <div>
@@ -377,7 +380,7 @@ export function SettingsForms({
                     onChange={(event) => updateResearchContextField("outcomes", event.target.value)}
                     onBlur={() => void saveResearchContext()}
                     placeholder="Go/no-go on building an approval workflow"
-                    className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-1)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
+                    className="w-full resize-y rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
                   />
                 </div>
                 <div>
@@ -391,7 +394,7 @@ export function SettingsForms({
                     onChange={(event) => updateResearchContextField("buyers", event.target.value)}
                     onBlur={() => void saveResearchContext()}
                     placeholder="Procurement managers at mid-market manufacturing companies"
-                    className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-1)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
+                    className="w-full resize-y rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
                   />
                 </div>
                 <div>
@@ -405,7 +408,7 @@ export function SettingsForms({
                     onChange={(event) => updateResearchContextField("scope_in", event.target.value)}
                     onBlur={() => void saveResearchContext()}
                     placeholder="Workflow pain, approval bottlenecks, compliance requirements"
-                    className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-1)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
+                    className="w-full resize-y rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
                   />
                 </div>
                 <div className="lg:col-span-2">
@@ -419,7 +422,7 @@ export function SettingsForms({
                     onChange={(event) => updateResearchContextField("scope_out", event.target.value)}
                     onBlur={() => void saveResearchContext()}
                     placeholder="IT infrastructure, ERP integrations, price sensitivity"
-                    className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-1)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
+                    className="w-full resize-y rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
                   />
                 </div>
               </div>
@@ -430,7 +433,7 @@ export function SettingsForms({
                   <button
                     type="button"
                     onClick={addResearchQuestion}
-                    className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium text-[var(--ink-muted)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
+                    className="rounded-lg border border-[var(--line)] px-2.5 py-1 text-xs font-medium text-[var(--ink-2)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
                   >
                     Add question
                   </button>
@@ -447,12 +450,12 @@ export function SettingsForms({
                         onChange={(event) => updateResearchQuestion(index, event.target.value)}
                         onBlur={() => void saveResearchContext()}
                         placeholder="What do we need answered?"
-                        className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-1)] px-3 py-2 text-sm text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
+                        className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
                       />
                       <button
                         type="button"
                         onClick={() => removeResearchQuestion(index)}
-                        className="h-10 w-10 rounded-lg border border-[var(--border)] text-sm font-medium text-[var(--ink-muted)] transition-colors hover:border-neg/40 hover:text-neg"
+                        className="h-10 w-10 rounded-lg border border-[var(--line)] text-sm font-medium text-[var(--ink-2)] transition-colors hover:border-neg/40 hover:text-neg"
                         aria-label="Remove question"
                       >
                         x
@@ -472,14 +475,14 @@ export function SettingsForms({
                 rows={7}
                 value={frame}
                 onChange={(event) => setFrame(event.target.value)}
-                className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
+                className="w-full resize-y rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
               />
               <div className="mt-3">
                 <button
                   type="button"
                   onClick={generateFrame}
                   disabled={isGeneratingFrame}
-                  className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-medium text-[var(--ink)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isGeneratingFrame ? "Generating..." : "Auto-generate frame"}
                 </button>
@@ -494,7 +497,7 @@ export function SettingsForms({
                 rows={6}
                 value={operatingStyle}
                 onChange={(event) => setOperatingStyle(event.target.value)}
-                className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
+                className="w-full resize-y rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
               />
             </div>
             <div>
@@ -506,7 +509,7 @@ export function SettingsForms({
                 rows={7}
                 value={gtmContext}
                 onChange={(event) => setGtmContext(event.target.value)}
-                className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
+                className="w-full resize-y rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
               />
             </div>
             {settingsError && (
@@ -523,7 +526,7 @@ export function SettingsForms({
               <button
                 type="submit"
                 disabled={isSaving}
-                className="rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isSaving ? "Saving..." : "Save settings"}
               </button>
@@ -532,22 +535,66 @@ export function SettingsForms({
         </form>
       )}
 
+      {tab === "billing" && (
+        <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
+          <div className="border-b border-[var(--line)] px-5 py-4">
+            <h2 className="text-sm font-semibold text-[var(--ink)]">Billing</h2>
+            <p className="mt-1 text-xs leading-5 text-[var(--ink-2)]">
+              Subscription plans, usage, and invoices.
+            </p>
+          </div>
+          <div className="flex flex-col items-center gap-3 px-5 py-12 text-center">
+            <div
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: "var(--r-md)",
+                background: "var(--surface-2)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 4,
+              }}
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ color: "var(--ink-faint)" }}
+              >
+                <rect x="1" y="4" width="14" height="9" rx="2" />
+                <path d="M1 7h14" />
+              </svg>
+            </div>
+            <div className="text-sm font-medium text-[var(--ink)]">Coming soon</div>
+            <p className="max-w-xs text-xs leading-5 text-[var(--ink-2)]">
+              Subscription management and usage-based billing will be available here once payment is set up for your organisation.
+            </p>
+          </div>
+        </div>
+      )}
+
       {tab === "team" && (
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <section className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)]">
-            <div className="border-b border-[var(--border)] px-5 py-4">
+          <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
+            <div className="border-b border-[var(--line)] px-5 py-4">
               <h2 className="text-sm font-semibold text-[var(--ink)]">Members</h2>
             </div>
-            <div className="divide-y divide-[var(--border)]">
+            <div className="divide-y divide-[var(--line)]">
               {members.map((member) => (
                 <div key={member.id} className="flex items-center justify-between gap-4 px-5 py-4">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium text-[var(--ink)]">
                       {member.display_name || member.user_id}
                     </div>
-                    <div className="mt-1 text-xs text-[var(--ink-muted)]">{member.user_id}</div>
+                    <div className="mt-1 text-xs text-[var(--ink-2)]">{member.user_id}</div>
                   </div>
-                  <span className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 text-xs font-medium capitalize text-[var(--ink-muted)]">
+                  <span className="rounded-full border border-[var(--line)] bg-[var(--surface-2)] px-2 py-0.5 text-xs font-medium capitalize text-[var(--ink-2)]">
                     {member.role}
                   </span>
                 </div>
@@ -556,7 +603,7 @@ export function SettingsForms({
           </section>
 
           <aside className="space-y-6">
-            <form onSubmit={inviteMember} className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+            <form onSubmit={inviteMember} className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
               <h2 className="text-sm font-semibold text-[var(--ink)]">Invite teammate</h2>
               <div className="mt-4 space-y-3">
                 <input
@@ -565,12 +612,12 @@ export function SettingsForms({
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   placeholder="name@company.com"
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)]"
+                  className="w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
                 />
                 <select
                   value={role}
                   onChange={(event) => setRole(event.target.value as "admin" | "member")}
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors focus:border-[var(--brand)]"
+                  className="w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)]"
                 >
                   <option value="member">Member</option>
                   <option value="admin">Admin</option>
@@ -578,7 +625,7 @@ export function SettingsForms({
                 <button
                   type="submit"
                   disabled={isInviting}
-                  className="w-full rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="w-full rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isInviting ? "Sending..." : "Invite"}
                 </button>
@@ -587,17 +634,17 @@ export function SettingsForms({
               {inviteMessage && <div className="mt-3 text-sm text-pos">{inviteMessage}</div>}
             </form>
 
-            <section className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+            <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
               <h2 className="text-sm font-semibold text-[var(--ink)]">Pending invites</h2>
               <div className="mt-4 space-y-3">
                 {invites.filter((invite) => !invite.accepted_at).map((invite) => (
-                  <div key={invite.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-0)] p-3">
+                  <div key={invite.id} className="rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3">
                     <div className="truncate text-sm font-medium text-[var(--ink)]">{invite.email}</div>
-                    <div className="mt-1 text-xs capitalize text-[var(--ink-muted)]">{invite.role}</div>
+                    <div className="mt-1 text-xs capitalize text-[var(--ink-2)]">{invite.role}</div>
                   </div>
                 ))}
                 {invites.filter((invite) => !invite.accepted_at).length === 0 && (
-                  <div className="text-sm text-[var(--ink-muted)]">No pending invites.</div>
+                  <div className="text-sm text-[var(--ink-2)]">No pending invites.</div>
                 )}
               </div>
             </section>

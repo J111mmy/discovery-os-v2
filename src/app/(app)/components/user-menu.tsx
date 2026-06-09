@@ -27,20 +27,20 @@ export function UserMenu({ email }: UserMenuProps) {
       <button
         onClick={() => setOpen((v) => !v)}
         aria-label="User menu"
-        className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--brand)] text-sm font-semibold text-white transition-opacity hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
+        className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--accent)] text-sm font-semibold text-white transition-opacity hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
       >
         {initial}
       </button>
 
       {open && (
-        <div className="absolute right-0 top-10 z-50 min-w-[200px] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-1)] shadow-lg">
-          <div className="border-b border-[var(--border)] px-4 py-3">
-            <p className="truncate text-xs text-[var(--ink-muted)]">{email}</p>
+        <div className="absolute right-0 top-10 z-50 min-w-[200px] overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-lg">
+          <div className="border-b border-[var(--line)] px-4 py-3">
+            <p className="truncate text-xs text-[var(--ink-2)]">{email}</p>
           </div>
           <form method="POST" action="/api/auth/sign-out">
             <button
               type="submit"
-              className="w-full px-4 py-2.5 text-left text-sm text-[var(--ink-muted)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"
+              className="w-full px-4 py-2.5 text-left text-sm text-[var(--ink-2)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"
             >
               Sign out
             </button>

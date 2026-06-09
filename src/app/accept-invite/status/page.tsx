@@ -48,13 +48,13 @@ export default function AcceptInviteStatusPage({ searchParams }: Props) {
       : messages[status] ?? messages["not-found"];
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[var(--surface-0)] px-5">
-      <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-6">
+    <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-5">
+      <div className="w-full max-w-md rounded-xl border border-[var(--line)] bg-[var(--surface)] p-6">
         <h1 className="text-xl font-semibold text-[var(--ink)]">{message.title}</h1>
-        <p className="mt-2 text-sm leading-6 text-[var(--ink-muted)]">{message.body}</p>
+        <p className="mt-2 text-sm leading-6 text-[var(--ink-2)]">{message.body}</p>
         <Link
           href="/projects"
-          className="mt-5 inline-flex rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-dim)]"
+          className="mt-5 inline-flex rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)]"
         >
           Go to projects
         </Link>

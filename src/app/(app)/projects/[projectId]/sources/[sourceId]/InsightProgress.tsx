@@ -142,14 +142,14 @@ export function InsightProgress({ projectId, sourceId, projectName }: Props) {
   if (loading || visibleRuns.length === 0) return null;
 
   return (
-    <section className="mb-6 rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-5">
+    <section className="mb-6 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
           <div className="text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
             Insights being built
           </div>
           {hasRunning && (
-            <p className="mt-1 text-sm text-[var(--ink-muted)]">{flavourLines[flavourIndex]}</p>
+            <p className="mt-1 text-sm text-[var(--ink-2)]">{flavourLines[flavourIndex]}</p>
           )}
         </div>
         {hasRunning && (
@@ -167,14 +167,14 @@ export function InsightProgress({ projectId, sourceId, projectName }: Props) {
               className={`flex items-center justify-between gap-4 rounded-lg border px-3 py-2 ${
                 failed
                   ? "border-neg/20 bg-neg-bg"
-                  : "border-[var(--border)] bg-[var(--surface-0)]"
+                  : "border-[var(--line)] bg-[var(--bg)]"
               }`}
             >
               <div className="flex min-w-0 items-center gap-3">
                 {failed ? (
                   <span className="h-2 w-2 shrink-0 rounded-full bg-neg" />
                 ) : (
-                  <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-[var(--brand)]" />
+                  <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-[var(--accent)]" />
                 )}
                 <div className="min-w-0">
                   <div className="truncate text-sm font-medium text-[var(--ink)]">

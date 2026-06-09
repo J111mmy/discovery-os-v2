@@ -70,8 +70,8 @@ export function AffiliationToggle({
                   ? "border-yellow-500/40 bg-yellow-500/15 text-yellow-300"
                   : option.value === "external"
                     ? "border-green-500/30 bg-green-500/10 text-green-300"
-                    : "border-[var(--brand)]/30 bg-[var(--brand)]/10 text-[var(--brand)]"
-                : "border-[var(--border)] bg-[var(--surface-0)] text-[var(--ink-muted)] hover:border-[var(--ink-muted)]",
+                    : "border-[var(--accent)]/30 bg-[var(--accent)]/10 text-[var(--accent)]"
+                : "border-[var(--line)] bg-[var(--bg)] text-[var(--ink-2)] hover:border-[var(--ink-2)]",
             ].join(" ")}
           >
             {option.label}

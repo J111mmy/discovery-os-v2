@@ -18,11 +18,11 @@ export function ProjectMobileDrawer({
 
   return (
     <>
-      <div className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--surface-0)]/95 px-5 py-3 backdrop-blur lg:hidden">
+      <div className="sticky top-0 z-20 border-b border-[var(--line)] bg-[var(--bg)]/95 px-5 py-3 backdrop-blur lg:hidden">
         <button
           type="button"
           onClick={() => setIsOpen(true)}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-1)] text-[var(--ink)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
           aria-label="Open project navigation"
           aria-expanded={isOpen}
         >

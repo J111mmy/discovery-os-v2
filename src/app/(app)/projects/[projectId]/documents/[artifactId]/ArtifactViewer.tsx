@@ -85,15 +85,15 @@ function CitationPopover({
 
   return (
     <div
-      className="absolute left-0 top-full z-30 mt-2 w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-[var(--border)] bg-[var(--surface-0)] p-4 text-left shadow-2xl shadow-black/40"
+      className="absolute left-0 top-full z-30 mt-2 w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-[var(--line)] bg-[var(--bg)] p-4 text-left shadow-2xl shadow-black/40"
       role="dialog"
       aria-label={`Citation ${citation.n}`}
     >
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-xs font-semibold text-[var(--brand)]">[{citation.n}]</div>
+          <div className="text-xs font-semibold text-[var(--accent)]">[{citation.n}]</div>
           {attribution && (
-            <div className="mt-1 truncate text-xs font-medium text-[var(--ink-muted)]">
+            <div className="mt-1 truncate text-xs font-medium text-[var(--ink-2)]">
               {attribution}
             </div>
           )}
@@ -101,7 +101,7 @@ function CitationPopover({
         <button
           type="button"
           onClick={onClose}
-          className="rounded border border-[var(--border)] px-1.5 py-0.5 text-xs text-[var(--ink-muted)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
+          className="rounded border border-[var(--line)] px-1.5 py-0.5 text-xs text-[var(--ink-2)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
           aria-label="Close citation"
         >
           x
@@ -113,7 +113,7 @@ function CitationPopover({
       {citation.source_id && (
         <a
           href={`/projects/${projectId}/sources/${citation.source_id}`}
-          className="mt-3 inline-flex max-w-full truncate text-xs font-medium text-[var(--ink-muted)] transition-colors hover:text-[var(--brand)]"
+          className="mt-3 inline-flex max-w-full truncate text-xs font-medium text-[var(--ink-2)] transition-colors hover:text-[var(--accent)]"
         >
           {sourceLabel}
         </a>
@@ -156,7 +156,7 @@ function renderInline(
             <button
               type="button"
               onClick={() => setOpenCitation(openCitation === n ? null : n)}
-              className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded bg-[var(--brand)]/15 px-1 align-super text-[10px] font-semibold text-[var(--brand)] transition-colors hover:bg-[var(--brand)]/30"
+              className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded bg-[var(--accent)]/15 px-1 align-super text-[10px] font-semibold text-[var(--accent)] transition-colors hover:bg-[var(--accent)]/30"
               aria-label={`Open citation ${n}`}
             >
               {n}
@@ -181,7 +181,7 @@ function renderInline(
       nodes.push(
         <code
           key={key}
-          className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-1 py-0.5 text-[0.9em] text-[var(--ink)]"
+          className="rounded border border-[var(--line)] bg-[var(--surface-2)] px-1 py-0.5 text-[0.9em] text-[var(--ink)]"
         >
           {token.slice(1, -1)}
         </code>
@@ -230,7 +230,7 @@ function MarkdownContent({
     }
 
     if (/^---+$/.test(trimmed)) {
-      blocks.push(<hr key={`hr-${index}`} className="my-6 border-[var(--border)]" />);
+      blocks.push(<hr key={`hr-${index}`} className="my-6 border-[var(--line)]" />);
       index += 1;
       continue;
     }
@@ -247,7 +247,7 @@ function MarkdownContent({
       blocks.push(
         <pre
           key={`code-${start}`}
-          className="overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface-0)] p-4 text-sm leading-6 text-[var(--ink)]"
+          className="overflow-x-auto rounded-lg border border-[var(--line)] bg-[var(--bg)] p-4 text-sm leading-6 text-[var(--ink)]"
         >
           <code>{code.join("\n")}</code>
         </pre>
@@ -272,7 +272,7 @@ function MarkdownContent({
                 {headers.map((header, headerIndex) => (
                   <th
                     key={`${header}-${headerIndex}`}
-                    className="border-b border-[var(--border)] px-3 py-2 font-semibold text-[var(--ink)]"
+                    className="border-b border-[var(--line)] px-3 py-2 font-semibold text-[var(--ink)]"
                   >
                     {inline(header)}
                   </th>
@@ -281,11 +281,11 @@ function MarkdownContent({
             </thead>
             <tbody>
               {rows.map((row, rowIndex) => (
-                <tr key={`row-${rowIndex}`} className="border-b border-[var(--border)]/70">
+                <tr key={`row-${rowIndex}`} className="border-b border-[var(--line)]/70">
                   {headers.map((_, cellIndex) => (
                     <td
                       key={`cell-${rowIndex}-${cellIndex}`}
-                      className="px-3 py-2 align-top text-[var(--ink-muted)]"
+                      className="px-3 py-2 align-top text-[var(--ink-2)]"
                     >
                       {inline(row[cellIndex] ?? "")}
                     </td>
@@ -334,7 +334,7 @@ function MarkdownContent({
       blocks.push(
         <blockquote
           key={`quote-${start}`}
-          className="border-l-2 border-[var(--brand)] pl-4 text-sm italic leading-7 text-[var(--ink)]"
+          className="border-l-2 border-[var(--accent)] pl-4 text-sm italic leading-7 text-[var(--ink)]"
         >
           {quoteLines.map((quoteLine, quoteIndex) => (
             <p key={`${quoteLine}-${quoteIndex}`} className={quoteIndex > 0 ? "mt-2" : ""}>
@@ -354,7 +354,7 @@ function MarkdownContent({
         index += 1;
       }
       blocks.push(
-        <ul key={`ul-${start}`} className="list-disc space-y-2 pl-5 text-sm leading-7 text-[var(--ink-muted)]">
+        <ul key={`ul-${start}`} className="list-disc space-y-2 pl-5 text-sm leading-7 text-[var(--ink-2)]">
           {items.map((item, itemIndex) => (
             <li key={`${item}-${itemIndex}`}>{inline(item)}</li>
           ))}
@@ -371,7 +371,7 @@ function MarkdownContent({
         index += 1;
       }
       blocks.push(
-        <ol key={`ol-${start}`} className="list-decimal space-y-2 pl-5 text-sm leading-7 text-[var(--ink-muted)]">
+        <ol key={`ol-${start}`} className="list-decimal space-y-2 pl-5 text-sm leading-7 text-[var(--ink-2)]">
           {items.map((item, itemIndex) => (
             <li key={`${item}-${itemIndex}`}>{inline(item)}</li>
           ))}
@@ -387,7 +387,7 @@ function MarkdownContent({
       index += 1;
     }
     blocks.push(
-      <p key={`p-${start}`} className="text-sm leading-7 text-[var(--ink-muted)]">
+      <p key={`p-${start}`} className="text-sm leading-7 text-[var(--ink-2)]">
         {inline(paragraphLines.join(" "))}
       </p>
     );
@@ -477,7 +477,7 @@ export function ArtifactViewer({ artifactId, projectId, contentMd }: ArtifactVie
         projectId={projectId}
       />
       {citations.length > 0 && sourceCount > 0 && (
-        <div className="mt-6 border-t border-[var(--border)] pt-4 text-xs text-[var(--ink-faint)]">
+        <div className="mt-6 border-t border-[var(--line)] pt-4 text-xs text-[var(--ink-faint)]">
           Built from {sourceCount} source{sourceCount === 1 ? "" : "s"}
         </div>
       )}

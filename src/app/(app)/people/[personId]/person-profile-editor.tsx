@@ -202,7 +202,7 @@ function EditableInput({
         onChange={(event) => onChange(event.target.value)}
         onBlur={onBlur}
         placeholder={placeholder}
-        className={`w-full rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--brand)] ${inputClassName}`}
+        className={`w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)] ${inputClassName}`}
       />
     </label>
   );
@@ -228,7 +228,7 @@ function EditableSelect({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value as PersonStatus)}
-        className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-0)] px-3 py-2 text-sm text-[var(--ink)] outline-none transition-colors focus:border-[var(--brand)]"
+        className="w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)]"
       >
         {STATUS_OPTIONS.map((option) => (
           <option key={option.value} value={option.value}>
