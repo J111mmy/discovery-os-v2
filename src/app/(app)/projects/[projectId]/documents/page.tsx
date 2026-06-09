@@ -3,7 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 import type { ArtifactType, ArtifactVerificationStatus } from "@/types/database";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { DeleteArtifactButton } from "./DeleteArtifactButton";
 
 interface Props {
   params: { projectId: string };
@@ -62,43 +61,34 @@ function ArtifactCard({
   projectId: string;
 }) {
   return (
-    <article className="flex flex-col rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 transition-all hover:border-[var(--line-strong)] hover:bg-[var(--sel)] hover:shadow-sm">
-      {/* Header badges */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <VerificationBadge status={artifact.verification_status} />
-        <span className="text-xs text-[var(--ink-faint)]">v{artifact.version}</span>
-        <span className="ml-auto text-xs text-[var(--ink-faint)]">{dateLabel(artifact.updated_at)}</span>
-      </div>
-
-      {/* Title — view first */}
-      <Link
-        href={`/projects/${projectId}/documents/${artifact.id}`}
-        className="mb-2 text-sm font-semibold leading-5 text-[var(--ink)] transition-colors hover:text-[var(--accent)]"
-      >
-        {artifact.title}
-      </Link>
-
-      {/* Prompt snippet */}
-      <p className="line-clamp-2 flex-1 text-xs leading-5 text-[var(--ink-2)]">
-        {artifact.prompt}
-      </p>
-
-      {/* Footer */}
-      <div className="mt-4 flex items-center justify-between gap-2 border-t border-[var(--line)] pt-4">
-        <span className="text-xs text-[var(--ink-faint)]">
-          {artifact.word_count ?? 0} words
-        </span>
-        <div className="flex gap-2">
-          <Link
-            href={`/projects/${projectId}/documents/${artifact.id}`}
-            className="rounded-lg border border-[var(--line)] px-2.5 py-1 text-xs font-medium text-[var(--ink)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
-          >
-            View
-          </Link>
-          <DeleteArtifactButton projectId={projectId} artifactId={artifact.id} />
+    <Link
+      href={`/projects/${projectId}/documents/${artifact.id}`}
+      className="group block"
+    >
+      <article className="flex h-full flex-col rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 transition-all duration-150 group-hover:border-[var(--line-strong)] group-hover:bg-[var(--surface-hover)] group-hover:shadow-md">
+        {/* Meta row */}
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <VerificationBadge status={artifact.verification_status} />
+          <span className="text-xs text-[var(--ink-faint)]">v{artifact.version}</span>
+          <span className="ml-auto text-xs text-[var(--ink-faint)]">{dateLabel(artifact.updated_at)}</span>
         </div>
-      </div>
-    </article>
+
+        {/* Title */}
+        <h3 className="mb-2 line-clamp-2 text-sm font-semibold leading-5 text-[var(--ink)] transition-colors group-hover:text-[var(--accent)]">
+          {artifact.title}
+        </h3>
+
+        {/* Prompt snippet */}
+        <p className="line-clamp-2 flex-1 text-xs leading-5 text-[var(--ink-2)]">
+          {artifact.prompt}
+        </p>
+
+        {/* Footer — word count only */}
+        <div className="mt-4 border-t border-[var(--line)] pt-4">
+          <span className="text-xs text-[var(--ink-faint)]">{artifact.word_count ?? 0} words</span>
+        </div>
+      </article>
+    </Link>
   );
 }
 

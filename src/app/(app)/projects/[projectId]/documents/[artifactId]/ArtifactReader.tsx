@@ -243,6 +243,25 @@ function HtmlReader({
           {/* Paper */}
           <main className="reader-main">
             {/*
+             * Show a prominent title block when the content doesn't already
+             * open with a .dp-hero section (i.e. no # H1 in the source markdown).
+             * Avoids duplication for well-structured docs that have their own hero.
+             */}
+            {!contentHtml.includes('class="dp-hero"') && (
+              <div className="mb-5 px-1">
+                <h1 className="text-xl font-semibold leading-snug text-[var(--ink)]">
+                  {title}
+                </h1>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <span className="doc-type-badge">{type}</span>
+                  <span className="text-xs text-[var(--ink-faint)]">{dateLabel(createdAt)}</span>
+                  {wordCount !== null && (
+                    <span className="text-xs text-[var(--ink-faint)]">{wordCount} words</span>
+                  )}
+                </div>
+              </div>
+            )}
+            {/*
              * contentHtml is the output of toSafeContentHtml() (server, page.tsx).
              * sanitize-html has already enforced the v1 contract allowlist.
              * This component receives clean HTML — rendering it is safe.
