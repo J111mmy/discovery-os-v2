@@ -3,6 +3,7 @@ import { ArtifactHtmlValidationError, sanitizeArtifactHtml } from "@/lib/sanitiz
 import { markdownToSanitizedArtifactHtml } from "@/lib/sanitize/artifact-markdown";
 import { createClient } from "@/lib/supabase/server";
 import type { ArtifactType } from "@/types/database";
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArtifactReader } from "./ArtifactReader";
 
@@ -75,17 +76,27 @@ export default async function ArtifactDetailPage({ params }: Props) {
   const contentHtml = toSafeContentHtml(artifactRow.content_html, artifactRow.content_md);
 
   return (
-    <ArtifactReader
-      artifactId={artifactRow.id}
-      projectId={project.id}
-      contentHtml={contentHtml}
-      contentMd={artifactRow.content_md}
-      title={artifactRow.title}
-      type={artifactRow.type}
-      createdAt={artifactRow.created_at}
-      wordCount={artifactRow.word_count}
-      backHref={backHref}
-      backLabel={backLabel}
-    />
+    <>
+      <div className="mb-3 flex justify-end">
+        <Link
+          href={`/projects/${project.id}/compose?artifactId=${artifactRow.id}`}
+          className="inline-flex rounded-md border border-[var(--line)] px-3 py-1.5 text-[13px] font-medium text-[var(--ink-2)] no-underline transition-colors hover:border-[var(--line-strong)] hover:text-[var(--ink)]"
+        >
+          Edit
+        </Link>
+      </div>
+      <ArtifactReader
+        artifactId={artifactRow.id}
+        projectId={project.id}
+        contentHtml={contentHtml}
+        contentMd={artifactRow.content_md}
+        title={artifactRow.title}
+        type={artifactRow.type}
+        createdAt={artifactRow.created_at}
+        wordCount={artifactRow.word_count}
+        backHref={backHref}
+        backLabel={backLabel}
+      />
+    </>
   );
 }

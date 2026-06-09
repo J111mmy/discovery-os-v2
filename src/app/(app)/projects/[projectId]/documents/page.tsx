@@ -70,9 +70,9 @@ function ArtifactCard({
         <span className="ml-auto text-xs text-[var(--ink-faint)]">{dateLabel(artifact.updated_at)}</span>
       </div>
 
-      {/* Title */}
+      {/* Title — view first */}
       <Link
-        href={`/projects/${projectId}/compose?artifactId=${artifact.id}`}
+        href={`/projects/${projectId}/documents/${artifact.id}`}
         className="mb-2 text-sm font-semibold leading-5 text-[var(--ink)] transition-colors hover:text-[var(--accent)]"
       >
         {artifact.title}
@@ -90,10 +90,16 @@ function ArtifactCard({
         </span>
         <div className="flex gap-2">
           <Link
-            href={`/projects/${projectId}/compose?artifactId=${artifact.id}`}
+            href={`/projects/${projectId}/documents/${artifact.id}`}
             className="rounded-lg border border-[var(--line)] px-2.5 py-1 text-xs font-medium text-[var(--ink)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
           >
-            Open
+            View
+          </Link>
+          <Link
+            href={`/projects/${projectId}/compose?artifactId=${artifact.id}`}
+            className="rounded-lg border border-[var(--line)] px-2.5 py-1 text-xs font-medium text-[var(--ink-2)] transition-colors hover:border-[var(--line-strong)] hover:text-[var(--ink)]"
+          >
+            Edit
           </Link>
           <form action={deleteArtifactAction}>
             <input type="hidden" name="project_id" value={projectId} />
