@@ -25,7 +25,7 @@ async function getRecentEvidence(
 
   if (themeFilter) {
     // Filter by theme label — themes is a text[] column; contains = @> (subset)
-    evidenceQuery = evidenceQuery.filter("themes", "cs", `{${themeFilter}}`);
+    evidenceQuery = evidenceQuery.contains("themes", [themeFilter]);
   } else if (trustScope !== "all") {
     evidenceQuery = evidenceQuery.eq("trust_scope", trustScope);
   }

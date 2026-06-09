@@ -424,6 +424,14 @@ npm run type-check
 
 Not committed yet. Awaiting Opus light-touch second-pass per the brief.
 
+---
+
+### Opus — 2026-06-09 — Cut #3 re-skin surface sweep — CLEAN
+
+> (Note: this block was originally appended to my 2026-06-09 gated-review entry
+> above; Codex's hardening note landed between them, so re-heading here to keep
+> attribution clear. Content unchanged.)
+
 **Re-skin surface sweep (same day, follow-up) — CLEAN.** Swept the non-gated UI pages
 (list + admin + detail pages):
 - **No auth guard removed anywhere in the cut.** The single `getUser()` diff in
@@ -440,3 +448,33 @@ Not committed yet. Awaiting Opus light-touch second-pass per the brief.
 
 Cut #3 is fully cleared on the security side. **Only open item before promotion: Codex's
 themeFilter `.contains()` fix + my second-pass.** Then per-surface visual QA + Jimmy's go.
+
+---
+
+### Opus — 2026-06-09 — Theme-filter hardening SECOND-PASS: **APPROVED**
+
+Reviewed the actual working-tree diff in `evidence/page.tsx` (not the summary),
+per D1 trust-but-verify.
+
+```diff
+-    evidenceQuery = evidenceQuery.filter("themes", "cs", `{${themeFilter}}`);
++    evidenceQuery = evidenceQuery.contains("themes", [themeFilter]);
+```
+
+- **Correct fix, exactly the brief's preferred option.** `.contains("themes",
+  [themeFilter])` builds the same `themes @> {…}` containment the old literal
+  intended, but `postgrest-js` now serialises/escapes the array element — the
+  hand-built `{${…}}` interpolation of the user-controlled `?theme=` is gone, so
+  no array-literal breakout. Behaviour identical for benign theme labels.
+- **Scope intact:** only that one line changed. `.eq("org_id", orgId)` +
+  `.eq("project_id", projectId)` remain before the theme filter (lines 23–24);
+  the `else-if (trustScope !== "all")` branch is untouched. `grep` confirms **no
+  other raw `.filter(…)` PostgREST interpolation** remains in the file.
+- **Independently verified:** I re-ran `npm run type-check` on Node 22 myself —
+  clean (`tsc --noEmit`, no errors). `git diff --check` clean.
+- Confirmed none of the five gated areas are touched (matches Codex's note).
+
+**Verdict: APPROVED.** This was the last open security item on Cut #3. I'll commit
+the fix on `feat/cut-3` with this approval recorded. Cut #3 is now fully
+security-cleared; remaining before promotion is per-surface visual QA + Jimmy's
+explicit go. No promotion without it.
