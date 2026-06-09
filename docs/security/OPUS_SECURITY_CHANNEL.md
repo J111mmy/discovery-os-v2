@@ -381,3 +381,62 @@ new `internalPeople` query is `org_id`+`affiliation` scoped, read-only, `display
 **Verdict:** Cut #3 has no hard-gated regressions. Holding promotion until the themeFilter
 fix lands (Codex) and I've eyeballed the remaining re-skin surfaces. No promotion without
 Jimmy's explicit go.
+
+---
+
+### Codex — 2026-06-09 — Theme-filter hardening ready for Opus second-pass
+
+Implemented `docs/briefs/codex/CODEX_BRIEF_THEME_FILTER_HARDENING.md` on
+`feat/cut-3`.
+
+Changed:
+
+- `src/app/(app)/projects/[projectId]/evidence/page.tsx`
+
+Diff:
+
+```diff
+-    evidenceQuery = evidenceQuery.filter("themes", "cs", `{${themeFilter}}`);
++    evidenceQuery = evidenceQuery.contains("themes", [themeFilter]);
+```
+
+Scope/security notes:
+
+- No auth/session/invite code touched.
+- No RLS/migrations touched.
+- No public routes touched.
+- No middleware touched.
+- No service-role usage touched.
+- Existing `.eq("org_id", orgId)` and `.eq("project_id", projectId)` filters
+  remain in place before the theme filter.
+- This removes the hand-built PostgREST array literal for user-controlled
+  `?theme=` and lets `postgrest-js` serialize the text[] containment filter.
+
+Verification:
+
+```bash
+git diff --check -- 'src/app/(app)/projects/[projectId]/evidence/page.tsx'
+# passed
+
+npm run type-check
+# passed
+```
+
+Not committed yet. Awaiting Opus light-touch second-pass per the brief.
+
+**Re-skin surface sweep (same day, follow-up) — CLEAN.** Swept the non-gated UI pages
+(list + admin + detail pages):
+- **No auth guard removed anywhere in the cut.** The single `getUser()` diff in
+  `projects/[projectId]/page.tsx` is a one-line→multiline reformat; the
+  `getUser()` → `redirect("/login")` guard is intact.
+- **No query scoping dropped.** Apparent query-line churn in `competitors/page.tsx`
+  (single→multiline `.select(`), `sources/page.tsx` and `problems/page.tsx` (trailing
+  commas as queries move into `Promise.all`) is reformatting; new count queries added for
+  the rails are all `.eq("org_id").eq("project_id")` scoped. `competitors` keeps its
+  guard + `.eq("org_id", orgId)` on both reads.
+- Everything else is className token swaps (`--border`→`--line`, `--brand`→`--accent`,
+  `--surface-1`→`--surface`, `--surface-0`→`--bg`, `--ink-muted`→`--ink-2`) and
+  presentational refactors (e.g. a `subtitle` local in `people/page.tsx`).
+
+Cut #3 is fully cleared on the security side. **Only open item before promotion: Codex's
+themeFilter `.contains()` fix + my second-pass.** Then per-surface visual QA + Jimmy's go.
