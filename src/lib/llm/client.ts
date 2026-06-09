@@ -1,7 +1,12 @@
 // LLM client — wraps Anthropic SDK with task_tier abstraction
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import { EMBEDDING_MODEL } from "./models";
+import {
+  EMBEDDING_MODEL,
+  getModelConfig,
+  type LLMProvider,
+  type ModelConfig,
+} from "./models";
 import { getAIModelConfig } from "./settings";
 import type { TaskTier } from "@/types/database";
 
@@ -46,9 +51,49 @@ export interface LLMCallResult {
   outputTokens: number;
 }
 
-export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
-  const config = await getAIModelConfig(opts.tier);
+function isConfigured(provider: LLMProvider) {
+  return provider === "anthropic"
+    ? Boolean(process.env.ANTHROPIC_API_KEY)
+    : Boolean(process.env.OPENAI_API_KEY);
+}
 
+function alternateProvider(provider: LLMProvider): LLMProvider {
+  return provider === "anthropic" ? "openai" : "anthropic";
+}
+
+function errorStatus(error: unknown) {
+  if (!error || typeof error !== "object") return null;
+  const candidate = error as { status?: unknown; code?: unknown };
+  if (typeof candidate.status === "number") return candidate.status;
+  if (typeof candidate.code === "number") return candidate.code;
+  return null;
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isProviderAvailabilityError(error: unknown) {
+  const status = errorStatus(error);
+  if (status === 429 || (status !== null && status >= 500 && status <= 504)) return true;
+
+  const message = errorMessage(error).toLowerCase();
+  return (
+    message.includes("quota") ||
+    message.includes("rate limit") ||
+    message.includes("billing") ||
+    message.includes("overloaded") ||
+    message.includes("capacity") ||
+    message.includes("api key") ||
+    message.includes("not configured") ||
+    message.includes("missing")
+  );
+}
+
+async function callLLMWithConfig(
+  opts: LLMCallOptions,
+  config: ModelConfig
+): Promise<LLMCallResult> {
   if (config.provider === "anthropic") {
     // SECURITY INVARIANT A1: callLLM is text-in/text-out only.
     // Adding tools/tool_choice/function_call changes the prompt-injection threat model
@@ -111,6 +156,42 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
   }
 
   throw new Error(`Provider ${config.provider} not yet implemented`);
+}
+
+export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
+  const config = await getAIModelConfig(opts.tier);
+
+  try {
+    return await callLLMWithConfig(opts, config);
+  } catch (error) {
+    const fallbackProvider = alternateProvider(config.provider);
+
+    if (!isProviderAvailabilityError(error)) {
+      throw error;
+    }
+
+    if (!isConfigured(fallbackProvider)) {
+      throw new Error(
+        `The selected AI provider (${config.provider}) is out of quota, rate-limited, missing credentials, or temporarily unavailable. Switch AI routing to ${fallbackProvider} or update the provider billing/quota.`
+      );
+    }
+
+    const fallbackConfig = getModelConfig(opts.tier, fallbackProvider);
+
+    try {
+      return await callLLMWithConfig(opts, fallbackConfig);
+    } catch (fallbackError) {
+      if (isProviderAvailabilityError(fallbackError)) {
+        throw new Error(
+          `All configured AI providers are out of quota, rate-limited, or temporarily unavailable. Primary ${config.provider}: ${errorMessage(
+            error
+          )}. Fallback ${fallbackProvider}: ${errorMessage(fallbackError)}.`
+        );
+      }
+
+      throw fallbackError;
+    }
+  }
 }
 
 // Embed a single string — always uses text-embedding-3-small via OpenAI

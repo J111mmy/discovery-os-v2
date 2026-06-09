@@ -37,6 +37,16 @@ function wordCount(text: string) {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
+function formatComposeError(error: unknown) {
+  const message = error instanceof Error ? error.message : "Unknown compose error";
+
+  if (/429|quota|rate limit|billing|overloaded|capacity|api key|not configured|missing/i.test(message)) {
+    return "The AI provider is out of quota, rate-limited, missing credentials, or temporarily unavailable. Try again shortly, or switch the AI route in Admin settings.";
+  }
+
+  return message;
+}
+
 export const composeArtifact = inngest.createFunction(
   { id: "compose-artifact", name: "Compose Artifact", retries: 1 },
   { event: "artifact/compose.requested" },
@@ -94,8 +104,9 @@ export const composeArtifact = inngest.createFunction(
 
       return { artifact_id, title: draft.title, evidence_count: draft.evidence_ids.length };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown compose error";
-      console.error("[compose-artifact] failed:", message);
+      const internalMessage = error instanceof Error ? error.message : "Unknown compose error";
+      const message = formatComposeError(error);
+      console.error("[compose-artifact] failed:", internalMessage);
 
       // Mark the stub as failed so the client can show an error state
       await supabase
