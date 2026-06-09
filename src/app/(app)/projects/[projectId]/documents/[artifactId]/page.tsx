@@ -3,6 +3,7 @@ import { ArtifactHtmlValidationError, sanitizeArtifactHtml } from "@/lib/sanitiz
 import { markdownToSanitizedArtifactHtml } from "@/lib/sanitize/artifact-markdown";
 import { createClient } from "@/lib/supabase/server";
 import type { ArtifactType } from "@/types/database";
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArtifactReader } from "./ArtifactReader";
 
@@ -75,17 +76,35 @@ export default async function ArtifactDetailPage({ params }: Props) {
   const contentHtml = toSafeContentHtml(artifactRow.content_html, artifactRow.content_md);
 
   return (
-    <ArtifactReader
-      artifactId={artifactRow.id}
-      projectId={project.id}
-      contentHtml={contentHtml}
-      contentMd={artifactRow.content_md}
-      title={artifactRow.title}
-      type={artifactRow.type}
-      createdAt={artifactRow.created_at}
-      wordCount={artifactRow.word_count}
-      backHref={backHref}
-      backLabel={backLabel}
-    />
+    <>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+        <Link
+          href={`/projects/${project.id}/compose?artifactId=${artifactRow.id}`}
+          style={{
+            fontSize: 13, fontWeight: 500,
+            color: "var(--ink-2)",
+            border: "1px solid var(--line)",
+            borderRadius: "var(--r-md)",
+            padding: "5px 12px",
+            textDecoration: "none",
+            transition: "border-color .13s, color .13s",
+          }}
+        >
+          Edit
+        </Link>
+      </div>
+      <ArtifactReader
+        artifactId={artifactRow.id}
+        projectId={project.id}
+        contentHtml={contentHtml}
+        contentMd={artifactRow.content_md}
+        title={artifactRow.title}
+        type={artifactRow.type}
+        createdAt={artifactRow.created_at}
+        wordCount={artifactRow.word_count}
+        backHref={backHref}
+        backLabel={backLabel}
+      />
+    </>
   );
 }
