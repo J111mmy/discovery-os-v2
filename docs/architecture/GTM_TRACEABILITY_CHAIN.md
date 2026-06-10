@@ -86,6 +86,6 @@ typed and rationale-bearing.
 
 ## Tracking
 - This note is the durable architecture record. Discrete build work is tracked in GitHub issues:
-  - [ ] Opportunity-generation agent (problems → opportunities, typed links)
-  - [ ] Structure-driven compose (artifact cites through problem/theme/opportunity chain)
+  - [ ] Opportunity-generation agent (problems → opportunities, typed links) — #25
+  - [ ] Structure-driven compose (artifact cites through problem/theme/opportunity chain) — #26
 - Keep this note updated as each link moves from schema-only to wired.
