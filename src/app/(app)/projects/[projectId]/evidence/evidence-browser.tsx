@@ -9,6 +9,72 @@ import {
 } from "./actions";
 
 type BucketKey = Extract<TrustScope, "pending" | "trusted" | "excluded">;
+type EvidenceLensKey = "review" | "topics" | "themes" | "problems" | "sources";
+type EvidenceFilterKind = "topic" | "theme";
+
+export interface LensTrustMix {
+  pending: number;
+  trusted: number;
+  excluded: number;
+}
+
+export interface LensEvidencePreview {
+  id: string;
+  content: string;
+  summary: string | null;
+  trust_scope: TrustScope;
+  source_title: string | null;
+  source_type: string | null;
+}
+
+export interface TopicLensItem {
+  label: string;
+  support_count: number;
+  trust_mix: LensTrustMix;
+  source_types: string[];
+  linked_theme_count: number;
+  linked_problem_count: number;
+  recent_evidence: LensEvidencePreview | null;
+}
+
+export interface ThemeLensItem {
+  id: string;
+  label: string;
+  description: string | null;
+  support_count: number;
+  supporting_topic_count: number;
+  related_problem_count: number;
+  recent_evidence: LensEvidencePreview | null;
+}
+
+export interface ProblemLensItem {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string | null;
+  severity: string | null;
+  evidence_count: number;
+  related_topic_count: number;
+  related_theme_count: number;
+  recent_evidence: LensEvidencePreview | null;
+}
+
+export interface SourceLensItem {
+  id: string;
+  title: string;
+  type: string | null;
+  evidence_count: number;
+  trust_mix: LensTrustMix;
+  topic_count: number;
+  recent_evidence: LensEvidencePreview | null;
+}
+
+export interface EvidenceLensData {
+  topics: TopicLensItem[];
+  themes: ThemeLensItem[];
+  problems: ProblemLensItem[];
+  sources: SourceLensItem[];
+}
 
 interface EvidenceBrowserProps {
   projectId: string;
@@ -18,8 +84,38 @@ interface EvidenceBrowserProps {
   excludedCount: number;
   researchContextEmpty: boolean;
   themeFilter?: string;
+  filterKind?: EvidenceFilterKind;
+  lensData: EvidenceLensData;
   internalSpeakerNames: string[];
 }
+
+const LENSES: { key: EvidenceLensKey; label: string; blurb: string }[] = [
+  {
+    key: "review",
+    label: "Review",
+    blurb: "Sort evidence by trust before it feeds synthesis and artifacts.",
+  },
+  {
+    key: "topics",
+    label: "Topics",
+    blurb: "Snippet-level analytical labels from the current evidence model.",
+  },
+  {
+    key: "themes",
+    label: "Themes",
+    blurb: "Higher-order patterns linked through the reviewed theme table.",
+  },
+  {
+    key: "problems",
+    label: "Problems",
+    blurb: "Evidence grouped under the problem objects it currently informs.",
+  },
+  {
+    key: "sources",
+    label: "Sources",
+    blurb: "A source-first view for provenance and context checks.",
+  },
+];
 
 const BUCKETS: {
   key: BucketKey;
@@ -116,6 +212,45 @@ function SentimentIndicator({ sentiment }: { sentiment: EvidenceRecord["sentimen
   );
 }
 
+function sourceTypeLabel(type: string | null | undefined) {
+  if (!type) return "Unknown source";
+  return type
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function previewText(preview: LensEvidencePreview | null) {
+  if (!preview) return "No representative evidence yet.";
+  return preview.summary?.trim() || preview.content;
+}
+
+function trustMixText(mix: LensTrustMix) {
+  const pieces = [
+    mix.trusted > 0 ? `${mix.trusted} trusted` : null,
+    mix.pending > 0 ? `${mix.pending} review` : null,
+    mix.excluded > 0 ? `${mix.excluded} excluded` : null,
+  ].filter(Boolean);
+
+  return pieces.length > 0 ? pieces.join(" · ") : "No evidence";
+}
+
+function anchorAffordance(record: EvidenceRecord) {
+  const raw = record.metadata?.anchor_method;
+  const method = typeof raw === "string" ? raw : null;
+  const confident = method === "exact" || method === "normalised";
+
+  return {
+    label: confident ? "Open in source" : "Approximate location in source",
+    title: confident
+      ? "Open the exact source segment for this evidence."
+      : "The matcher found the closest available source location, but it may not be an exact quote anchor.",
+    className: confident
+      ? "text-[var(--accent)] hover:text-[var(--ink)]"
+      : "text-warn hover:text-[var(--ink)]",
+  };
+}
+
 function EvidenceRow({
   projectId,
   record,
@@ -136,6 +271,7 @@ function EvidenceRow({
   const showReason =
     record.ai_trust_reason &&
     (record.ai_trust_grade === "uncertain" || record.ai_trust_grade === "weak");
+  const sourceLink = anchorAffordance(record);
 
   const quick: { target: BucketKey; label: string; tone: string }[] =
     record.trust_scope === "pending"
@@ -209,9 +345,10 @@ function EvidenceRow({
           {record.segment_id && (
             <Link
               href={`/projects/${projectId}/sources/${record.source_id}#segment-${record.segment_id}`}
-              className="text-xs font-medium text-[var(--ink-2)] transition-colors hover:text-[var(--accent)]"
+              title={sourceLink.title}
+              className={`text-xs font-medium transition-colors ${sourceLink.className}`}
             >
-              View source segment
+              {sourceLink.label}
             </Link>
           )}
           <span className="flex-1" />
@@ -232,6 +369,198 @@ function EvidenceRow({
   );
 }
 
+function EmptyLens({ label }: { label: string }) {
+  return (
+    <div className="p-12 text-center">
+      <div className="text-sm font-medium text-[var(--ink)]">No {label.toLowerCase()} yet</div>
+      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--ink-2)]">
+        This lens will fill in as the project accumulates reviewed evidence and synthesis links.
+      </p>
+    </div>
+  );
+}
+
+function EvidencePreview({ preview }: { preview: LensEvidencePreview | null }) {
+  if (!preview) return null;
+
+  return (
+    <div className="mt-3 rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2">
+      <div className="mb-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-[var(--ink-faint)]">
+        <span className="truncate">{preview.source_title ?? "Unknown source"}</span>
+        <span>·</span>
+        <span>{sourceTypeLabel(preview.source_type)}</span>
+      </div>
+      <p className="line-clamp-2 text-xs leading-5 text-[var(--ink-2)]">{previewText(preview)}</p>
+    </div>
+  );
+}
+
+function LensStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <span className="rounded-full border border-[var(--line)] bg-[var(--bg)] px-2 py-0.5 text-xs font-medium text-[var(--ink-2)]">
+      {value}
+      {label ? ` ${label}` : ""}
+    </span>
+  );
+}
+
+function TopicLens({ projectId, items }: { projectId: string; items: TopicLensItem[] }) {
+  if (items.length === 0) return <EmptyLens label="topics" />;
+
+  return (
+    <div className="grid gap-3 p-4 sm:p-5">
+      {items.map((item) => (
+        <article
+          key={item.label}
+          className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <Link
+                href={`/projects/${projectId}/evidence?theme=${encodeURIComponent(item.label)}`}
+                className="text-base font-semibold text-[var(--ink)] transition-colors hover:text-[var(--accent)]"
+              >
+                {item.label}
+              </Link>
+              <p className="mt-1 text-xs text-[var(--ink-2)]">{trustMixText(item.trust_mix)}</p>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-1.5">
+              <LensStat label="records" value={item.support_count} />
+              <LensStat label="themes" value={item.linked_theme_count} />
+              <LensStat label="problems" value={item.linked_problem_count} />
+            </div>
+          </div>
+          {item.source_types.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {item.source_types.slice(0, 4).map((type) => (
+                <span
+                  key={type}
+                  className="rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-xs text-[var(--ink-2)]"
+                >
+                  {sourceTypeLabel(type)}
+                </span>
+              ))}
+            </div>
+          )}
+          <EvidencePreview preview={item.recent_evidence} />
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ThemeLens({ projectId, items }: { projectId: string; items: ThemeLensItem[] }) {
+  if (items.length === 0) return <EmptyLens label="themes" />;
+
+  return (
+    <div className="grid gap-3 p-4 sm:p-5">
+      {items.map((item) => (
+        <article
+          key={item.id}
+          className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <Link
+                href={`/projects/${projectId}/evidence?theme_id=${item.id}`}
+                className="text-base font-semibold text-[var(--ink)] transition-colors hover:text-[var(--accent)]"
+              >
+                {item.label}
+              </Link>
+              {item.description && (
+                <p className="mt-1 line-clamp-2 text-sm leading-5 text-[var(--ink-2)]">
+                  {item.description}
+                </p>
+              )}
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-1.5">
+              <LensStat label="records" value={item.support_count} />
+              <LensStat label="topics" value={item.supporting_topic_count} />
+              <LensStat label="problems" value={item.related_problem_count} />
+            </div>
+          </div>
+          <EvidencePreview preview={item.recent_evidence} />
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ProblemLens({ projectId, items }: { projectId: string; items: ProblemLensItem[] }) {
+  if (items.length === 0) return <EmptyLens label="problems" />;
+
+  return (
+    <div className="grid gap-3 p-4 sm:p-5">
+      {items.map((item) => (
+        <article
+          key={item.id}
+          className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <Link
+                href={`/projects/${projectId}/problems?problem=${item.id}`}
+                className="text-base font-semibold text-[var(--ink)] transition-colors hover:text-[var(--accent)]"
+              >
+                {item.title}
+              </Link>
+              {item.description && (
+                <p className="mt-1 line-clamp-2 text-sm leading-5 text-[var(--ink-2)]">
+                  {item.description}
+                </p>
+              )}
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-1.5">
+              {item.status && <LensStat label="" value={item.status} />}
+              {item.severity && <LensStat label="" value={item.severity} />}
+              <LensStat label="records" value={item.evidence_count} />
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            <LensStat label="topics" value={item.related_topic_count} />
+            <LensStat label="themes" value={item.related_theme_count} />
+          </div>
+          <EvidencePreview preview={item.recent_evidence} />
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function SourceLens({ projectId, items }: { projectId: string; items: SourceLensItem[] }) {
+  if (items.length === 0) return <EmptyLens label="sources" />;
+
+  return (
+    <div className="grid gap-3 p-4 sm:p-5">
+      {items.map((item) => (
+        <article
+          key={item.id}
+          className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <Link
+                href={`/projects/${projectId}/sources/${item.id}`}
+                className="text-base font-semibold text-[var(--ink)] transition-colors hover:text-[var(--accent)]"
+              >
+                {item.title}
+              </Link>
+              <p className="mt-1 text-xs text-[var(--ink-2)]">
+                {sourceTypeLabel(item.type)} · {trustMixText(item.trust_mix)}
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-1.5">
+              <LensStat label="records" value={item.evidence_count} />
+              <LensStat label="topics" value={item.topic_count} />
+            </div>
+          </div>
+          <EvidencePreview preview={item.recent_evidence} />
+        </article>
+      ))}
+    </div>
+  );
+}
+
 export function EvidenceBrowser({
   projectId,
   initialRecords,
@@ -240,8 +569,11 @@ export function EvidenceBrowser({
   excludedCount,
   researchContextEmpty,
   themeFilter,
+  filterKind = themeFilter ? "topic" : undefined,
+  lensData,
   internalSpeakerNames,
 }: EvidenceBrowserProps) {
+  const [activeLens, setActiveLens] = useState<EvidenceLensKey>("review");
   const [activeTab, setActiveTab] = useState<BucketKey>("pending");
   const [counts, setCounts] = useState<Record<BucketKey, number>>({
     pending: pendingCount,
@@ -269,6 +601,7 @@ export function EvidenceBrowser({
 
   const trimmedQuery = useMemo(() => query.trim(), [query]);
   const activeBucket = BUCKETS.find((b) => b.key === activeTab)!;
+  const activeLensConfig = LENSES.find((lens) => lens.key === activeLens)!;
 
   // ── Internal-speaker derivations ──────────────────────────────────
   const internalSet = useMemo(
@@ -488,12 +821,38 @@ export function EvidenceBrowser({
 
   return (
     <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
+      <div className="flex flex-wrap gap-2 border-b border-[var(--line)] p-3 sm:p-4">
+        {LENSES.map((lens) => {
+          const active = lens.key === activeLens;
+          return (
+            <button
+              key={lens.key}
+              type="button"
+              onClick={() => {
+                setActiveLens(lens.key);
+                setSelected(new Set());
+                setError(null);
+              }}
+              className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                active
+                  ? "border-[var(--accent)]/50 bg-[var(--accent-soft)] text-[var(--accent)]"
+                  : "border-[var(--line)] text-[var(--ink-2)] hover:border-white/15 hover:text-[var(--ink)]"
+              }`}
+            >
+              {lens.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {activeLens === "review" ? (
+        <>
       {/* Theme filter banner — replaces tab bar when filtering by theme */}
       {themeFilter ? (
         <div className="flex items-center gap-3 border-b border-[var(--line)] px-4 py-3">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <span className="flex-shrink-0 text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
-              Theme
+              {filterKind === "theme" ? "Theme" : "Topic"}
             </span>
             <span className="truncate rounded-full border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-2.5 py-0.5 text-xs font-medium text-[var(--accent)]">
               {themeFilter}
@@ -692,6 +1051,20 @@ export function EvidenceBrowser({
               )}
             </div>
           )}
+        </>
+      )}
+        </>
+      ) : (
+        <>
+          <div className="border-b border-[var(--line)] p-4 sm:p-5">
+            <p className="text-sm leading-6 text-[var(--ink-2)]">{activeLensConfig.blurb}</p>
+          </div>
+          {activeLens === "topics" && <TopicLens projectId={projectId} items={lensData.topics} />}
+          {activeLens === "themes" && <ThemeLens projectId={projectId} items={lensData.themes} />}
+          {activeLens === "problems" && (
+            <ProblemLens projectId={projectId} items={lensData.problems} />
+          )}
+          {activeLens === "sources" && <SourceLens projectId={projectId} items={lensData.sources} />}
         </>
       )}
     </div>

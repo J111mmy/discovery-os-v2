@@ -362,6 +362,7 @@ export async function loadEvidenceRecordsAction({
       .from("sources")
       .select("id, org_id, title, type")
       .eq("org_id", project.org_id)
+      .eq("project_id", project.id)
       .in("id", sourceIds);
 
     const sourceById = new Map(
@@ -385,6 +386,7 @@ export async function loadEvidenceRecordsAction({
       .from("source_segments")
       .select("id, org_id, speaker, segment_index")
       .eq("org_id", project.org_id)
+      .in("source_id", sourceIds)
       .in("id", segmentIds);
 
     const segmentById = new Map(
