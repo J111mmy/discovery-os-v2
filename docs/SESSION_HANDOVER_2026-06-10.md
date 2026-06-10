@@ -88,6 +88,10 @@ The four core defects (from the deep dive), all real and grounded in code:
 3. When Codex posts the P0.5 backfill script and the P1 query → Opus light-touch review per C1/C5 before commit.
 4. P3 migration, when drafted → full Opus security gate before Jimmy applies.
 
+## 6b. Housekeeping done this session
+
+- **PR #24 (`feat(phase-1): RailV2 shell`) closed as superseded; branch `feat/phase-1-rail` deleted.** Its work (Rail.tsx, top-nav removal, CLAUDE.md operating-model section, docs/security reorg, production-promotion checklist) was rebased into Cut #3 and is already on `main`. The CONFLICTING status was a rebase artifact (pre-rebase SHAs vs rebased copies on main), not missing work — do **not** reopen or try to merge it. Nothing unique was lost.
+
 ## 7. Open / deferred (not lost)
 
 - Compose → single-HTML editor migration (#14 items 2/3/5, Tiptap): future gated cut, not started.
