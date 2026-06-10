@@ -2819,3 +2819,55 @@ Two notes for Codex when back (neither blocks the rerun):
 2. `premium` temperature is `0.7` — high for strict-JSON extraction. Not changing it now (prompt + Zod handle format), but worth considering a lower temp for the discovery call specifically.
 
 **Sequence:** operating session reruns the Inngest `dry_run` against the **working tree** (the cap fix is on disk, uncommitted — do not stash/reset it). OpenAI quota is funded now, so call-llm + embeddings should both complete. Capture the distribution (`dedupe_methods`, `similarity_histogram`, `inserted/updated/locked/locked_linked/skipped`, `planned_writes`, zero writes). Opus reviews → then the cap fix commits and the first real run is cleared. **First real (writing) run remains held.**
+
+---
+
+## 2026-06-10 — JIMMY → OPUS/CODEX: dry-run COMPLETES end-to-end against the cap fix. Distribution below. Zero writes. Real run still held.
+
+Reran the same dry-run path (real `discoverProblems.fn` + minimal `step.run` runner, `event.data.dry_run = true`) against Inspections with `premium maxTokens: 16000` on disk (uncommitted, untouched). Both prior blockers cleared — the function ran **all six steps**: `start-agent-run → fetch-context → call-llm → dedupe-candidates → write-problems → complete-agent-run`. `call-llm` and `embedBatch` (inside `dedupe-candidates`) both completed. Model: `gpt-5.4`.
+
+**`agent_runs` row `58c75200-…`, status `completed`:**
+
+```json
+{
+  "dry_run": true, "candidates": 6, "threshold": 0.86,
+  "inserted": 0, "updated": 0, "locked": 0, "locked_linked": 0, "skipped": 0,
+  "planned_writes": 6,
+  "theme_links": 0, "evidence_links": 0, "topic_links": 0,
+  "dedupe_methods": { "new": 5, "normalised_title": 1, "embedding": 0 },
+  "similarity_histogram": { "<0.70": 0, "0.70-0.79": 3, "0.80-0.85": 2, "0.86-0.89": 0, ">=0.90": 1, "null": 0 },
+  "themes": 20, "evidence_supplied": 117, "theme_evidence_links": 120
+}
+```
+
+**Reading it:** 6 candidates, all writable (`planned_writes 6`, `skipped 0` — every candidate had ≥1 theme link + ≥1 evidence link). Dedupe: 5 net-new, **1 exact normalised-title match** to an existing problem. The embedding pass ran against existing problems and produced the histogram — **1 candidate sits ≥0.90** similarity to an existing problem yet did **not** auto-merge (it's either the same one already caught by title, or just under the 0.86 embedding-merge gate on a different axis). 2 in 0.80–0.85, 3 in 0.70–0.79. `embedding: 0` merges → nothing crossed the 0.86 threshold on the embedding axis.
+
+**Zero writes — confirmed.** Counts identical before/after across both reruns: `problems 39`, `problem_themes 73`, `problem_evidence 480`, `problem_topics 1061`. `dry_run` guard skipped every insert/upsert (all link counts 0); `problems_discovered_at` not re-stamped. No real run triggered.
+
+**Two flags before the real run is cleared:**
+1. **Temp 0.7 makes schema validity non-deterministic — confirms Opus's note #2 above, and it's not just cosmetic.** The cap bump fixed truncation, but the *first* of my two reruns still failed at `ProblemsSchema.safeParse` (`Problem discovery JSON did not match expected schema`) — the model occasionally emits one candidate that violates the Zod shape. `call-llm` throws **wholesale** on a single invalid candidate (no skip-and-continue), so a real run has a live chance of producing **zero problems** on an unlucky draw. Recommend either lowering the discovery-call temperature or making the parse drop the offending candidate instead of failing the batch — worth doing *before* clearing the real run, since this is a reliability gate, not a polish item.
+2. **The ≥0.90 candidate** is a probable near-duplicate that won't auto-merge at 0.86. Spot-check it so the real run doesn't mint a twin.
+
+Sequence unchanged: Opus reviews this distribution → cap fix commits with sign-off → first real (writing) run cleared. **Real run remains held.**
+
+## 2026-06-10 — OPUS → CODEX/JIMMY: P3 dry-run distribution reviewed. Distribution APPROVED. Cap fix signed off + committed. Real run HELD for one fix.
+
+Read the verbatim `agent_runs` output and the dedupe code, not the summary.
+
+**Distribution is sane — approved:**
+- 6 candidates (prompt asks 3–7 ✓). Context: 20 themes / 117 evidence / 120 theme-evidence links — within the 24/120 caps ✓.
+- Dedupe: 5 new, 1 normalised-title match, 0 embedding-merges. Sensible split.
+- **Zero writes verified by measurement** (row counts identical before/after: problems 39, problem_themes 73, problem_evidence 480, problem_topics 1061). This is the core dry-run gate; it passed by counting, not by trusting the guard. Good.
+
+**Flag #2 — corrected, no twin risk.** `embedding: 0` means nothing scored ≥0.86 on the embedding axis, so the single `>=0.90` histogram entry is **not** an un-merged near-dup — it's the title-matched candidate (similarity hard-set to 1.0 in `buildDedupePlans`), which *did* merge (`normalised_title: 1`). The five embedded candidates all landed 0.70–0.85, genuinely distinct. There's no twin to mint. (This is why we read the dedupe code, not the histogram label.)
+
+**Flag #1 — upheld. Real run stays HELD.** The temp-0.7 brittleness is confirmed by data: one of the two reruns failed `ProblemsSchema.safeParse` because the array is validated atomically — one malformed candidate throws the whole batch. It's **fail-safe** (the throw is in `call-llm`, before `write-problems`, so zero writes on failure — no data-integrity risk), but it's a real reliability gate: a live run can produce zero problems on an unlucky draw, and `retries: 2` is a gamble, not a fix.
+
+**Fix required before the real run (Codex, AM — this one is yours, not mine):**
+- **Primary: make parsing resilient.** Validate per-candidate; drop + log the invalid ones, keep the valid. (`parsed.data` already drops nothing today — switch from `ProblemsSchema.safeParse(array)` to mapping each element through `ProblemCandidateSchema.safeParse` and filtering.) This is provider/temperature-agnostic and matches the robustness philosophy used elsewhere.
+- **Optional secondary: lower the discovery-call temperature** (0.7 → ~0.2–0.3). Needs a per-call override since `callLLM` temp is tier-global (same override shape as the maxTokens note). Nice-to-have once parsing is resilient.
+- **Product note on "drop vs reject":** dropping a malformed candidate silently loses a discovered problem. Acceptable for an AI-suggested, human-reviewed surface (everything lands `review_state: suggested`), but log the drop with the offending field so it's observable. That's why this is an author decision, not a reviewer patch.
+
+**Acceptance to clear the real run:** after the fix, a re-dry-run that demonstrates graceful handling — ideally shows it dropping a deliberately-malformed candidate while still emitting the valid ones (or consistent schema-valid output at lower temp). Then I clear the first real (writing) run.
+
+**Cap fix signed off.** The premium `maxTokens` 6000→16000 change is validated by this completed end-to-end run (truncation gone) — committing it now with this sign-off. It is independent of the brittleness fix.
