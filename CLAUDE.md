@@ -106,7 +106,7 @@ Collapsing these three levels destroys citation quality and makes the product fe
 
 ### The boundary between deterministic code and AI work
 
-These are distinct responsibilities, and keeping them separate is what makes citation quality possible. (Mixing them *was* the original ingest failure — now fixed; the split below is implemented. See §10.)
+These are distinct responsibilities, and keeping them separate is what makes citation quality possible. (Mixing them *was* the original ingest failure — now fixed; the split below is implemented. See §21 — "What is built and what is not yet built".)
 
 **Deterministic code does:**
 - Parse timestamps and speaker labels from transcript text (regex is correct here)
@@ -685,7 +685,7 @@ Agents write to the underlying data. The dashboards render it. No content is aut
 
 ---
 
-## 21. What is built and what is not yet built
+## 20. Record types, the skill system, and the evidence gate
 
 Every record type in the system. Agents must use these exact prefixes and never invent new ones.
 
@@ -830,7 +830,7 @@ These outputs live in the DB and are surfaced in the project overview. The Compo
 
 ---
 
-## 10. What is built and what is not yet built
+## 21. What is built and what is not yet built
 
 > **Status as of 2026-06-10.** Verified against `supabase/migrations/` and the registered Inngest functions in `src/app/api/inngest/route.ts`. This section was badly stale before this date — most of the old "not yet built" list had already shipped. **If you're about to "build" something here that's marked built, read the code first.**
 
@@ -839,7 +839,7 @@ These outputs live in the DB and are surfaced in the project overview. The Compo
 - **Source ingest *with* AI evidence extraction** — `ingest-source.ts` does deterministic conversation-unit segmentation **then a Claude extraction pass per unit** (`buildConversationUnits` → `callLLM` → classified, sentiment-tagged, verbatim claims). The mechanical one-evidence-per-segment chunker is **gone**. Citation anchoring (`segment_id` + `anchor_method`) is being hardened by the P0.5 initiative — see "In flight" below.
 - **The full agent set runs as registered Inngest functions** (not orphaned files — all wired in the serve route): ingest, extract-entities, synthesise-project, discover-problems, verify-claims, detect-gaps, session-review, compose-artifact, grade-evidence, extract-actions, draft-frame, weekly scheduled synthesis, and person/company/competitor digests.
 - **Global entity model** — `people`, `companies`, `competitors` + the `evidence_entities` join all exist (0006/0007/0014/0016/0018) and `extract-entities` populates them. Evidence links entities via the join, never FK columns.
-- **skill_configs** table exists (0006/0025) — org prompt overrides + versioned code defaults per §9.
+- **skill_configs** table exists (0006/0025) — org prompt overrides + versioned code defaults per §20.
 - **Compose runs in Inngest** (`compose-artifact`) — no longer a Route Handler.
 - **Evidence trust review** (trust/exclude/trust-all), source management (`/sources`), artifact library (`/documents`), project settings, and **semantic search via pgvector** (`/api/query`).
 - **Source kinds** — canonical values incl. `customer_interview | sales_call | usability_study | internal_meeting` added in 0013 (preferred for new ingests).
@@ -858,7 +858,7 @@ Pipeline-integrity fixes; **no schema change in P0.5.** Grounding: `docs/PIPELIN
 
 ---
 
-## 10. Things that are explicitly prohibited
+## 22. Things that are explicitly prohibited
 
 - ❌ Word-count or character-count chunking of transcripts
 - ❌ Hardcoded model names in product code
@@ -871,7 +871,7 @@ Pipeline-integrity fixes; **no schema change in P0.5.** Grounding: `docs/PIPELIN
 
 ---
 
-## 11. File locations
+## 23. File locations
 
 ```
 src/app/(auth)/          — Login, auth callback
