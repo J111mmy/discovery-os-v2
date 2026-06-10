@@ -62,6 +62,8 @@ Proposal:
 - no migration required for first slice;
 - use existing `source_theme_ids`, `source_evidence_ids`, evidence entities, sources, actions, opportunities, and artifacts.
 
+**[AMENDED - Claude review 2026-06-09]** Caveat for review: `source_evidence_ids` is a blind union of theme-linked evidence (never assessed per problem), evidence segment anchors are currently wrong (claims anchor to the interviewer's question segment), and `discover-problems` resets human-set problem status on every auto-synthesis run. A new P0.5 phase (below, and Codex brief section 3b) fixes these and is proposed as a **blocking prerequisite** for P1. Code trace: `docs/PIPELINE_DEEP_DIVE_2026-06-09.md`.
+
 ### 1.4 Opportunities/actions/artifacts are sibling outputs
 
 Proposal:
@@ -163,6 +165,16 @@ No migration.
 - Themes reserved for synthesis/patterns.
 - No schema change.
 
+### P0.5 - Pipeline integrity fixes (ADDED - Claude review 2026-06-09)
+
+No migration. Code-only plus one Jimmy-run backfill script. Blocking prerequisite for P1.
+
+- Citation re-anchoring in `ingest-source.ts` + evidence backfill (claims currently anchor to `unit.segments[0]`, usually the interviewer's question).
+- `discover-problems.ts`: stop resetting human-set problem status on upsert; dedupe candidates by embedding similarity, not exact title.
+- Fix workspace theme chart -> evidence filter vocabulary mismatch (chart uses `themes` table labels; filter matches `evidence.themes text[]`).
+
+Detail: Codex brief section 3b.
+
 ### P1 - Problem Intelligence v1
 
 No migration.
@@ -212,6 +224,19 @@ Check:
 - no route changes;
 - no RLS changes;
 - no user-controlled query interpolation.
+
+### 4.1b P0.5 Pipeline integrity fixes (ADDED - Claude review 2026-06-09)
+
+Risk: low-medium.
+
+Check:
+
+- no schema/RLS/route changes;
+- re-anchoring backfill script: dry-run by default, idempotent, service-role READ + targeted `evidence` UPDATE only, posted for light-touch review before Jimmy runs it;
+- `anchor_method` recorded in evidence metadata for every claim (new and backfilled);
+- `discover-problems` no longer writes `status` on existing rows; human-edited fields preserved;
+- any new `theme_id` evidence filter validates UUID against project-owned themes and fails closed;
+- org/project scoping intact on every touched query.
 
 ### 4.2 P1 Problem Intelligence v1
 
@@ -349,3 +374,4 @@ Specific asks:
 3. Decide whether P1 needs a security gate before commit.
 4. Flag any schema choices in P3 that are unacceptable before Codex writes migrations.
 5. Flag any UX risks that Sonnet must address before prototype.
+6. **(ADDED - Claude review 2026-06-09)** Approve/reject P0.5 pipeline integrity fixes (citation re-anchoring + backfill, problem status preservation, theme-link fix) as a blocking prerequisite for P1, and confirm the backfill script review path. Supporting analysis: `docs/PIPELINE_DEEP_DIVE_2026-06-09.md`.

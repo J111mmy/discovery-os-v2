@@ -73,6 +73,8 @@ Every theme/problem/output must make evidence accessible.
 
 Do not hide support behind vague counts only. Counts are useful, but users need to inspect representative evidence.
 
+**[AMENDED - Claude review 2026-06-09]** Two backend prerequisites gate this principle (Codex brief section 3b, "P0.5"): evidence-to-segment links are currently mis-anchored to the interviewer's question, and problem evidence arrays are inherited theme unions rather than assessed support. Design the source-context link and the evidence sections assuming P0.5 lands first; until typed joins exist (P3), label problem evidence "Related evidence (via themes)" - never "Supporting evidence".
+
 ### 1.4 Do not over-explain the ontology in the UI
 
 Avoid in-app education blocks like "A theme is...". Use clear labels, tooltips only where needed, and strong object design.
@@ -239,7 +241,7 @@ Required sections:
    - source types.
 
 3. **Evidence**
-   - strongest supporting evidence;
+   - ~~strongest supporting evidence;~~ **[AMENDED - Claude review 2026-06-09]** strongest *related* evidence - labelled "Related evidence (via themes)" until typed `problem_evidence` joins ship in P3;
    - source context;
    - trust state;
    - topic chips;

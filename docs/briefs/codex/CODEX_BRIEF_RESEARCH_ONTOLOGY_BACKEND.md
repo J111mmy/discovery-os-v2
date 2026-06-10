@@ -63,6 +63,12 @@ Do this without creating a risky pre-ship migration cliff. The backend work shou
 - Opportunities/actions/artifacts are not consistently linked back to problems/themes.
 - AI-suggested analysis does not yet have a full suggested/accepted/edited/rejected lifecycle outside evidence trust.
 
+**[AMENDED - Claude review 2026-06-09]** Three additional limitations are live defects, not just modelling gaps (full trace in `docs/PIPELINE_DEEP_DIVE_2026-06-09.md`):
+
+- **Wrong citation anchors (F1).** `ingest-source.ts` line ~963 anchors every claim in a conversation unit to `unit.segments[0]` - usually the interviewer's question. The computed char offsets are never used to locate claims. Every ingest writes more mis-anchored evidence.
+- **Problem clobbering (F6).** `discover-problems.ts` upserts on `(org_id, project_id, title)` with `status: "surfaced"` unconditionally - human-set status is reset and descriptions overwritten on every auto-chained synthesis run; near-duplicate titles accumulate with no merge/retire path.
+- **Cross-system theme links (F2).** No UI code reads `evidence_themes`. The workspace chart renders the `themes` table but links into the `evidence.themes text[]` filter - two vocabularies that rarely match, so theme click-throughs show wrong/empty results.
+
 ---
 
 ## 2. Build Philosophy
@@ -74,10 +80,11 @@ The system is close to shipping. Do not attempt the full ontology migration as o
 Recommended backend sequence:
 
 1. **P0 - Language-compatible backend support:** no schema migration. Support UI copy that calls `evidence.themes` "Topics" in evidence-facing contexts.
-2. **P1 - Problem Intelligence v1:** enrich problem detail using existing schema and joins.
-3. **P2 - Evidence lenses:** add efficient read queries for grouping by topic/theme/problem, using current data first.
-4. **P3 - Ontology schema v2:** add first-class topic/tag/theme/problem relationships, with dry-run backfill and Opus-reviewed SQL.
-5. **P4 - Operational link loop:** formal links from problems/evidence/themes to opportunities/actions/artifacts.
+2. **P0.5 - Pipeline integrity fixes (ADDED - Claude review 2026-06-09):** fix citation re-anchoring (+ backfill), problem status preservation/dedupe, and the theme-link vocabulary mismatch. Code-only; see section 3b. **Blocking prerequisite for P1** - P1's problem detail surface would otherwise expose wrong segment links and human-state resets to users.
+3. **P1 - Problem Intelligence v1:** enrich problem detail using existing schema and joins.
+4. **P2 - Evidence lenses:** add efficient read queries for grouping by topic/theme/problem, using current data first.
+5. **P3 - Ontology schema v2:** add first-class topic/tag/theme/problem relationships, with dry-run backfill and Opus-reviewed SQL.
+6. **P4 - Operational link loop:** formal links from problems/evidence/themes to opportunities/actions/artifacts.
 
 ### 2.2 Keep compatibility during migration
 
@@ -110,6 +117,64 @@ Do not:
 - introduce migration;
 - change synthesis semantics;
 - remove old fields.
+
+---
+
+## 3b. P0.5 - Pipeline Integrity Fixes (ADDED - Claude review 2026-06-09)
+
+Purpose: repair three live defects before any UI builds on top of them. No ontology migration required. Full code trace in `docs/PIPELINE_DEEP_DIVE_2026-06-09.md`.
+
+### 3b.1 Citation re-anchoring (F1)
+
+File: `src/lib/inngest/functions/ingest-source.ts` (claim-to-segment assignment, ~line 963).
+
+Current behaviour: `const primarySegmentId = unit.segments[0]?.id;` - all claims in a conversation unit anchor to the unit's first segment (usually the interviewer question).
+
+Fix:
+
+- After extraction, locate each claim's `content` within the unit's segments: exact substring match on `redacted_content` first, then whitespace/punctuation-normalised match, then a fuzzy window match.
+- If text match fails, fall back to the first segment whose `speaker` matches `claim.speaker`.
+- Last resort: keep `segments[0]` but write `metadata.anchor_method = "fallback_first_segment"` so the UI can soften the link.
+- Store `metadata.anchor_method` for every claim (`exact | normalised | fuzzy | speaker | fallback_first_segment`).
+- Optionally store claim char offsets within the segment for future highlight rendering.
+
+Backfill: a Jimmy-run script (Node 22+, sourced env, service-role READ + targeted UPDATE of `evidence.segment_id`/`metadata`) that re-runs the same matcher over stored segments. Dry-run by default, idempotent, reports per-method counts. Embeddings, trust scopes, classifications untouched.
+
+Acceptance: for a known transcript, every claim's segment link lands on the segment containing the quoted text; backfill dry-run reports >90% exact/normalised matches on existing data.
+
+### 3b.2 Problem state preservation and dedupe (F6)
+
+File: `src/lib/inngest/functions/discover-problems.ts`.
+
+Current behaviour: upsert on `(org_id, project_id, title)` writes `status: "surfaced"` and a fresh description on every run (synthesis auto-chains after ingests of >= 5 records), resetting human decisions; differently-worded titles create permanent duplicates.
+
+Fix:
+
+- Match candidate problems to existing problems by embedding similarity of the problem statement (threshold to tune), not exact title.
+- On match: append newly-linked evidence/themes; update description only if the existing problem has never been human-edited; **never write `status`** on an existing row.
+- On no match: insert as `surfaced`.
+- Existing problems whose theme/evidence support disappears get a staleness flag (metadata or column later in P3), never silent deletion.
+
+Acceptance: acknowledge a problem, re-run synthesis twice; status remains `acknowledged`, no duplicate appears for a reworded equivalent.
+
+### 3b.3 Theme link vocabulary fix (F2)
+
+Files: `workspace-client.tsx` (theme chart hrefs), `evidence/page.tsx` (filter).
+
+Current behaviour: chart items from the `themes` table link to `/evidence?theme=<label>` which filters `evidence.themes text[]` (ingest topic labels) - different vocabulary, wrong/empty results.
+
+Fix (choose one):
+
+- (a) Add a `theme_id` filter path on the evidence page that resolves evidence IDs through `evidence_themes` (org/project scoped, validated UUID, fail-closed); chart links use `?theme_id=`.
+- (b) Remove the chart click-through until the P2 Theme lens lands.
+
+Option (a) is preferred - it is also the first real consumer of `evidence_themes`, which currently no UI reads. Keep the existing `?theme=` param working against `evidence.themes` for topic chips (it becomes the Topic filter after P0 renaming).
+
+### 3b.4 Security notes for P0.5
+
+- No new tables, routes, or RLS changes. Not hard-gated, but the backfill script touches `evidence` rows via service role: post the script for Opus light-touch review before Jimmy runs it.
+- `theme_id` filter must be validated as a UUID belonging to the project (fail closed to unfiltered default).
+- No service role in user-facing reads.
 
 ---
 
@@ -225,6 +290,8 @@ Until schema v2, derive:
 - `freshness`: newest/oldest supporting evidence dates.
 
 These should be presented as "observed signals," not absolute truth.
+
+**[AMENDED - Claude review 2026-06-09]** Same honesty rule for the evidence list itself: until typed `problem_evidence` joins exist (P3), evidence reached through `source_evidence_ids` is an inherited theme union, not assessed support. API/UI labels must say "Related evidence (via themes)", not "Supporting evidence". P0.5 (3b.2) is a prerequisite for this surface; P0.5 (3b.1) is a prerequisite for its segment links.
 
 ---
 
@@ -597,6 +664,11 @@ Future:
 
 Current `synthesise-project.ts` clusters trusted evidence into `themes`.
 
+**[AMENDED - Claude review 2026-06-09]** Two current behaviours should be recorded as defects, not just "future improvements":
+
+- Evidence is clustered in **independent batches of 30** against a theme list fetched once before the run. Patterns spanning batches fragment into duplicate or partial themes, so theme quality *degrades* as the corpus grows (deep dive F3). The rewrite must operate corpus-wide (map-reduce over topics) and be incremental across runs.
+- All `evidence_themes` links for the project are **deleted and recreated** each run, and `confidence` is always written as null. Stable theme identity and real confidence values are prerequisites for the Theme lens (P2) being trustworthy.
+
 Future:
 
 - build or read accepted evidence topics;
@@ -607,6 +679,8 @@ Future:
 ### 8.3 Problem discovery
 
 Current `discover-problems.ts` generates title/description/severity/theme_ids.
+
+**[AMENDED - Claude review 2026-06-09]** Note also that the current function (a) never reads evidence content - its entire input is ~40 theme one-liners - and (b) clobbers human state on re-run (see P0.5, 3b.2; the clobbering fix cannot wait for this future schema). The future version below must additionally receive the actual evidence records per candidate theme cluster, so `supporting_evidence_ids` / `contradicting_evidence_ids` are assessed by the model, not inherited.
 
 Future schema:
 

@@ -32,7 +32,8 @@ Current DiscOS has strong foundations:
 - `sources`, `source_segments`, and `evidence` already model raw material.
 - Evidence already carries multi-label text arrays via `evidence.themes`.
 - `themes` and `evidence_themes` already exist.
-- `problems` already exist and link back to theme/evidence IDs.
+- ~~`problems` already exist and link back to theme/evidence IDs.~~
+  **[AMENDED - Claude review 2026-06-09]** `problems` exist, but their evidence links are NOT analytical links. `discover-problems.ts` computes `source_evidence_ids` as the blind union of all evidence attached to the supporting themes - no record was ever assessed as supporting the problem. Treat these arrays as *provenance hints*, not support. See `docs/PIPELINE_DEEP_DIVE_2026-06-09.md` (finding F5).
 - `actions`, `product_requests`, `project_opportunities`, and `artifacts` already create operational outputs.
 - `agent_runs`, evidence grading, trust scopes, and artifact citations already give provenance and review patterns.
 
@@ -66,6 +67,8 @@ Problem -> supporting evidence -> source/person/company context
 Theme -> supporting topics/evidence -> source context
 Opportunity/action -> originating problem/evidence/theme
 ```
+
+**[AMENDED - Claude review 2026-06-09]** The first link in this chain is currently broken in production code: `ingest-source.ts` anchors every claim in a conversation unit to `unit.segments[0]` (usually the interviewer's question), not the segment where the participant said it. Every "view source" link built on `evidence.segment_id` therefore lands on the wrong segment. This must be fixed (re-anchor + backfill) BEFORE any UI surface advertises traceability - see Milestone 0.5 below and `docs/PIPELINE_DEEP_DIVE_2026-06-09.md` (finding F1). Shipping Problem Intelligence v1 on top of wrong anchors would demonstrate broken traceability on our flagship trust surface.
 
 ### 1.2 Tags and topics are not the same thing
 
@@ -473,6 +476,18 @@ Why now:
 - Helps users build the right mental model before deeper features ship.
 - Reduces future migration confusion.
 
+### Milestone 0.5 - Pipeline integrity fixes (ADDED - Claude review 2026-06-09; blocking prerequisite for Milestone 1)
+
+Goal: fix three live defects that Milestone 1 and 2 would otherwise expose to users. All are code-only (one optional backfill script, Jimmy-run). None require the ontology migration.
+
+Scope:
+
+1. **Citation re-anchoring.** In `ingest-source.ts`, map each extracted claim to the segment it actually came from (match the claim's verbatim span against segment `redacted_content` within the unit; fall back to speaker match, then first segment with a metadata flag). Backfill existing evidence with the same matcher. Acceptance: clicking evidence lands on the segment where the participant said it.
+2. **Problem state preservation.** `discover-problems.ts` currently upserts with `status: "surfaced"`, resetting human-set status (acknowledged/active) and overwriting descriptions whenever synthesis auto-runs; slightly different titles create duplicates that never retire. Fix: never overwrite status or human-edited fields after first human touch; dedupe candidate problems against existing ones by embedding similarity, not exact title; flag (do not delete) problems whose support collapses.
+3. **Theme link mismatch.** The workspace theme chart (drawn from the `themes` table) links to `/evidence?theme=<label>`, which filters `evidence.themes text[]` - a different vocabulary, so clicks show wrong or empty results. Fix: route theme clicks through `evidence_themes` (or remove the link until the Theme lens in Milestone 2 lands). Note: after Milestone 0 renames evidence labels to "Topics", a Theme chart that filters Topics is visibly incoherent.
+
+Why blocking: Milestone 1's value is "trust the problem object, inspect its evidence." Defects 1 and 2 break exactly that promise on day one.
+
 ### Milestone 1 - Problem Intelligence v1 using existing schema
 
 Goal: make problems feel rich and useful without waiting for a full ontology migration.
@@ -502,6 +517,8 @@ Deliver:
 - caveats/gaps section.
 
 This is the highest value pre-ship slice.
+
+**[AMENDED - Claude review 2026-06-09]** Until typed `problem_evidence` joins exist (Milestone 3), evidence reached via `source_evidence_ids` must be labelled "Related evidence (via themes)" in the UI - not "Supporting evidence". The links are inherited unions, not assessed support (see amendment in section 0). Overclaiming here is exactly the defensibility failure the ontology exists to prevent.
 
 ### Milestone 2 - Evidence lenses
 
