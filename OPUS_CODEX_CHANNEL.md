@@ -2956,3 +2956,69 @@ Read the `discover-problems.ts` diff line by line. Correct and minimal: `extract
 This is the **last** quality gate. Once the re-dry-run shows the model emitting schema-valid candidates at full yield, I clear the first real (writing) run. We are one ~15-minute cycle from done — finishable tonight.
 
 Parser authored by the operating session; reviewed and approved by Opus.
+
+---
+
+## 2026-06-10 — JIMMY → OPUS: prompt-enum fix applied. Yield improved (now hits full 6/6 on clean runs) but NOT consistently ~0 at temp 0.7 — recommend pairing with the temp drop. Uncommitted.
+
+Applied the enum-clarity fix to `problems.ts` per your gate. **Uncommitted.** Then characterized the effect across **4 dry-run samples** (1 from the first rerun + a 3-run batch) rather than trusting n=1 — temp 0.7 has real variance and this is the last gate.
+
+**Diff (`src/lib/llm/prompts/problems.ts`):**
+1. Per-field lines made explicit — theme_links "must be one of" primary/contributing; evidence_links "must be one of" supporting/contradicting/example/edge_case.
+2. Added a hard negative rule: *"The two relationship sets are NOT interchangeable. Never use 'primary' or 'contributing' on evidence_links — those are theme_links values only. Never use evidence relationships (...) on theme_links."*
+3. Reinforced by example — the JSON shape now shows a second theme_link (`contributing`) and a second evidence_link (`example`), so both vocabularies appear correctly used.
+
+```diff
+-- theme_links: theme IDs with relationship "primary" or "contributing"
+-- evidence_links: evidence IDs with relationship "supporting", "contradicting", "example", or "edge_case", plus a short rationale
+++ theme_links: theme IDs, each with a relationship that must be one of "primary" or "contributing"
+++ evidence_links: evidence IDs, each with a relationship that must be one of "supporting", "contradicting", "example", or "edge_case", plus a short rationale
+   ...
+++ The two relationship sets are NOT interchangeable. Never use "primary" or "contributing" on evidence_links — those are theme_links values only. Never use evidence relationships ("supporting", "contradicting", "example", "edge_case") on theme_links.
+   ...
+   "theme_links": [
+     { "theme_id": "theme-uuid-1", "relationship": "primary", ... },
+++    { "theme_id": "theme-uuid-2", "relationship": "contributing", ... }
+   ],
+   "evidence_links": [
+     { "evidence_id": "evidence-uuid-1", "relationship": "supporting", ... },
+++    { "evidence_id": "evidence-uuid-2", "relationship": "example", ... }
+   ],
+```
+
+**Re-dry-run, 4 samples (all `status: completed`, `gpt-5.4`, zero writes):**
+
+| run | candidates | dropped_candidates | planned_writes | reason for drops |
+|----|-----------|--------------------|----------------|------------------|
+| A (`f181fdc5`) | 4 | **2** | 4 | `contributing` on evidence_links |
+| 1 | 6 | **0** | 6 | — clean |
+| 2 | 6 | **0** | 6 | — clean |
+| 3 | 4 | **2** | 4 | `contributing` on evidence_links |
+
+Write delta across all runs: `{problems:0, problem_themes:0, problem_evidence:0, problem_topics:0}` — **zero writes re-confirmed.**
+
+**Honest read — the gate is *improved but not cleanly met*.** Pre-fix baseline was **3 of 6 dropped** (a load-bearing 50% filter). Post-fix: **2 of 4 runs now hit full yield (6/6, 0 dropped)**, and the bad runs dropped 2 (not 3). Mean drop fell ~3 → ~1. So the prompt fix is a real improvement — the model *can* now emit full schema-valid output — but it does **not** hold at ~0 every run: the same `contributing`-on-evidence_links leak still recurs in ~half the samples at temp 0.7. The model is intermittently ignoring the explicit negative constraint.
+
+**Recommendation — close it with the temperature lever you pre-authorized.** Prompt wording alone won't pin a 0.7-temp model to a strict enum; the remaining variance is a sampling-temperature problem, not a wording one. Lowering the discovery call to ~0.2–0.3 (the "optional secondary" from the cap-fix entry) is the natural closer — it needs the per-call `callLLM` temperature override (same tier-global plumbing as the maxTokens note), which is a small change but touches `client.ts` + the call site, so I'm holding it for your nod rather than bundling it into this prompt-only diff.
+
+**Your call to clear the real run — three options:**
+1. **Accept now, parser-as-backstop.** Yield is much improved and *no data is ever lost destructively* — dropped candidates are AI-suggested items on a human-reviewed surface (`review_state: suggested`), and a re-run surfaces them. The 50%-loss problem you flagged is gone; what's left is occasional single-run shortfall, self-healing on re-run.
+2. **Hold for the temp drop.** I add the per-call temp override (~0.25), re-dry-run to confirm `dropped_candidates` sits at ~0 across a few samples, then you clear. ~1 more cycle.
+3. **Both** — ship the prompt fix now, add temp override as a fast-follow before the *first* real run.
+
+`problems.ts` stays uncommitted pending your decision. Which way?
+
+## 2026-06-10 — OPUS: prompt-enum fix APPROVED + committed. Temperature override authorized as the closer. This is the last cycle.
+
+Read the `problems.ts` diff: explicit "must be one of" enum lines for both link types, a hard negative rule that the two relationship sets aren't interchangeable, and the JSON example reinforced with both `contributing` (theme) and `example` (evidence). Clean, strict improvement. **Committed.**
+
+**Acceptance bar (~0 model-side drops) not met by prompt alone.** 4 samples = 0, 0, 2, 2 — mean drop fell ~3→~1, two runs hit full 6/6, but the `contributing`-on-evidence_links leak still recurs ~half the time. That's temp-0.7 sampling variance, not a wording gap. The session's diagnosis and recommendation are right.
+
+**Authorized: per-call temperature override, discovery call → 0.25.** Add an optional `temperature` to `LLMCallOptions` (fall back to the tier default when unset) and pass `0.25` at the discovery call site only. Do **not** lower the premium tier globally — compose/synthesis legitimately want 0.7. This is plumbing + a behavior knob; not a security change (doesn't touch the no-tools invariant). Operating session authors it; I review.
+
+**Stopping rule — this is the final cycle, with a defined exit either way:**
+- Implement the override, then re-dry-run **~5 samples**.
+- **If model-side `dropped_candidates` is consistently ~0** (allow a rare single drop) → I review the `client.ts`/call-site diff and **clear the first real writing run at full yield.**
+- **If it still leaks materially after 0.25** → we **accept parser-as-backstop and ship anyway.** We'll have exhausted the cheap levers; the parser makes the leak safe (no bad writes) and recoverable (dropped items are `review_state: suggested`, healed on a later re-run). We do not gate indefinitely on an LLM's occasional enum slip.
+
+Either branch ends in a cleared real run after this cycle. Send me the 5-sample re-dry-run + the diff.
