@@ -106,7 +106,7 @@ Collapsing these three levels destroys citation quality and makes the product fe
 
 ### The boundary between deterministic code and AI work
 
-These are distinct responsibilities. Mixing them is the source of the current ingest failure.
+These are distinct responsibilities, and keeping them separate is what makes citation quality possible. (Mixing them *was* the original ingest failure — now fixed; the split below is implemented. See §10.)
 
 **Deterministic code does:**
 - Parse timestamps and speaker labels from transcript text (regex is correct here)
@@ -125,7 +125,7 @@ These are distinct responsibilities. Mixing them is the source of the current in
 - Write the evidence statement in clean, quotable language
 - Flag adjacent signals for other projects
 
-The current ingest code does deterministic work only and produces one evidence record per segment. That is the entire problem. The fix is not to remove the deterministic parsing — it is to add an AI extraction pass after it.
+This split is **implemented**: `ingest-source.ts` runs deterministic conversation-unit segmentation, then a Claude extraction pass per unit. Multiple evidence records per unit is normal and expected. Do **not** regress to one-evidence-per-segment or word-count chunking (still prohibited — §"explicitly prohibited"). Current work hardens *where* each claim anchors (P0.5), not *whether* extraction is AI-driven.
 
 ### Segmentation algorithm (deterministic)
 
@@ -832,41 +832,29 @@ These outputs live in the DB and are surfaced in the project overview. The Compo
 
 ## 10. What is built and what is not yet built
 
+> **Status as of 2026-06-10.** Verified against `supabase/migrations/` and the registered Inngest functions in `src/app/api/inngest/route.ts`. This section was badly stale before this date — most of the old "not yet built" list had already shipped. **If you're about to "build" something here that's marked built, read the code first.**
 
-### Done (Phases 1 & 2)
-- Auth, org/project structure, RLS
-- Source ingest pipeline (Inngest steps 1-7: job tracking, text extraction, segmentation, PII redaction, embedding, evidence storage)
-- Evidence trust review (trust/exclude/trust-all)
-- Source management (/sources, delete, retry)
-- Artifact library (/documents)
-- Project settings (frame, operating style, GTM context)
-- Team invites (org_invites table, accept-invite flow)
-- Compose pipeline (drafts from trusted evidence via semantic search)
+### Built and live
+- **Auth, org/project structure, RLS, team invites** — incl. the `accept_invite(p_token)` RPC (0027).
+- **Source ingest *with* AI evidence extraction** — `ingest-source.ts` does deterministic conversation-unit segmentation **then a Claude extraction pass per unit** (`buildConversationUnits` → `callLLM` → classified, sentiment-tagged, verbatim claims). The mechanical one-evidence-per-segment chunker is **gone**. Citation anchoring (`segment_id` + `anchor_method`) is being hardened by the P0.5 initiative — see "In flight" below.
+- **The full agent set runs as registered Inngest functions** (not orphaned files — all wired in the serve route): ingest, extract-entities, synthesise-project, discover-problems, verify-claims, detect-gaps, session-review, compose-artifact, grade-evidence, extract-actions, draft-frame, weekly scheduled synthesis, and person/company/competitor digests.
+- **Global entity model** — `people`, `companies`, `competitors` + the `evidence_entities` join all exist (0006/0007/0014/0016/0018) and `extract-entities` populates them. Evidence links entities via the join, never FK columns.
+- **skill_configs** table exists (0006/0025) — org prompt overrides + versioned code defaults per §9.
+- **Compose runs in Inngest** (`compose-artifact`) — no longer a Route Handler.
+- **Evidence trust review** (trust/exclude/trust-all), source management (`/sources`), artifact library (`/documents`), project settings, and **semantic search via pgvector** (`/api/query`).
+- **Source kinds** — canonical values incl. `customer_interview | sales_call | usability_study | internal_meeting` added in 0013 (preferred for new ingests).
+- **Evidence segment FK is `segment_id`** — it always was; there is no `source_segment_id` column to "reconcile."
 
-### NOT yet built — priority order
+### In flight — research-ontology / P0.5 (branch `codex/spec-research-ontology`, NOT yet on `main`)
+Pipeline-integrity fixes; **no schema change in P0.5.** Grounding: `docs/PIPELINE_DEEP_DIVE_2026-06-09.md`, decisions in `OPUS_CODEX_CHANNEL.md`.
+- **F1 re-anchoring** — claims were anchored to `unit.segments[0]` (the interviewer's question). The shared matcher `src/lib/evidence/anchor.mjs` (used by **both** live ingest and the backfill) now anchors to the best segment and stamps `anchor_method` (exact/normalised/fuzzy/speaker/fallback) + `original_segment_id`. Backfill `backfill-evidence-anchors.mjs` is dry-run-default; `--apply` is **gated on Opus review** of the weakness-stratified re-run sample, per `docs/ops/BACKFILL_AGENT_CHANGE_PROTOCOL.md`.
+- **F2 theme linkage** — workspace chart links `?theme_id=<uuid>`; evidence page resolves it org/project-scoped (legacy `?theme=` is the text-array topic filter).
+- **C3 problem-status preservation** — `discover-problems` no longer clobbers human-set status: writes `status` on insert only, updates rows only while `status = surfaced`.
+- Ahead: P1 problem-detail drawer (design approved, `docs/briefs/design/SONNET_DESIGN_PROBLEM_INTELLIGENCE_P1.md`) → P2 evidence multi-lens → **P3 the hard-gated schema migration** → P4 operational loop.
 
-1. **Schema reconciliation migration** — align column names (`source_segment_id` → `segment_id`), reconcile trust scope docs and UI with the existing `disputed` value already in the DB and TS types, fix source kind values to the canonical list (`customer_interview | sales_call | usability_study | internal_meeting | transcript | document | note | survey | support_ticket | other | web | slack | usability | monitoring`). The four new values (`customer_interview`, `sales_call`, `usability_study`, `internal_meeting`) are added by migration 0013 and are the preferred values for new ingests., add `evidence_entities` join table, convert `projects.frame` from `text` to `jsonb`, add global entity tables. Do this before any new feature work.
-
-2. **AI-powered evidence extraction** — the single most important build. Replace the mechanical word-count chunker in `src/lib/inngest/functions/ingest-source.ts` with: (a) deterministic conversation-unit segmentation, then (b) Claude agent call per conversation unit to extract discrete citable claims with classification, sentiment, and verbatim quotes. Everything downstream depends on this.
-
-3. **Claim verification agent** — `claim/verification.requested` Inngest event is already defined. Wire the agent that checks each artifact claim against trusted evidence.
-
-4. **Global entity tables** — ✅ **the tables exist** (`people`, `companies`, `competitors` + `evidence_entities` join, migrations 0006/0007/0014/0016/0018). What is missing is *population*: the entity-extraction agent in item 5 has not been built, so these tables are largely empty and evidence is still anchored via `speaker` text in metadata rather than resolved person/company records. UI that reads `evidence_entities` must degrade gracefully when the join returns nothing (render placeholder, not an error). Do **not** treat these tables as not-yet-created.
-
-5. **Entity extraction agent** — fires after ingest, resolves people and orgs mentioned in evidence against global entity tables. **This is the actual gap** — the destination tables already exist (item 4); this agent is what fills them.
-
-6. **Skill configs table + versioned prompt defaults** — as described in §9.
-
-7. **Compose pipeline via Inngest** — compose currently runs in a Route Handler which will hit Vercel duration limits on large evidence sets. Move to Inngest. Not urgent while evidence quality is the priority — Phase 1 scaffolding is acceptable here temporarily.
-
-### Already built — correctly noted
-
-- Auth, org/project structure, RLS
-- Source ingest pipeline (Inngest steps — plumbing is correct, extraction is wrong)
-- Evidence trust review (trust/exclude/trust-all)
-- Source management, artifact library, project settings, team invites
-- Compose pipeline (Phase 1 scaffolding — works, not durable yet)
-- **Semantic search via pgvector** — `/api/query` exists and works. The problem is not absence of search; it is garbage-in evidence quality. Fix ingest first, search quality follows automatically.
+### Genuinely open / verify before relying on it
+- **`projects.frame`** is still `text` (0001) alongside `frame_data`/`frame_draft` jsonb companions (0015) and a `suggested_frame`. The full text→jsonb consolidation is unfinished — **confirm the live column shape before building on the frame.**
+- **`trust_scope`** — `disputed` exists in the DB + TS types alongside `trusted | pending | excluded`; docs/UI reconciliation (§18) may still be partial.
 
 ---
 
