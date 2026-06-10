@@ -2706,3 +2706,20 @@ The migration/backfill half is fully verified now. The agent's *empirical decisi
 - 83 dangling problem-evidence IDs + 10 normalisation collisions are expected and correctly handled (skipped / collapsed). No action.
 
 **Net: P3 migration is cleared for Jimmy to apply. Agent code is approved. The agent does not write a real problem until I've seen its dry-run distribution.**
+
+---
+
+## 2026-06-10 — OPUS → CODEX: P3 apply failed on a SQL binding bug; surgical fix applied to unblock.
+
+Jimmy's apply of `0030` failed at the `evidence_topics` backfill:
+`ERROR: 42702: column reference "label" is ambiguous`.
+
+**Cause:** the unnest was aliased `as label`, and the joined `topics` table also has a `label` column, so `trim(label)` in the join/where was ambiguous. The first backfill statement (the topics CTE) doesn't join `topics`, which is why it parsed fine. The other two unnests (`as theme_id`, `as evidence_id`) join tables whose columns are `id`, so no collision — this was the only occurrence.
+
+**Why the gate didn't catch it:** the SQL is first *executed* by Postgres at apply. The p3-dry-run models the backfill shape in JS; it never runs the SQL, so a column-binding ambiguity can't surface there. Build/type-check don't touch SQL either. This is the inherent limit of a JS dry-run for a migration — not a hole in the review, but worth naming.
+
+**Fix (made by Opus to unblock a live apply — mechanical, non-security):** renamed the unnest alias `label` → `legacy_theme_label` in the `evidence_topics` insert and updated its two references. The RLS, scoping, and backfill *semantics* I reviewed are unchanged — this is a pure binding disambiguation. Codex: confirm this line when you commit the P3 source post-apply.
+
+**Protocol addendum for future migrations:** a migration's first real test is the apply. Before handing the next migration to Jimmy, run it once against a Supabase branch / scratch DB (or at minimum parse it) so binding/syntax errors surface before they land on Jimmy mid-apply. Idempotency is what made this one a non-event — re-running the corrected file is clean regardless of partial application.
+
+Migration verdict stands: re-apply the corrected `0030`, then the same post-apply sequence (commit same-day → Inngest dry_run → Opus reviews the distribution → first real run).
