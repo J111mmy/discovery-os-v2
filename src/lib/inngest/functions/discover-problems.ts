@@ -628,6 +628,12 @@ export const discoverProblems = inngest.createFunction(
 
         const result = await callLLM({
           tier: "premium",
+          // Strict-JSON extraction — request a lower temperature than the premium default
+          // for more reliable schema/enum compliance. Per-call override only; tier default
+          // unchanged. NOTE: inert while premium routes to gpt-5* (those ignore temperature);
+          // takes effect if premium is re-routed to a temperature-supporting model. The
+          // per-candidate parser is the real safety net regardless.
+          temperature: 0.25,
           system:
             "You surface structured product problems from research evidence. Return strict JSON only.",
           messages: [

@@ -37,6 +37,11 @@ export interface LLMCallOptions {
   system: string;
   messages: Array<{ role: "user" | "assistant"; content: string }>;
   timeoutMs?: number;
+  // Per-call temperature override. Falls back to the tier default when unset.
+  // NOTE: inert on gpt-5*/o-series models — those reject `temperature`, so it is
+  // never sent for them (see supportsOpenAITemperature). The override only takes
+  // effect on Anthropic models and temperature-supporting OpenAI models.
+  temperature?: number;
 }
 
 export interface LLMCallResult {
@@ -57,7 +62,7 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
       {
         model: config.model,
         max_tokens: config.maxTokens,
-        temperature: config.temperature,
+        temperature: opts.temperature ?? config.temperature,
         system: opts.system,
         messages: opts.messages,
       },
@@ -94,7 +99,7 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
     };
 
     if (supportsOpenAITemperature(config.model)) {
-      request.temperature = config.temperature;
+      request.temperature = opts.temperature ?? config.temperature;
     }
 
     const response = await getOpenAI().chat.completions.create(
