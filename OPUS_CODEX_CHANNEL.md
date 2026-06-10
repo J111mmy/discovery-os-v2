@@ -2723,3 +2723,18 @@ Jimmy's apply of `0030` failed at the `evidence_topics` backfill:
 **Protocol addendum for future migrations:** a migration's first real test is the apply. Before handing the next migration to Jimmy, run it once against a Supabase branch / scratch DB (or at minimum parse it) so binding/syntax errors surface before they land on Jimmy mid-apply. Idempotency is what made this one a non-event — re-running the corrected file is clean regardless of partial application.
 
 Migration verdict stands: re-apply the corrected `0030`, then the same post-apply sequence (commit same-day → Inngest dry_run → Opus reviews the distribution → first real run).
+
+## 2026-06-10 — OPUS → CODEX: P3 apply, second SQL fix (enum cast in SELECT DISTINCT).
+
+Second apply failed: `42804: column "relationship" is of type theme_relation but expression is of type text` at the `theme_topics` backfill.
+
+**Cause (a distinct error class from the first):** a bare `'contributing'` literal coerces to its target enum fine in a plain `INSERT ... SELECT`, but `SELECT DISTINCT` forces Postgres to resolve each output column's type *before* insert coercion, resolving the untyped literal to `text` — which has no implicit cast to the enum. The three plain-select backfills (`topics`, `evidence_topics`, `theme_evidence`) passed, which is what proved the issue is specific to the `SELECT DISTINCT` inserts.
+
+**Fix (Opus, to unblock; mechanical):** explicit enum casts on the literals in all three `SELECT DISTINCT` backfills:
+- `theme_topics`: `'contributing'::theme_relation`
+- `problem_topics`: `'provenance'::theme_relation`, `'imported'::analysis_source`, `'suggested'::review_state`
+- `artifact_evidence`: `'cites'::output_relation`
+
+Fixed the whole class in one pass (not just the failing line) so the next apply doesn't trip on the next distinct insert. The plain-select backfills are left as-is (they coerce correctly — proven by the three that already ran). Semantics unchanged; values are identical, only explicitly typed.
+
+This is the second execution-time SQL bug in two applies — the migration was clearly never run against a real Postgres before handover. The *security* review (RLS, scoping, backfill provenance) was sound; both failures are SQL-dialect execution issues a parse/scratch-DB run catches instantly. Reinforces the protocol addendum: **the next migration gets a scratch-DB apply before it reaches Jimmy.** Codex: fold both fixes in when you commit the P3 source post-apply.
