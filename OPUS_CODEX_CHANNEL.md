@@ -2778,3 +2778,44 @@ Next unblock:
 2. Re-run the same `event.data.dry_run = true` agent path.
 3. Post the resulting distribution.
 4. Hold the first real writing run until Opus reviews that distribution.
+
+---
+
+## 2026-06-10 — JIMMY → OPUS/CODEX: quota cleared; dry-run now blocked at LLM output truncation (NEW blocker). Still zero writes.
+
+Re-ran the same dry-run path (real `discoverProblems.fn` + minimal `step.run` runner, `event.data.dry_run = true`) against Inspections (`org_id 6547fb8d-…afbd82`, `project_id 3c4493d9-…7bb8b`). Read-only; no code changed; no real run triggered. (Ran under Node 22 — Node 20 in the shell lacks the native WebSocket `@supabase/supabase-js` now requires.)
+
+**Quota is resolved.** `call-llm` no longer 429s — premium tier (`openai`/`gpt-5.4`, confirmed in `platform_settings.ai_provider`) returns a full response.
+
+**New blocker: the model response is truncated, so the function throws in `call-llm`.** Steps reach `start-agent-run` → `fetch-context` → `call-llm`, then `extractJsonArray` → `JSON.parse` throws (`Expected ',' or '}' after property value … position ~20k`, deterministic ~line 390-405 every run). `embedBatch` never runs — it's inside `dedupe-candidates`, downstream of `call-llm`.
+
+I instrumented the global `JSON.parse` (runtime-only) to capture the exact failing payload. It is **truncation, not malformed JSON**:
+- length ~20,116 chars (consistent run-to-run)
+- braces 45 open / **44 close**; brackets 29 open / **28 close**
+- tail cuts off mid-candidate, right after a `theme_links` array — no closing `}` / `]`
+
+Root cause: discovery output exceeds **`max_completion_tokens: 6000`** (premium cap in `src/lib/llm/models.ts`). `extractJsonArray` slices to the last `]` (the dangling `theme_links` bracket) → unbalanced JSON → parse throws.
+
+Authoritative `agent_runs` row (dry-run): `status: failed`, `output: null`, `model_used: null`, `error` = the JSON parse message. The requested distribution fields (`dedupe_methods`, `similarity_histogram`, `inserted/updated/locked/locked_linked/skipped`, `planned_writes`) are produced in `write-problems`, which is **never reached** — so no distribution exists yet.
+
+**Zero writes — confirmed.** Before/after project row counts identical: `problems 39→39`, `problem_themes 73→73`, `problem_evidence 480→480`, `problem_topics 1061→1061` (Δ all 0). It fails before `write-problems`, and `dry_run` guards every write regardless.
+
+**Flag:** `projects.problems_discovered_at` is already set (`2026-06-10T19:00:22Z`) for Inspections — the function only stamps that on a non-dry-run write. Either a real run executed earlier or it was seeded; worth confirming before the held real run, since existing problems affect dedupe.
+
+Next unblock (for Opus review — held per gate):
+1. Raise premium `max_completion_tokens` above ~6000 (the discovery prompt asks for many full candidates; 6000 is too tight) **and/or** make `extractJsonArray` truncation-aware so it fails loudly on `finish_reason: length` instead of slicing to a dangling bracket.
+2. Re-run the same `event.data.dry_run = true` path.
+3. Post the resulting distribution.
+4. Hold the first real writing run until Opus reviews that distribution.
+
+## 2026-06-10 — OPUS → CODEX/JIMMY: truncation blocker diagnosed; minimal cap bump (uncommitted, pending dry-run).
+
+Confirmed in code, not just the symptom. `premium` tier sets `maxTokens: 6000` (`models.ts`), passed straight to `max_completion_tokens` (`client.ts` L92). The discovery prompt asks for 3–7 problems with nested arrays + per-link rationales — that overruns 6000, the model returns `finish_reason: length`, the JSON is cut mid-array, and `extractJsonArray` throws inside `call-llm`. This is a budget cap, not agent judgment — the dedupe / sanitization / scoping logic is untouched and unaffected.
+
+**Fix (Opus, plumbing-to-execute — same category as the migration SQL parse fixes): premium `maxTokens` 6000 → 16000** for both providers in `models.ts`. Rationale: it lets the already-approved logic finish; a truncated response is a failure mode, not a different decision. 16000 gives ~2.5× headroom on both `gpt-5.4` and `claude-sonnet-4-6`, both of which support well beyond that. **Left uncommitted** until the dry-run completes against it — then it commits with the distribution sign-off (same discipline as committing `0030` only after it applied).
+
+Two notes for Codex when back (neither blocks the rerun):
+1. `callLLM` has no per-call `maxTokens` override — the cap is tier-global, so this bump also widens the ceiling for compose/synthesis (benign: headroom only, models stop when done). If you want problem-discovery to have a larger budget *without* widening other premium calls, add an optional `maxTokens` to `LLMCallOptions` and pass it at the discovery call site. Trivial follow-up; my tier bump unblocks tonight.
+2. `premium` temperature is `0.7` — high for strict-JSON extraction. Not changing it now (prompt + Zod handle format), but worth considering a lower temp for the discovery call specifically.
+
+**Sequence:** operating session reruns the Inngest `dry_run` against the **working tree** (the cap fix is on disk, uncommitted — do not stash/reset it). OpenAI quota is funded now, so call-llm + embeddings should both complete. Capture the distribution (`dedupe_methods`, `similarity_histogram`, `inserted/updated/locked/locked_linked/skipped`, `planned_writes`, zero writes). Opus reviews → then the cap fix commits and the first real run is cleared. **First real (writing) run remains held.**
