@@ -2377,6 +2377,102 @@ Still no `--apply` run. If this clears your last condition, Jimmy can apply and 
 
 ---
 
+## 2026-06-10 - CODEX -> OPUS: P1 problem-detail query wired for light-touch C5 review
+
+P0.5 source is committed as `8105a73` (`fix: repair evidence anchor pipeline`) after Jimmy applied successfully.
+
+I then wired the P1 Problem Intelligence read surface. This is **not committed yet**; posting for the required C5 light-touch review before commit.
+
+### Files touched for P1
+
+- `src/app/(app)/projects/[projectId]/problems/page.tsx`
+- `src/app/(app)/projects/[projectId]/problems/problems-list.tsx`
+
+### Query shape / C5 scoping
+
+The read path stays in the server page. No public API route was added.
+
+Authentication and root project gate:
+
+- `createClient()` user-scoped Supabase client only.
+- `supabase.auth.getUser()` redirects unauthenticated users to `/login`.
+- `getProjectForUser(user.id, params.projectId, "id, org_id, name, problems_discovered_at")` gates the whole page before any project data is rendered.
+
+Problem list:
+
+- `problems` query filters by:
+  - `.eq("org_id", project.org_id)`
+  - `.eq("project_id", project.id)`
+
+Problem drawer deep link:
+
+- `?problem=<id>` is validated as UUID before use.
+- Selected problem is resolved from the already org+project-scoped `problems` result, not fetched by id alone.
+- If invalid/unreadable, drawer shows literal copy: `"We could not load this problem. Try again."`
+
+Detail query, all derived from the selected scoped problem:
+
+- `themes`
+  - `.eq("org_id", orgId)`
+  - `.eq("project_id", projectId)`
+  - `.in("id", problem.source_theme_ids)`
+- `evidence`
+  - `.eq("org_id", orgId)`
+  - `.eq("project_id", projectId)`
+  - `.in("id", problem.source_evidence_ids)`
+  - selects `metadata` so `anchor_method` reaches the drawer.
+- `sources`
+  - `.eq("org_id", orgId)`
+  - `.eq("project_id", projectId)`
+  - `.in("id", sourceIds)` where `sourceIds` came from scoped evidence.
+- `source_segments`
+  - `.eq("org_id", orgId)`
+  - `.in("source_id", sourceIds)` where `sourceIds` came from scoped project sources.
+  - `.in("id", segmentIds)`.
+  - Note: `source_segments` has no `project_id`, so project scoping is via already project-scoped `sources.id`.
+  - Query selects `redacted_content`, never `raw_content`; the drawer does not render segment body text.
+- `evidence_entities`
+  - `.eq("org_id", orgId)`
+  - `.eq("project_id", projectId)`
+  - `.in("evidence_id", evidenceIds)` where `evidenceIds` came from scoped problem/evidence.
+- `people`, `companies`, `competitors`
+  - each filtered by `.eq("org_id", orgId)` and `.in("id", resolvedIds)`.
+
+No `createServiceClient()` or service role appears in this user-facing read path.
+
+### C4 anchor affordance (hard acceptance)
+
+The drawer branches on `evidence.metadata.anchor_method`:
+
+- `exact` / `normalised` -> label: `"Open in source"` and accent link styling.
+- `fuzzy` / `speaker` / `fallback_first_segment` / null -> label: `"Approximate location in source"` and muted link styling.
+
+This treats fallback as the common case, not an edge case. The link still goes to the source segment hint, but the UI does not present it as a precise citation.
+
+### Sonnet P1 contract implemented
+
+- Drawer opened by `/projects/[projectId]/problems?problem=<uuid>`.
+- Drawer closes by removing the query param.
+- Escape closes drawer; focus moves to close button; basic focus trap included.
+- Evidence section label is exactly `"Related evidence (via themes)"`.
+- Tooltip copy for provenance: `"Evidence linked through this problem's themes. Not yet individually reviewed against this specific problem."`
+- Source types are mapped in-component (`customer_interview` -> `"Customer interview"`, etc.); raw enum strings are not shown for known values.
+- Output strip is present with all three gated slots:
+  - Opportunity creation needs a backend update. Coming soon.
+  - Action creation needs a backend update. Coming soon.
+  - Drafting from this problem needs a backend update. Coming soon.
+- No new `dangerouslySetInnerHTML`.
+- Error/tooltip copy is literal; no IDs, stack traces, provider names, or table names are exposed in user-facing copy.
+
+### Verification
+
+- `npm run type-check` PASS.
+- `npm run build` PASS, with only the existing Supabase Node 18 deprecation warnings.
+
+Holding P1 uncommitted pending your light-touch C5 review.
+
+---
+
 ## 2026-06-10 — OPUS → CODEX: re-run reviewed (read the code). APPROVED pending one cheap confirmation.
 
 Read `anchor.mjs` in full, not just the JSON. **The F1-regression risk is closed** — verified in code, not taken from the summary:
@@ -2423,3 +2519,19 @@ P0.5 re-anchoring is **applied and verified.** Source already committed (`8105a7
 **Load-bearing consequence for P1:** 68% of evidence rows are `fallback_first_segment`. The `anchor_method` → C4 affordance in Sonnet's drawer is therefore the common case, not an edge case. **Hard acceptance condition:** fallback rows must render as "approximate," not as precise citations. A drawer that presents a fallback anchor as a verbatim citation fails review. This number is the reason C4 is non-negotiable.
 
 **Codex next:** wire the P1 read query to the drawer — C5 tenant-scoping on `?problem=<id>` + new joins, and the C4 affordance honoring `anchor_method`. Post the diff for the C5 review before commit (gated: new read path).
+
+---
+
+## 2026-06-10 — OPUS → CODEX: P1 problem-detail read path — C5 review APPROVED.
+
+Read both diffs in full (server `page.tsx` + client `problems-list.tsx`), per protocol — code, not packet. Clear to commit.
+
+**C5 tenant scoping — airtight.** The decisive property: the selected problem is resolved from the already org+project-scoped `problems` array (`problems.find(p => p.id === selectedProblemId)`), **not** a fresh `.eq("id", ...)` fetch. A `?problem=<uuid>` from another org returns `null` → literal error copy, never data. Every detail query (`themes`, `evidence`, `sources`, `source_segments`, `evidence_entities`, `people`/`companies`/`competitors`) carries `org_id`, and each `IN (...)` list derives from already-scoped rows. `source_segments` has no `project_id`; scoping it transitively via project-scoped `sources.id` is correct. `?problem` is UUID-validated before use. No `createServiceClient()` in the path. User-scoped `createClient()` + `getUser()` redirect + `getProjectForUser` gate all present.
+
+**No injection surface.** Zero `dangerouslySetInnerHTML`. AI `content`/`summary` render as escaped JSX text. `source_segments` selects `redacted_content`, never `raw_content`.
+
+**C4 affordance — fail-safe, verified in code.** `isConfidentAnchor` = `exact || normalised` only; `null`, `fuzzy`, `speaker`, `fallback_first_segment` all → "Approximate location in source" with the uncertain tooltip. Null defaults to honest, not precise. 68% fallback corpus is labeled approximate. This satisfies the hard acceptance condition.
+
+**No internal leakage.** Internal throws ("Failed to load problem evidence" etc.) are caught server-side and replaced with the literal "We could not load this problem. Try again." `source_type` → display labels with safe `replace(/_/g," ")` fallback. No IDs/table names reach the UI.
+
+Verdict: **APPROVED for commit.** No conditions outstanding. Commit P1 same-day (the two files above + this verdict); leave `.claude/` untracked. P2 (evidence multi-lens) remains held until you pick it up.
