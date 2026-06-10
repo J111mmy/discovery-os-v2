@@ -142,7 +142,11 @@ Fix:
 
 Backfill: a Jimmy-run script (Node 22+, sourced env, service-role READ + targeted UPDATE of `evidence.segment_id`/`metadata`) that re-runs the same matcher over stored segments. Dry-run by default, idempotent, reports per-method counts. Embeddings, trust scopes, classifications untouched.
 
-Acceptance: for a known transcript, every claim's segment link lands on the segment containing the quoted text; backfill dry-run reports >90% exact/normalised matches on existing data.
+**[OPUS CONDITION C1 - 2026-06-10] Reversible re-anchoring.** Before changing `evidence.segment_id` on any row (live extraction or backfill), write `metadata.original_segment_id` and `metadata.anchor_method`. Never overwrite the original anchor without preserving it — a wrong matcher must be auditable and one-command reversible. `anchor_method` is stored on every claim, not only backfilled ones.
+
+**[OPUS CONDITION C2 - 2026-06-10] No P0.5 schema creep.** Claim char offsets, if stored, go in `metadata` jsonb only. No new column on `evidence`, no `evidence_segments` table in P0.5 — both are P3. This is the scope guard in practice: if offset storage starts wanting a column or table, stop and defer to P3.
+
+Acceptance: for a known transcript, every claim's segment link lands on the segment containing the quoted text; backfill dry-run reports >90% exact/normalised matches on existing data; every touched row retains `metadata.original_segment_id` so the backfill is reversible.
 
 ### 3b.2 Problem state preservation and dedupe (F6)
 
@@ -156,6 +160,12 @@ Fix - minimum bar (blocking, must ship in P0.5):
 - **Never overwrite human-edited fields** (description, title) once a human has modified them.
 - **Reduce duplicate creation:** at minimum, match candidates against existing problems on normalised title (case/whitespace/punctuation-insensitive) before insert.
 - Existing problems whose theme/evidence support disappears get a staleness flag (metadata or column later in P3), never silent deletion.
+
+**[OPUS CONDITION C3 - 2026-06-10] Concrete no-migration mechanism.** There is no dirty-flag on `problems` today (that arrives with `review_state` in P3), so implement "never overwrite human edits" using status as the human-touch signal:
+
+- Write `status` **only on INSERT** (new problem). Never on UPDATE.
+- On UPDATE, refresh the description **only while `status` is still `surfaced`**. Once `status` ≠ `surfaced` (a human acknowledged/activated/resolved/dismissed it), the row is **locked** — the agent writes nothing to it.
+- **Known accepted limitation:** a description a human edits while leaving `status = surfaced` can still be overwritten on the next run. This is acceptable for the P0.5 minimum bar; proper field-level dirty-tracking is deferred to the P3 problem-discovery rewrite. Do **not** add a column to close this gap in P0.5 (scope guard).
 
 Optional within P0.5 (only if it stays contained and does not delay the blocker - Codex condition, 2026-06-09):
 
@@ -213,6 +223,8 @@ If an endpoint is needed, it must:
 - include explicit `org_id` and `project_id` filters on every table;
 - not use service role;
 - return only the fields needed by the UI.
+
+**[OPUS CONDITION C5 - 2026-06-10] Light-touch query review.** P1 needs no hard gate, but the problem-detail query is a new multi-join read surface. Before commit, post the query to `OPUS_CODEX_CHANNEL.md` for a second pass confirming: `org_id` + `project_id` scoping on **every** joined table (not just the root `problems` row), no service-role client in the user-facing path, and redacted evidence content preferred over raw. Same light-touch path as the P0.5 backfill script — fast, not blocking-by-default.
 
 ### 4.3 Problem detail response shape
 

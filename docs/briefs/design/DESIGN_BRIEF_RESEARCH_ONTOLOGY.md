@@ -648,6 +648,7 @@ Stakeholder-ready surfaces should show curated/redacted evidence, not raw transc
 
 4. Should Opportunities be renamed?
    - Current `project_opportunities` means adjacent workspace opportunities. Product opportunities from problems may need a separate object or a clarified subtype.
+   - **[OPUS DECISION - 2026-06-10] Do not overload `project_opportunities`.** Free the word "Opportunity" for the problem-linked product opportunity. Rename the existing adjacent-workspace object to "Suggested workspaces" in UI copy now (no schema change required for the rename); split into a distinct `opportunities` table at P3. Sonnet should treat "Opportunity" in the output strip as the problem-linked object.
 
 5. Should AI-generated themes/problems require explicit approval before appearing as accepted?
    - Recommendation: yes for accepted/stakeholder-ready state. Suggested/draft can appear in the working analysis area.

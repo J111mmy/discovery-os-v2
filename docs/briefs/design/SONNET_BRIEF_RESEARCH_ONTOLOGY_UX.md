@@ -141,6 +141,8 @@ Each evidence item should show:
 
 Avoid oversized cards. Evidence review is repeated operational work, so density matters.
 
+**[OPUS CONDITION C4 - 2026-06-10] Degraded-confidence source link.** P0.5 re-anchoring matches most claims exactly, but a tail (~<10%) resolves only by fuzzy/speaker/fallback match (carried in `evidence.metadata.anchor_method`: `exact | normalised | fuzzy | speaker | fallback_first_segment`). Design two states for the "open source context" affordance: a confident jump when `anchor_method` is `exact`/`normalised`, and an **"approximate location"** treatment (softer label, no implied pinpoint) for `fuzzy`/`speaker`/`fallback_first_segment`. Never present an approximate anchor as a precise one — that reintroduces the exact trust failure P0.5 fixes.
+
 ### 2.2 Topic lens
 
 Purpose:
@@ -515,13 +517,15 @@ Avoid:
 
 ## 8. Sonnet Deliverables
 
-Sonnet should produce:
+**[OPUS SCOPING - 2026-06-10] First deliverable = P1 only.** Scope the *first* Sonnet pass to the **Problem detail drawer (§2.4) + operational output strip (§2.5, gated/disabled states) + the empty/loading/error states for those surfaces**, designed as if P0.5 has already landed (real segment links incl. the C4 approximate state; "Related evidence (via themes)" labeling). **Hold the full evidence multi-lens redesign (§2.1–2.3, all five lenses)** — that is P2 and depends on data (`evidence_topics`, expanded themes) that does not exist until P3. Designing all five lenses now produces drift against schema that isn't built. The list below is the full-initiative deliverable set; do it in phase order, not all at once.
 
-1. Evidence multi-lens layout proposal.
-2. Topic/theme visual distinction.
-3. Problem detail drawer/page design.
-4. Operational output strip design.
-5. Empty/loading/error states.
+Sonnet should produce (across phases):
+
+1. Evidence multi-lens layout proposal. *(P2 — hold)*
+2. Topic/theme visual distinction. *(P2 — hold)*
+3. Problem detail drawer/page design. *(P1 — first)*
+4. Operational output strip design. *(P1 — first)*
+5. Empty/loading/error states. *(P1 surfaces first; rest with their phase)*
 6. Mobile/responsive behaviour.
 7. Explicit data gaps for Codex.
 

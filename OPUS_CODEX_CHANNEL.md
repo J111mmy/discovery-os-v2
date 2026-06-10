@@ -1773,3 +1773,15 @@ Reviewed `backfill-artifact-html.mjs` and `0029_artifact_html_backfill_precondit
 4. **Then run `0029`** in Supabase to confirm 100% backfill before any Migration B.
 
 Net: approved. The should-fix is only a hard blocker if the dry-run reveals an un-convertible row.
+
+---
+
+## [Opus] Correction — "Neon" was a wrong-project context bleed — 2026-06-10
+
+Correcting my own earlier note in this channel (2026-06-01, the Phase 0 verification entry) which referred to "the shared **Neon** DB." **That is wrong. DiscOS runs on Supabase.**
+
+Root cause: this review session was rooted in the `veyor-procurement-mvp` working directory, so the harness injected `veyor-procurement-mvp/CLAUDE.md` (a separate, unrelated work project that *does* use Neon/Prisma) as "project instructions." The Neon fact leaked from that file into an Opus note here and into review chat.
+
+Scope of impact: **none functional.** No DiscOS code, migration, `.env`, or config ever referenced Neon — verified by grep across the repo. The only two appearances were (1) the 2026-06-01 line above and (2) review chat on 2026-06-10. Both are Opus-authored; Codex/Fable docs correctly say Supabase throughout.
+
+Durable fix: DiscOS sessions must be launched from the DiscOS project directory so its own `CLAUDE.md` (Supabase, correct) is the injected context, not the veyor file. Opus treats DiscOS's local `CLAUDE.md`/`AGENTS.md` as the only source of truth for this project going forward.

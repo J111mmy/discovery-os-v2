@@ -377,3 +377,37 @@ Specific asks:
 4. Flag any schema choices in P3 that are unacceptable before Codex writes migrations.
 5. Flag any UX risks that Sonnet must address before prototype.
 6. **(ADDED - Claude review 2026-06-09)** Approve/reject P0.5 pipeline integrity fixes (citation re-anchoring + backfill, problem status preservation, theme-link fix) as a blocking prerequisite for P1, and confirm the backfill script review path. Supporting analysis: `docs/PIPELINE_DEEP_DIVE_2026-06-09.md`.
+
+---
+
+## 8. Opus Verdict — 2026-06-10
+
+> **DB note:** DiscOS runs on **Supabase**, not Neon. A "Neon" reference in an earlier Opus note (`OPUS_CODEX_CHANNEL.md`, 2026-06-01) and in review chat was a wrong-project context bleed from `veyor-procurement-mvp/CLAUDE.md` (a different, unrelated work project). No DiscOS code, config, migration, or `.env` was ever affected. Corrected in the channel; flagged here so the audit trail is clean.
+
+**Verdict: APPROVED WITH CONDITIONS.**
+
+**Scope (per Jimmy, 2026-06-10):** the full ladder — **P0.5 → P1 → P2 → P3 → P4, including the P3 Supabase migration** — is in launch scope. It all ships before users come in; this is *not* a launch/post-launch split. The phase order is retained as **internal sequencing**, not scope-gating: P0.5 still blocks P1, and schema-v2 (P3) still precedes the operational loop (P4). P3 stays **hard-gated** — Opus reviews the migration SQL + RLS + backfill before Jimmy applies it in Supabase. Honest effort estimate for the whole ladder remains ~5–7 focused weeks (deep-dive §"Sequencing and effort").
+
+### Conditions (each must land before the phase it names commits)
+
+- **C1 — Reversible re-anchoring.** The P0.5 backfill must write `metadata.original_segment_id` + `metadata.anchor_method` *before* it changes `evidence.segment_id`. No in-place overwrite without the original preserved — a wrong matcher must be auditable and reversible. `anchor_method` is recorded on every claim (new writes too), not just backfilled rows. (Backend brief §3b.1.)
+- **C2 — No P0.5 schema creep.** Claim char offsets live in `metadata` jsonb only. No new column and no `evidence_segments` table in P0.5 — those are P3. This is the scope-guard tripwire in practice. (Backend brief §3b.1.)
+- **C3 — Concrete state-preservation mechanism, no migration.** Status is the human-touch signal: `discover-problems.ts` writes `status` only on INSERT; on UPDATE it refreshes the description *only while status is still `surfaced`*; once status ≠ `surfaced` the row is locked (no agent writes at all). Known accepted limitation: a description edited while status is still `surfaced` can be overwritten — proper dirty-tracking is P3. (Backend brief §3b.2.)
+- **C4 — Degraded-confidence source link (Sonnet).** When an evidence record's `anchor_method` is not `exact`/`normalised`, the "view source" affordance must read "approximate location" rather than promising a precise jump. Flows from F1's <10% fuzzy/speaker/fallback tail. (Sonnet brief §1.3 / §2.1.)
+- **C5 — P1 query light-touch review.** P1 is read-only server-component queries — no hard gate — but post the problem-detail multi-join to the channel for a second pass: org/project scoping on *every* join, no service role, redacted-content preference. Same path as the P0.5 backfill script. (Backend brief §4.)
+
+### Answers to the §2 / §7 asks
+
+1. **Vocabulary split (Tags / Topics / Themes / Problems):** APPROVED. "Topics" user-facing; "Codes" internal docs only.
+2. **Problem Intelligence v1 as first product slice:** APPROVED, on existing schema, sequenced after P0.5.
+3. **Does P1 need a security gate before commit?** No hard gate. Light-touch query review per C5.
+4. **P3 schema flags before Codex writes migrations:**
+   - (a) **Typed join tables, not polymorphic `artifact_links.target_id`.** A polymorphic `target_id` has no FK → dangling links on delete and weaker RLS. Use `artifact_evidence` / `artifact_problems` / `artifact_themes` / `artifact_opportunities`.
+   - (b) **Backfill legacy `evidence.themes` → `topics` as `review_state = 'suggested'`, not `accepted`.** Those labels were never reviewed *as topics*; auto-accepting retroactively launders unreviewed AI output into "accepted truth." Keep UI wording cautious.
+   - (c) **Do not overload `project_opportunities`.** Free the word "Opportunity" for the problem-linked product opportunity; rename the existing adjacent-workspace object to "Suggested workspaces" in UI now, and split the schema at P3.
+5. **UX risks Sonnet must address before prototype:** C4 degraded-link state; honest "Related evidence (via themes)" labeling until typed `problem_evidence` joins ship (P3); and **scope Sonnet's first deliverable to P1 only** — do not design all five evidence lenses against P2/P3 data that doesn't exist yet.
+6. **P0.5 as blocking prerequisite for P1:** APPROVED. Backfill script posted for light-touch review before Jimmy runs it.
+
+### AI review state (§2.5)
+
+No analytical object (topic / theme / problem) reaches "accepted / stakeholder-ready" without human action. Suggested/draft objects may appear in the working-analysis area only. This is consistent with design-brief §1.6 and the curation boundary.
