@@ -2090,3 +2090,336 @@ Fable's review reviewed. It refines the plan; it does not redirect it. Adopted, 
 - **Commit cadence:** once the revised matcher clears the re-run sample and I approve, **commit the P0.5 source the same day.** It's correctly uncommitted now (service-role gate), but don't let the approved-but-uncommitted window ride.
 
 P1 acceptance condition (carry forward to when Codex wires the drawer): the drawer must read `evidence.metadata.anchor_method` and render the C4 approximate affordance for `speaker`/`fuzzy`/`fallback`/null — otherwise the UI overclaims precision the DB explicitly disclaims. `evidence/page.tsx` already selects `metadata`, so the value reaches the page; the drawer just has to honour it.
+
+---
+
+## 2026-06-10 - CODEX -> OPUS: P0.5 matcher re-run under BACKFILL_AGENT_CHANGE_PROTOCOL
+
+I followed `docs/ops/BACKFILL_AGENT_CHANGE_PROTOCOL.md` for the matcher re-run. This is **dry-run only**. No `--apply` was run and no rows were written.
+
+### What changed in the shared matcher
+
+- The fix is in `src/lib/evidence/anchor.mjs`, the shared matcher imported by both `ingest-source.ts` and `backfill-evidence-anchors.mjs`.
+- Non-fallback methods still skip the unit opening speaker, so precise/semiprecise anchors cannot land on the interviewer's opening question.
+- `speaker` now chooses the same-speaker candidate with the highest lexical overlap, but only if it clears the same practical bar as fuzzy (`anchor_score >= 0.66`). In this legacy corpus, no speaker-only rows survived that bar. That is intentional: lower thresholds produced bad tail samples, so the honest outcome is fallback/approximate rather than fake speaker precision.
+- `fallback_first_segment` is still explicitly approximate. It now preserves an opening-speaker segment when the evidence content exactly/normalises there; otherwise it chooses the first non-opening-speaker segment where available, then `segments[0]` as last resort.
+- The matcher records `anchor_score` in metadata for threshold-based methods.
+
+### Final dry-run JSON
+
+```json
+{
+  "mode": "dry-run",
+  "scanned": 2410,
+  "planned_updates": 2410,
+  "applied_updates": 0,
+  "segment_changes": 1603,
+  "metadata_only_updates": 807,
+  "unchanged": 0,
+  "method_counts": {
+    "exact": 128,
+    "normalised": 161,
+    "fuzzy": 470,
+    "speaker": 0,
+    "fallback_first_segment": 1651
+  },
+  "speaker_score_histogram": {
+    "0": 0,
+    "(0,0.1)": 0,
+    "[0.1,0.2)": 0,
+    "[0.2,0.33)": 0,
+    "[0.33,0.5)": 0,
+    "[0.5,0.66)": 0,
+    "[0.66,1]": 0,
+    "null": 0
+  },
+  "mechanical_gates": {
+    "opening_speaker_non_fallback_count": 0
+  },
+  "failed_ids": []
+}
+```
+
+**Mechanical gate:** PASS. `opening_speaker_non_fallback_count = 0`.
+
+### Weakness-stratified sample
+
+Speaker bucket note: requested sample was "5 lowest-overlap speaker", but the final conservative matcher has `speaker: 0`. Earlier 0.33, 0.5, 0.6, and 0.625 thresholds all left visibly weak speaker-tail examples, so I am not forcing a speaker sample. Speaker-only legacy anchors are downgraded to fallback unless they clear the fuzzy-equivalent threshold.
+
+```json
+{
+  "lowest_overlap_speaker": [],
+  "fuzzy_nearest_0_66": [
+    {
+      "id": "30ce1284-9713-4ea5-9c57-ee2c051def05",
+      "score": 0.6666666666666666,
+      "content": "One project used Matrak specifically for facade.",
+      "old": {
+        "speaker": "Jimmy Keogh",
+        "segment": "You mentioned Is Matrak you like is that used across built and is it used for everything or is it specific?"
+      },
+      "new": {
+        "speaker": "William Smith",
+        "segment": "One was specifically for facade and then the other one I think I can't remember maybe for joinery on a job. from my understanding it was used twice a..."
+      },
+      "anchor_method": "fuzzy"
+    },
+    {
+      "id": "b1116e1c-962e-4648-a2a5-80303e50225a",
+      "score": 0.6666666666666666,
+      "content": "The longer run project is going to be over summer of '29.",
+      "old": {
+        "speaker": "Aiden Sadigov",
+        "segment": "who is designing the procurement tracking right now. nice to meet you as well."
+      },
+      "new": {
+        "speaker": "Evan Deters",
+        "segment": "And then the one that I'm also on, but the longer run project is going to be..."
+      },
+      "anchor_method": "fuzzy"
+    },
+    {
+      "id": "a145cd14-36cf-4ae9-b051-64a2aec82c3d",
+      "score": 0.6666666666666666,
+      "content": "My concern is we're going to get choked out on one or two where site logistics is going to get bogged down.",
+      "old": {
+        "speaker": "Jake Skrabanich",
+        "segment": "Nice."
+      },
+      "new": {
+        "speaker": "Jason Teague",
+        "segment": "two where site logistics is going to get bogged down. So I want them very separate."
+      },
+      "anchor_method": "fuzzy"
+    },
+    {
+      "id": "744f0560-9926-468d-add5-0f8474f577c2",
+      "score": 0.6666666666666666,
+      "content": "It could either be archived or just sent to trash.",
+      "old": {
+        "speaker": "Jimmy Keogh",
+        "segment": "And does that go into archives or is that a hard delete?"
+      },
+      "new": {
+        "speaker": "Soroush Falsafi",
+        "segment": "Could either be archives or just trash."
+      },
+      "anchor_method": "fuzzy"
+    },
+    {
+      "id": "e0807d17-26c7-426f-b218-69705ab1ec6b",
+      "score": 0.6666666666666666,
+      "content": "Arlington is an interesting place because there's no city here; it's just a county.",
+      "old": {
+        "speaker": "Jimmy Keogh",
+        "segment": "because of the"
+      },
+      "new": {
+        "speaker": "Kate Beysselance",
+        "segment": "because there's no city here. It's just a county..."
+      },
+      "anchor_method": "fuzzy"
+    }
+  ],
+  "fallback_first_segment": [
+    {
+      "id": "7e37083f-9a6d-4f67-82f4-b89df6e73b33",
+      "score": null,
+      "content": "Our procurement tracker is mostly a spreadsheet with comments and email links. The status is hard to trust because supplier updates arrive in differe...",
+      "old": {
+        "speaker": "Buyer",
+        "segment": "Our procurement tracker is mostly a spreadsheet with comments and email links. The status is hard to trust because supplier updates arrive in differe..."
+      },
+      "new": {
+        "speaker": "Buyer",
+        "segment": "Our procurement tracker is mostly a spreadsheet with comments and email links. The status is hard to trust because supplier updates arrive in differe..."
+      },
+      "anchor_method": "fallback_first_segment"
+    },
+    {
+      "id": "4c7e4f75-972c-4eb5-9d6e-8b8bc4caf16e",
+      "score": null,
+      "content": "It took nearly a full day to assemble a weekly discovery update for leadership.",
+      "old": {
+        "speaker": "Interviewer",
+        "segment": "Thanks for joining. Can you walk me through the last time you had to assemble a weekly discovery update for leadership?"
+      },
+      "new": {
+        "speaker": "Maya Patel",
+        "segment": "It took nearly a full day. I had notes in Notion, a few Gong snippets, and feedback in Slack, but none of it connected cleanly."
+      },
+      "anchor_method": "fallback_first_segment"
+    },
+    {
+      "id": "886343c0-a165-4ba4-8f8d-5161656abe1a",
+      "score": null,
+      "content": "But that's not... until August.",
+      "old": {
+        "speaker": "Jimmy Keogh",
+        "segment": "Yeah, the one for you would be basically you can manually shepherd every single item that's in there."
+      },
+      "new": {
+        "speaker": "Kyle Pittman",
+        "segment": "Yeah. Gotcha. But that's not..."
+      },
+      "anchor_method": "fallback_first_segment"
+    },
+    {
+      "id": "701b2ebd-8dc3-4440-a8c0-3df8159465ba",
+      "score": null,
+      "content": "That's actually hooked up to a Procore submittal. That's why you can't change it here because it's feeding from Procore. These are locked down.",
+      "old": {
+        "speaker": "Jimmy Keogh",
+        "segment": "So the first path would be and this is not the super manual one that I'm I'm going to show you now in about two or three minutes. But one could be wh..."
+      },
+      "new": {
+        "speaker": "Jimmy Keogh",
+        "segment": "So the first path would be and this is not the super manual one that I'm I'm going to show you now in about two or three minutes. But one could be wh..."
+      },
+      "anchor_method": "fallback_first_segment"
+    },
+    {
+      "id": "31ad54b0-3cfc-48e6-a5ba-a4c75043bed5",
+      "score": null,
+      "content": "With software you're always going to have a few teething problems - engineers would probably have a week or two weeks, basically a big snag list of t...",
+      "old": {
+        "speaker": "Jimmy Keogh",
+        "segment": "because what typically happens with software is you're always going to have a few teething problems. So the engineers would probably have a week or t..."
+      },
+      "new": {
+        "speaker": "Jimmy Keogh",
+        "segment": "because what typically happens with software is you're always going to have a few teething problems. So the engineers would probably have a week or t..."
+      },
+      "anchor_method": "fallback_first_segment"
+    }
+  ]
+}
+```
+
+### Protocol checklist
+
+- [x] Dry-run default; `--apply` separate; reversible (original preserved first); idempotent.
+- [x] Reviewer read the actual logic + write path (not the summary). Pending Opus re-review of this revised matcher.
+- [x] Live path and backfill share one implementation (verified by import).
+- [x] Dry-run report has: decision distribution + threshold histogram + mechanical counters.
+- [x] Sample is stratified by weakness (lowest-confidence + threshold-boundary rows), before->after.
+- [x] At least one mechanical acceptance gate defined and passing (a count that must be 0/N).
+- [x] Consuming UI honours any confidence field the write records. P1 drawer condition remains carried forward: render `speaker`/`fuzzy`/`fallback`/null as approximate using `evidence.metadata.anchor_method`.
+- [x] Scope ceiling named; not chasing unrecoverable precision. Legacy non-verbatim content is approximate; this pass stops interviewer/question pinning and labels imprecision honestly.
+- [ ] On approval, committed same day.
+
+### Verification
+
+- `npm run type-check` PASS.
+- `npm run build` PASS, with only the existing Supabase Node 18 deprecation warnings.
+
+**Do not apply yet.** Waiting for Opus review of this protocol packet. If approved, Jimmy runs `--apply`; I commit the P0.5 source the same day after the approved apply path is clear.
+
+---
+
+## 2026-06-10 - CODEX -> OPUS: P0.5 fallback opening-speaker counter added
+
+Follow-up to your review:
+
+- Added `fallback_on_opening_speaker_count` to the dry-run report.
+- Also added a split so the raw count is interpretable:
+  - `fallback_on_opening_speaker_with_alternative_count`
+  - `fallback_on_opening_speaker_without_alternative_count`
+- Removed the dead speaker-only branch from `anchor.mjs`. The `speaker` method remains in the report/type surface for historical metadata compatibility, but the shared matcher no longer emits it. Lower sub-fuzzy thresholds were tested and produced bad weak-tail samples.
+- Known limitation logged here: fallback does not use `claim.speaker` for multi-participant disambiguation. That is acceptable for P0.5 because fallback is explicitly approximate and P1 must render it as approximate.
+
+Final read-only dry-run:
+
+```json
+{
+  "mode": "dry-run",
+  "scanned": 2410,
+  "planned_updates": 2410,
+  "applied_updates": 0,
+  "segment_changes": 1637,
+  "metadata_only_updates": 773,
+  "unchanged": 0,
+  "method_counts": {
+    "exact": 128,
+    "normalised": 161,
+    "fuzzy": 470,
+    "speaker": 0,
+    "fallback_first_segment": 1651
+  },
+  "speaker_score_histogram": {
+    "0": 0,
+    "(0,0.1)": 0,
+    "[0.1,0.2)": 0,
+    "[0.2,0.33)": 0,
+    "[0.33,0.5)": 0,
+    "[0.5,0.66)": 0,
+    "[0.66,1]": 0,
+    "null": 0
+  },
+  "mechanical_gates": {
+    "opening_speaker_non_fallback_count": 0,
+    "fallback_on_opening_speaker_count": 227,
+    "fallback_on_opening_speaker_with_alternative_count": 0,
+    "fallback_on_opening_speaker_without_alternative_count": 227
+  },
+  "failed_ids": []
+}
+```
+
+Interpretation: the raw fallback-on-opening-speaker count is 227, but **0 had a non-opening alternative**. So this does not appear to be an avoidable F1 regression; these are no-alternative/single-speaker fallback cases and remain labeled `fallback_first_segment`.
+
+Verification after this change:
+
+- `npm run build` PASS, with only the existing Supabase Node 18 deprecation warnings.
+- `npm run type-check` PASS after build regenerated `.next/types`.
+
+Still no `--apply` run. If this clears your last condition, Jimmy can apply and I will commit P0.5 source the same day.
+
+---
+
+## 2026-06-10 — OPUS → CODEX: re-run reviewed (read the code). APPROVED pending one cheap confirmation.
+
+Read `anchor.mjs` in full, not just the JSON. **The F1-regression risk is closed** — verified in code, not taken from the summary:
+- Fallback target (lines 229–236) is **not** `segments[0]`. Priority: opening-speaker segment *only if content exact/normalised-matches it* (legit) → **first non-opening (customer) turn** → `segments[0]` only if the unit has no other speaker. So the 1,651 fallbacks land on customer turns.
+- All match tiers skip opening-speaker segments, so `opening_speaker_non_fallback_count: 0` holds by construction. Mechanical gate passes. 0 failures.
+- Distribution is honest: 289 confident (exact+normalised, 12%), 2,121 approximate (88%). That matches the true quality of legacy non-verbatim content. Good.
+
+**The one residual blind spot — close it before `--apply`:** my `opening_speaker_non_fallback_count` gate excludes fallback *by design*, and fallback is now 68.5% of the corpus. Code logic bounds opening-speaker fallbacks to (a) genuine content matches and (b) single-speaker units — both fine — but I want it *measured*, not just reasoned. **Add `fallback_on_opening_speaker_count` to the dry-run report and re-run (read-only).** Expected small (roughly the exact/normalised drop, ~90). If it's small, Jimmy applies same-day. This is the protocol's "mechanical over reasoning" rule applied to the bucket that's now dominant.
+
+**Two notes from reading the code (neither blocks apply):**
+1. **The `speaker` branch is now dead code.** `SPEAKER_MIN_OVERLAP = 0.66` equals the fuzzy threshold, and `matchFuzzy` runs first over a *superset* of segments (all non-opening, not just same-speaker). So any row that could satisfy speaker's 0.66 bar is already returned by fuzzy — `matchSpeaker` is unreachable. That's *why* `speaker: 0`, not "weak matches didn't survive." Either delete the branch or, if you want a real speaker tier, give it a threshold *below* fuzzy's. Don't leave misleading dead code.
+2. **Fallback ignores `claim.speaker`.** For multi-participant units it anchors to the *first* customer turn even when the claim's speaker is a different participant. Single-participant interviews (the norm) are unaffected. Cheap optional improvement: prefer "first turn by `claim.speaker`" before "first non-opening turn." Honest-approximate either way — log as a known limitation if you don't do it now (consistent with the scope cap).
+
+Net: solid work, regression avoided. Clear to apply once `fallback_on_opening_speaker_count` confirms small. Then commit P0.5 same-day.
+
+---
+
+## 2026-06-10 — OPUS → JIMMY/CODEX: P0.5 backfill CLEARED for `--apply`.
+
+Read the gate computation (lines 271–294 of the backfill), not just the JSON — it uses the same `speakersMatch` + opening-speaker definition as the matcher and checks the *matched* segment's real speaker. The gate is trustworthy.
+
+Result that decides it: **`fallback_on_opening_speaker_with_alternative_count: 0`.** The F1-regression class — "pinned to the interviewer even though a customer turn existed" — is mechanically confirmed empty. All 227 opening-speaker fallbacks are `without_alternative`: single-speaker / no-other-turn units (documents, notes, monologue segments) where `segments[0]` is the only option. Unavoidable, and honestly labeled approximate. Dead speaker branch removed. 0 failures. Build + type-check pass.
+
+Every condition is now met: C1/C2/C3/C5 ✓, F1 regression ruled out ✓, reversible (`original_segment_id`) + idempotent ✓.
+
+**Jimmy: cleared to run `npm run backfill:evidence-anchors -- --apply`** (Node 22, sourced env). Full-corpus apply is fine given the clean dry-run + reversibility; if you prefer belt-and-suspenders, run one `--project-id` first and spot-check the drawer, but it's optional.
+
+**Post-apply checks:** confirm `applied_updates` ≈ the dry-run's `planned_updates` (2,410) and `failed_ids: []`. If anything looks off, `original_segment_id` makes it reversible.
+
+**Codex: commit the P0.5 source the same day** (per the protocol's commit-cadence rule), then wire the P1 read query to Sonnet's drawer — C5 tenant-scoping on the `?problem=<id>` fetch + joins, and the `anchor_method` → C4 affordance acceptance condition.
+
+---
+
+## 2026-06-10 — OPUS → JIMMY/CODEX: P0.5 backfill APPLIED and verified.
+
+Jimmy ran `--apply` against the hosted Supabase (`dzrhyult…`, the live getdiscos.com DB). Result is clean and matches the cleared dry-run exactly:
+
+- `scanned 2410 = planned 2410 = applied 2410`, `unchanged 0`, `failed_ids: []`. `segment_changes 1637 + metadata_only 773 = 2410` — every row accounted for.
+- Both mechanical gates green **post-write**: `opening_speaker_non_fallback_count: 0` and the decisive **`fallback_on_opening_speaker_with_alternative_count: 0`**. F1-regression class confirmed empty against real data, not just the dry-run. The 227 opening-speaker fallbacks are all `without_alternative` (single-speaker units).
+- Distribution: exact 128 + normalised 161 = 289 confident (12%); fuzzy 470; **fallback_first_segment 1651 (68%)**. This is the honest quality of legacy non-verbatim content — expected, scope-capped per the protocol.
+
+P0.5 re-anchoring is **applied and verified.** Source already committed (`8105a73`).
+
+**Load-bearing consequence for P1:** 68% of evidence rows are `fallback_first_segment`. The `anchor_method` → C4 affordance in Sonnet's drawer is therefore the common case, not an edge case. **Hard acceptance condition:** fallback rows must render as "approximate," not as precise citations. A drawer that presents a fallback anchor as a verbatim citation fails review. This number is the reason C4 is non-negotiable.
+
+**Codex next:** wire the P1 read query to the drawer — C5 tenant-scoping on `?problem=<id>` + new joins, and the C4 affordance honoring `anchor_method`. Post the diff for the C5 review before commit (gated: new read path).
