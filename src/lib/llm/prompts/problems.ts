@@ -18,8 +18,8 @@ For each problem, return:
 - current_tools: array of tools/systems mentioned in the supplied evidence
 - severity: "high" (blocks core workflow), "medium" (significant friction), or "low" (minor annoyance)
 - confidence: "high", "medium", or "low"
-- theme_links: theme IDs with relationship "primary" or "contributing"
-- evidence_links: evidence IDs with relationship "supporting", "contradicting", "example", or "edge_case", plus a short rationale
+- theme_links: theme IDs, each with a relationship that must be one of "primary" or "contributing"
+- evidence_links: evidence IDs, each with a relationship that must be one of "supporting", "contradicting", "example", or "edge_case", plus a short rationale
 - topic_provenance_ids: topic IDs that describe the evidence behind this problem
 
 Rules:
@@ -28,6 +28,7 @@ Rules:
 - Evidence IDs must come from the supplied evidence list only
 - Theme IDs must come from the supplied theme list only
 - Topic IDs must come from the supplied topic list only
+- The two relationship sets are NOT interchangeable. Never use "primary" or "contributing" on evidence_links — those are theme_links values only. Never use evidence relationships ("supporting", "contradicting", "example", "edge_case") on theme_links.
 - Distinguish direct support from provenance; do not mark nearby evidence as supporting unless it truly supports the problem
 - Include contradicting evidence when the supplied evidence challenges or limits the problem
 - Merge themes that describe the same underlying problem
@@ -49,10 +50,12 @@ Return only JSON in this exact shape:
     "severity": "high",
     "confidence": "medium",
     "theme_links": [
-      { "theme_id": "theme-uuid-1", "relationship": "primary", "rationale": "Why this theme is primary" }
+      { "theme_id": "theme-uuid-1", "relationship": "primary", "rationale": "Why this theme is primary" },
+      { "theme_id": "theme-uuid-2", "relationship": "contributing", "rationale": "Why this theme contributes" }
     ],
     "evidence_links": [
-      { "evidence_id": "evidence-uuid-1", "relationship": "supporting", "rationale": "Why this evidence supports the problem" }
+      { "evidence_id": "evidence-uuid-1", "relationship": "supporting", "rationale": "Why this evidence supports the problem" },
+      { "evidence_id": "evidence-uuid-2", "relationship": "example", "rationale": "Why this evidence is an example" }
     ],
     "topic_provenance_ids": ["topic-uuid-1"]
   }
