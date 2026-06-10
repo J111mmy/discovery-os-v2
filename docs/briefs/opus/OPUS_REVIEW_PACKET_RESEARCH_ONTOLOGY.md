@@ -170,10 +170,12 @@ No migration.
 No migration. Code-only plus one Jimmy-run backfill script. Blocking prerequisite for P1.
 
 - Citation re-anchoring in `ingest-source.ts` + evidence backfill (claims currently anchor to `unit.segments[0]`, usually the interviewer's question).
-- `discover-problems.ts`: stop resetting human-set problem status on upsert; dedupe candidates by embedding similarity, not exact title.
-- Fix workspace theme chart -> evidence filter vocabulary mismatch (chart uses `themes` table labels; filter matches `evidence.themes text[]`).
+- `discover-problems.ts`: stop resetting human-set problem status on upsert; never overwrite human-edited fields; reduce duplicate creation (normalised-title minimum; ~~dedupe candidates by embedding similarity, not exact title~~ embedding dedupe optional-if-contained per Codex condition).
+- Fix workspace theme chart -> evidence filter vocabulary mismatch (chart uses `themes` table labels; filter matches `evidence.themes text[]`) or remove the misleading clickthrough until correct.
 
 Detail: Codex brief section 3b.
+
+**Scope guard (agreed Codex + Claude, 2026-06-09):** P0.5 is pipeline integrity only. No topics schema, no opportunities/actions/artifacts restructure, no typed-join refactor beyond making current traceability honest. Codex verdict: "Approved with scope guard - P0.5 should block Milestone 1. Keep it as pipeline integrity only, not ontology v2 by stealth."
 
 ### P1 - Problem Intelligence v1
 

@@ -483,10 +483,12 @@ Goal: fix three live defects that Milestone 1 and 2 would otherwise expose to us
 Scope:
 
 1. **Citation re-anchoring.** In `ingest-source.ts`, map each extracted claim to the segment it actually came from (match the claim's verbatim span against segment `redacted_content` within the unit; fall back to speaker match, then first segment with a metadata flag). Backfill existing evidence with the same matcher. Acceptance: clicking evidence lands on the segment where the participant said it.
-2. **Problem state preservation.** `discover-problems.ts` currently upserts with `status: "surfaced"`, resetting human-set status (acknowledged/active) and overwriting descriptions whenever synthesis auto-runs; slightly different titles create duplicates that never retire. Fix: never overwrite status or human-edited fields after first human touch; dedupe candidate problems against existing ones by embedding similarity, not exact title; flag (do not delete) problems whose support collapses.
+2. **Problem state preservation.** `discover-problems.ts` currently upserts with `status: "surfaced"`, resetting human-set status (acknowledged/active) and overwriting descriptions whenever synthesis auto-runs; slightly different titles create duplicates that never retire. Fix (minimum bar): never overwrite status or human-edited fields after first human touch; reduce duplicate creation via normalised-title matching; flag (do not delete) problems whose support collapses. ~~dedupe candidate problems against existing ones by embedding similarity, not exact title~~ Embedding-similarity dedupe is optional within P0.5 - include only if contained, otherwise defer to P3 (Codex scope condition, 2026-06-09).
 3. **Theme link mismatch.** The workspace theme chart (drawn from the `themes` table) links to `/evidence?theme=<label>`, which filters `evidence.themes text[]` - a different vocabulary, so clicks show wrong or empty results. Fix: route theme clicks through `evidence_themes` (or remove the link until the Theme lens in Milestone 2 lands). Note: after Milestone 0 renames evidence labels to "Topics", a Theme chart that filters Topics is visibly incoherent.
 
 Why blocking: Milestone 1's value is "trust the problem object, inspect its evidence." Defects 1 and 2 break exactly that promise on day one.
+
+**Scope guard (agreed Codex + Claude, 2026-06-09):** Milestone 0.5 is pipeline integrity only - no topics schema, no operational link tables, no typed-join refactor beyond what makes current traceability honest. Anything larger belongs in Milestone 3.
 
 ### Milestone 1 - Problem Intelligence v1 using existing schema
 

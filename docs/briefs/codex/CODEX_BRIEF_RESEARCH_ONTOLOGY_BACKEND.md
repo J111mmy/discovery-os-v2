@@ -124,6 +124,8 @@ Do not:
 
 Purpose: repair three live defects before any UI builds on top of them. No ontology migration required. Full code trace in `docs/PIPELINE_DEEP_DIVE_2026-06-09.md`.
 
+**SCOPE GUARD (agreed Codex + Claude, 2026-06-09).** P0.5 is pipeline integrity only. Explicitly out of scope: the topics/tags schema, opportunities/actions/artifacts restructuring, expanded theme/problem columns, and any typed-join refactor beyond what is needed to make *current* traceability honest. If a P0.5 change starts requiring a migration beyond the targeted evidence backfill, stop - it belongs in P3. P0.5 must not become ontology v2 by stealth.
+
 ### 3b.1 Citation re-anchoring (F1)
 
 File: `src/lib/inngest/functions/ingest-source.ts` (claim-to-segment assignment, ~line 963).
@@ -148,14 +150,18 @@ File: `src/lib/inngest/functions/discover-problems.ts`.
 
 Current behaviour: upsert on `(org_id, project_id, title)` writes `status: "surfaced"` and a fresh description on every run (synthesis auto-chains after ingests of >= 5 records), resetting human decisions; differently-worded titles create permanent duplicates.
 
-Fix:
+Fix - minimum bar (blocking, must ship in P0.5):
 
-- Match candidate problems to existing problems by embedding similarity of the problem statement (threshold to tune), not exact title.
-- On match: append newly-linked evidence/themes; update description only if the existing problem has never been human-edited; **never write `status`** on an existing row.
-- On no match: insert as `surfaced`.
+- **Never write `status` on an existing row.** Status is human-owned after first touch.
+- **Never overwrite human-edited fields** (description, title) once a human has modified them.
+- **Reduce duplicate creation:** at minimum, match candidates against existing problems on normalised title (case/whitespace/punctuation-insensitive) before insert.
 - Existing problems whose theme/evidence support disappears get a staleness flag (metadata or column later in P3), never silent deletion.
 
-Acceptance: acknowledge a problem, re-run synthesis twice; status remains `acknowledged`, no duplicate appears for a reworded equivalent.
+Optional within P0.5 (only if it stays contained and does not delay the blocker - Codex condition, 2026-06-09):
+
+- ~~Match candidate problems to existing problems by embedding similarity of the problem statement (threshold to tune), not exact title.~~ Embedding-similarity dedupe is directionally right but is **not required** for P0.5. If trivial to include, do it; otherwise defer the smarter matching to the P3 problem-discovery rewrite.
+
+Acceptance (minimum): acknowledge a problem, re-run synthesis twice; status remains `acknowledged` and human edits survive. Acceptance (stretch, if embedding dedupe included): no duplicate appears for a reworded equivalent.
 
 ### 3b.3 Theme link vocabulary fix (F2)
 
