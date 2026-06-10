@@ -64,7 +64,7 @@ const MODEL_MAP: Record<LLMProvider, Record<TaskTier, ModelConfig>> = {
     premium: {
       provider: "anthropic",
       model: envModel("ANTHROPIC_PREMIUM_MODEL", "claude-sonnet-4-6"),
-      maxTokens: 6000,
+      maxTokens: 16000,
       temperature: 0.7,
     },
     // Deterministic: eval scoring, claim verification
@@ -91,7 +91,7 @@ const MODEL_MAP: Record<LLMProvider, Record<TaskTier, ModelConfig>> = {
     premium: {
       provider: "openai",
       model: envModel("OPENAI_PREMIUM_MODEL", "gpt-5.4"),
-      maxTokens: 6000,
+      maxTokens: 16000,
       temperature: 0.7,
     },
     eval: {
