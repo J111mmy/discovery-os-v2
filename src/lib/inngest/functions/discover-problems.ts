@@ -91,8 +91,6 @@ const ProblemCandidateSchema = z.object({
   topic_provenance_ids: z.array(z.string().uuid()).default([]),
 });
 
-const ProblemsSchema = z.array(ProblemCandidateSchema).default([]);
-
 function extractJsonArray(content: string) {
   const trimmed = content.trim();
   const unfenced = trimmed
@@ -617,7 +615,7 @@ export const discoverProblems = inngest.createFunction(
         return { themes: context.themes.length, problems_written: 0 };
       }
 
-      const { candidates, model_used } = await step.run("call-llm", async () => {
+      const { candidates, model_used, dropped_candidates } = await step.run("call-llm", async () => {
         const evidenceById = new Map(context.evidence.map((row) => [row.id, row]));
         const topicById = new Map(context.topics.map((topic) => [topic.id, topic]));
         const researchData = formatResearchDataForPrompt({
@@ -644,15 +642,36 @@ export const discoverProblems = inngest.createFunction(
           timeoutMs: 120_000,
         });
 
-        const parsed = ProblemsSchema.safeParse(extractJsonArray(result.content));
-        if (!parsed.success) {
-          throw new Error("Problem discovery JSON did not match expected schema");
+        // Resilient parse: extractJsonArray still throws if the response is not a
+        // parseable JSON array at all. But a single malformed candidate must not
+        // fail the whole batch — validate each element individually, keep the valid
+        // ones, and drop (with a warning) the invalid ones for observability.
+        const rawArray = extractJsonArray(result.content);
+        if (!Array.isArray(rawArray)) {
+          throw new Error("Problem discovery did not return a JSON array");
         }
+
+        let droppedCount = 0;
+        const validCandidates: ProblemCandidate[] = [];
+        rawArray.forEach((element, index) => {
+          const parsedCandidate = ProblemCandidateSchema.safeParse(element);
+          if (parsedCandidate.success) {
+            validCandidates.push(parsedCandidate.data);
+            return;
+          }
+          droppedCount += 1;
+          const failingPaths = parsedCandidate.error.issues
+            .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+            .join("; ");
+          console.warn(
+            `[discover-problems] dropped invalid problem candidate at index ${index}: ${failingPaths}`
+          );
+        });
 
         const allowedThemeIds = new Set(context.themes.map((theme) => theme.id));
         const allowedEvidenceIds = new Set(context.evidence.map((row) => row.id));
         const allowedTopicIds = new Set(context.topics.map((topic) => topic.id));
-        const sanitized = parsed.data
+        const sanitized = validCandidates
           .map((candidate) => sanitizeCandidate(candidate, allowedThemeIds, allowedEvidenceIds, allowedTopicIds))
           .filter((candidate) =>
             candidate.evidence_links.some((link) =>
@@ -660,7 +679,7 @@ export const discoverProblems = inngest.createFunction(
             )
           );
 
-        return { candidates: sanitized, model_used: result.model };
+        return { candidates: sanitized, model_used: result.model, dropped_candidates: droppedCount };
       });
 
       const plans = await step.run("dedupe-candidates", async () =>
@@ -793,6 +812,7 @@ export const discoverProblems = inngest.createFunction(
               themes: context.themes.length,
               theme_evidence_links: context.themeEvidence.length,
               evidence_supplied: context.evidence.length,
+              dropped_candidates,
               ...report,
             },
             model_used,
