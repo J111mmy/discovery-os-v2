@@ -182,6 +182,38 @@ function Chip({ children }: { children: React.ReactNode }) {
   );
 }
 
+function SkeletonBlock({ className = "" }: { className?: string }) {
+  return (
+    <div
+      className={`motion-safe:animate-pulse rounded-md bg-[var(--surface-2)] ${className}`}
+      aria-hidden
+    />
+  );
+}
+
+function DrawerHeaderSkeleton() {
+  return (
+    <div className="grid gap-3" aria-hidden>
+      <SkeletonBlock className="h-5 w-3/4" />
+      <SkeletonBlock className="h-3 w-1/3" />
+    </div>
+  );
+}
+
+function DrawerBodySkeleton() {
+  return (
+    <div className="grid gap-6 p-5" aria-hidden>
+      <p className="text-sm text-[var(--ink-2)]">Loading problem details…</p>
+      {[0, 1, 2, 3].map((section) => (
+        <div key={section} className="grid gap-2">
+          <SkeletonBlock className="h-3 w-32" />
+          <SkeletonBlock className="h-16 w-full" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function PlaceholderRow({ label }: { label: string }) {
   return (
     <div className="grid gap-1 border-t border-[var(--line)] py-3 first:border-t-0">
@@ -302,11 +334,13 @@ function ProblemEvidenceList({ detail, projectId }: { detail: ProblemDetail; pro
 }
 
 function ProblemDetailDrawer({
+  loading,
   detail,
   error,
   projectId,
   onClose,
 }: {
+  loading: boolean;
   detail: ProblemDetail | null;
   error: string | null;
   projectId: string;
@@ -326,7 +360,12 @@ function ProblemDetailDrawer({
   );
   const companies = uniqueLabels(
     (detail?.entities ?? [])
-      .filter((entity) => entity.entity_type === "company" || entity.entity_type === "competitor")
+      .filter((entity) => entity.entity_type === "company")
+      .map((entity) => entity.label)
+  );
+  const competitors = uniqueLabels(
+    (detail?.entities ?? [])
+      .filter((entity) => entity.entity_type === "competitor")
       .map((entity) => entity.label)
   );
   const topics = uniqueLabels((detail?.evidence ?? []).flatMap((row) => row.topics));
@@ -426,7 +465,9 @@ function ProblemDetailDrawer({
             </button>
           </div>
 
-          {error || !detail || !problem ? (
+          {loading ? (
+            <DrawerHeaderSkeleton />
+          ) : error || !detail || !problem ? (
             <div className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-4 text-sm text-[var(--ink-2)]">
               {error ?? "We could not load this problem. Try again."}
             </div>
@@ -457,7 +498,9 @@ function ProblemDetailDrawer({
           )}
         </div>
 
-        {detail && problem && !error && (
+        {loading && <DrawerBodySkeleton />}
+
+        {!loading && detail && problem && !error && (
           <div className="grid gap-6 p-5">
             <section>
               <h3 className="mb-3 text-sm font-semibold text-[var(--ink)]">Problem statement</h3>
@@ -473,7 +516,10 @@ function ProblemDetailDrawer({
 
             <section>
               <h3 className="mb-3 text-sm font-semibold text-[var(--ink)]">Affected context</h3>
-              {sourceTypes.length === 0 && people.length === 0 && companies.length === 0 ? (
+              {sourceTypes.length === 0 &&
+              people.length === 0 &&
+              companies.length === 0 &&
+              competitors.length === 0 ? (
                 <p className="text-sm text-[var(--ink-2)]">No affected-context details available yet.</p>
               ) : (
                 <div className="grid gap-3">
@@ -499,6 +545,14 @@ function ProblemDetailDrawer({
                         Companies
                       </div>
                       <div className="flex flex-wrap gap-2">{companies.map((company) => <Chip key={company}>{company}</Chip>)}</div>
+                    </div>
+                  )}
+                  {competitors.length > 0 && (
+                    <div>
+                      <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-[var(--ink-faint)]">
+                        Competitors mentioned
+                      </div>
+                      <div className="flex flex-wrap gap-2">{competitors.map((competitor) => <Chip key={competitor}>{competitor}</Chip>)}</div>
                     </div>
                   )}
                 </div>
@@ -577,17 +631,24 @@ function ProblemDetailDrawer({
   );
 }
 
-function ProblemCard({ problem, projectId }: { problem: ProblemRow; projectId: string }) {
-  const router = useRouter();
-
+function ProblemCard({
+  problem,
+  isPending,
+  onOpen,
+}: {
+  problem: ProblemRow;
+  isPending: boolean;
+  onOpen: (id: string) => void;
+}) {
   function openProblem() {
-    router.push(`/projects/${projectId}/problems?problem=${problem.id}`, { scroll: false });
+    onOpen(problem.id);
   }
 
   return (
     <article
       role="button"
       tabIndex={0}
+      aria-busy={isPending}
       onClick={openProblem}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -595,7 +656,9 @@ function ProblemCard({ problem, projectId }: { problem: ProblemRow; projectId: s
           openProblem();
         }
       }}
-      className="cursor-pointer rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5 transition-colors hover:border-[var(--accent)]/40"
+      className={`cursor-pointer rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5 transition-colors hover:border-[var(--accent)]/40 ${
+        isPending ? "opacity-60" : ""
+      }`}
     >
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -623,11 +686,13 @@ function ProblemCard({ problem, projectId }: { problem: ProblemRow; projectId: s
 function ProblemGroup({
   title,
   problems,
-  projectId,
+  pendingId,
+  onOpen,
 }: {
   title: string;
   problems: ProblemRow[];
-  projectId: string;
+  pendingId: string | null;
+  onOpen: (id: string) => void;
 }) {
   if (problems.length === 0) return null;
 
@@ -637,7 +702,12 @@ function ProblemGroup({
         {title} · {problems.length}
       </div>
       {sortProblems(problems).map((problem) => (
-        <ProblemCard key={problem.id} problem={problem} projectId={projectId} />
+        <ProblemCard
+          key={problem.id}
+          problem={problem}
+          isPending={pendingId === problem.id}
+          onOpen={onOpen}
+        />
       ))}
     </section>
   );
@@ -651,7 +721,29 @@ export function ProblemsList({
   selectedProblemError,
 }: ProblemsListProps) {
   const [showClosed, setShowClosed] = useState(false);
+  const [pendingProblemId, setPendingProblemId] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
   const router = useRouter();
+
+  // Clear the pending marker once the server-rendered drawer catches up to the
+  // navigation we kicked off (or once it's no longer the open problem).
+  useEffect(() => {
+    if (pendingProblemId && pendingProblemId === selectedProblemId) {
+      setPendingProblemId(null);
+    }
+  }, [pendingProblemId, selectedProblemId]);
+
+  function openProblem(id: string) {
+    setPendingProblemId(id);
+    startTransition(() => {
+      router.push(`/projects/${projectId}/problems?problem=${id}`, { scroll: false });
+    });
+  }
+
+  function closeProblem() {
+    setPendingProblemId(null);
+    router.replace(`/projects/${projectId}/problems`, { scroll: false });
+  }
 
   const surfaced = problems.filter((problem) => problem.status === "surfaced");
   const acknowledged = problems.filter((problem) => problem.status === "acknowledged");
@@ -668,11 +760,16 @@ export function ProblemsList({
     );
   }
 
+  // Show the drawer once a navigation is in flight (skeleton) or once the
+  // server has resolved a selected problem (real content / error).
+  const isLoadingSelection = Boolean(pendingProblemId) && pendingProblemId !== selectedProblemId;
+  const showDrawer = Boolean(selectedProblemId) || Boolean(pendingProblemId);
+
   return (
     <div className="grid gap-8">
-      <ProblemGroup title="Surfaced" problems={surfaced} projectId={projectId} />
-      <ProblemGroup title="Acknowledged" problems={acknowledged} projectId={projectId} />
-      <ProblemGroup title="Active" problems={active} projectId={projectId} />
+      <ProblemGroup title="Surfaced" problems={surfaced} pendingId={pendingProblemId} onOpen={openProblem} />
+      <ProblemGroup title="Acknowledged" problems={acknowledged} pendingId={pendingProblemId} onOpen={openProblem} />
+      <ProblemGroup title="Active" problems={active} pendingId={pendingProblemId} onOpen={openProblem} />
 
       {closed.length > 0 && (
         <section className="grid gap-3">
@@ -685,17 +782,18 @@ export function ProblemsList({
           </button>
 
           {showClosed && (
-            <ProblemGroup title="Resolved / dismissed" problems={closed} projectId={projectId} />
+            <ProblemGroup title="Resolved / dismissed" problems={closed} pendingId={pendingProblemId} onOpen={openProblem} />
           )}
         </section>
       )}
 
-      {selectedProblemId && (
+      {showDrawer && (
         <ProblemDetailDrawer
+          loading={isLoadingSelection}
           detail={selectedProblemDetail ?? null}
           error={selectedProblemError ?? null}
           projectId={projectId}
-          onClose={() => router.replace(`/projects/${projectId}/problems`, { scroll: false })}
+          onClose={closeProblem}
         />
       )}
     </div>
