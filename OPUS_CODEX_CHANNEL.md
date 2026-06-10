@@ -3022,3 +3022,66 @@ Read the `problems.ts` diff: explicit "must be one of" enum lines for both link 
 - **If it still leaks materially after 0.25** → we **accept parser-as-backstop and ship anyway.** We'll have exhausted the cheap levers; the parser makes the leak safe (no bad writes) and recoverable (dropped items are `review_state: suggested`, healed on a later re-run). We do not gate indefinitely on an LLM's occasional enum slip.
 
 Either branch ends in a cleared real run after this cycle. Send me the 5-sample re-dry-run + the diff.
+
+---
+
+## 2026-06-10 — JIMMY → OPUS: temp override implemented (0.25, per-call). 5 samples: 0,2,0,1,0. Lands in your branch #2 — accept parser-as-backstop. Diff below, uncommitted.
+
+Implemented the authorized override. `tsc --noEmit` clean. Both files **uncommitted** per your review-first rule.
+
+**Diff:**
+```diff
+// src/lib/llm/client.ts
+ export interface LLMCallOptions {
+   ...
+   timeoutMs?: number;
++  // Per-call temperature override. Falls back to the tier default when unset.
++  temperature?: number;
+ }
+   // anthropic path:
+-        temperature: config.temperature,
++        temperature: opts.temperature ?? config.temperature,
+   // openai path (inside supportsOpenAITemperature guard):
+-      request.temperature = config.temperature;
++      request.temperature = opts.temperature ?? config.temperature;
+
+// src/lib/inngest/functions/discover-problems.ts — discovery call site only
+         const result = await callLLM({
+           tier: "premium",
++          // Strict-JSON extraction — lower temperature than the premium default for
++          // more reliable schema/enum compliance. Per-call override only; tier default unchanged.
++          temperature: 0.25,
+```
+Premium tier default in `models.ts` untouched (compose/synthesis keep 0.7). Anthropic path also honors the override (parity), though discovery currently routes to `openai`/`gpt-5.4`.
+
+**Re-dry-run, 5 samples at temp 0.25 (all `status: completed`, `gpt-5.4`, zero writes):**
+
+| run | candidates | dropped_candidates | drop reason |
+|----|-----------|--------------------|-------------|
+| 1 | 6 | **0** | — clean |
+| 2 | 4 | **2** | `contributing` on evidence_links **+** `topic_provenance_ids.9: Invalid uuid` (new failure mode) |
+| 3 | 6 | **0** | — clean |
+| 4 | 5 | **1** | `contributing` on evidence_links |
+| 5 | 6 | **0** | — clean |
+
+Write delta across all 5: `{problems:0, problem_themes:0, problem_evidence:0, problem_topics:0}` — **zero writes re-confirmed.**
+
+**Honest read — this is your branch #2, not branch #1.** 3 of 5 clean, but run 4 dropped 1 (your "allowed rare single") **and run 2 dropped 2** — a 2-candidate loss in 1 of 5 runs is not "consistently ~0 (allow a rare single drop)." The temp drop did move the mean (prompt-fix-only at 0.7 was 2,0,0,2 → mean 1.0; at 0.25: 0,2,0,1,0 → mean 0.6), but it did **not** close the leak, and run 2 surfaced a *new* failure mode (a non-UUID `topic_provenance_id`) that no prompt/temperature tweak will reliably prevent. We've now spent both cheap levers (prompt clarity + temperature) and the model still slips intermittently.
+
+**So per your own stopping rule: accept parser-as-backstop and ship.** The parser makes every one of these slips safe (no bad writes — re-verified zero across all 5) and recoverable (`review_state: suggested`, healed on a later re-run). Keep the prompt fix (committed) and this temp override (improves mean yield, costs nothing) — they reduce drops; they just don't eliminate them, which is fine because they were never the safety mechanism.
+
+**Recommendation:** review this `client.ts`/discovery diff, and **clear the first real (writing) run** under parser-as-backstop. If you sign off, I'll commit the temp override — but I will **not** start the first real (writing) run without an explicit, separate go from Jimmy (it's the one irreversible action in this sequence). Your call on the diff; Jimmy's call on pulling the trigger.
+
+## 2026-06-10 — OPUS: temp override reviewed (caught: inert on gpt-5.4). Stopping rule → SHIP with parser backstop. Real run CLEARED (awaiting Jimmy's trigger).
+
+Read the `client.ts` + `discover-problems.ts` diff. The plumbing is correct (`opts.temperature ?? config.temperature` on both provider paths; tier default untouched). **But it is inert on the current discovery model.** `callLLM` only sets the OpenAI temperature `if (supportsOpenAITemperature(config.model))`, which returns **false** for any `gpt-5*` — and `model_used` is `gpt-5.4`. So `temperature: 0.25` was silently dropped; the 5 samples ran at gpt-5.4's fixed default. **The mean 1.0→0.6 "improvement" is sampling noise, not a temperature effect** — the temperature lever was never actually pulled.
+
+This *clarifies* the stopping rule rather than failing it: temperature isn't a tunable knob on gpt-5.4 at all, so the cheap levers (prompt clarity + temperature) are genuinely exhausted on this model. The remaining enum leak is ~10% intermittent (mean ~0.6 of 6 dropped), every slip caught by the resilient parser (zero bad writes) and recoverable (`review_state: suggested`, healed on re-run).
+
+**Decision — stopping rule branch #2: accept parser-as-backstop and ship.** This is the pre-committed exit; honoring it. Continuing to chase 0 drops would require switching the discovery model (e.g. Anthropic `claude-sonnet-4-6`, which *does* support temperature) and re-testing — disproportionate to a safe, recoverable 10% drop. That's a logged future lever, not a tonight blocker.
+
+**The temp-override code:** correct and forward-looking (it takes effect the moment discovery routes to a temperature-supporting model), so keep it — but **tidy the inline comment in `discover-problems.ts`** to say it's inert on gpt-5*. Operating session: commit the override with that comment fix on this sign-off.
+
+**REAL RUN CLEARED.** Everything is reviewed and safe: schema/RLS/backfill applied; agent scoping + ID-sanitisation + C3 preservation verified; resilient parser committed; distribution sane; zero-write dry-runs confirmed. The first real (writing) run is approved to execute. It is the one irreversible step → **requires Jimmy's explicit trigger.** The discovered problems will be `suggested` (human-reviewed), traceable to evidence, with the occasional candidate dropped (logged, recoverable).
+
+Separately: documented the end-to-end GTM traceability audit in `docs/architecture/GTM_TRACEABILITY_CHAIN.md` — what's wired (transcript→evidence→themes→problems; artifact→evidence) vs schema-only (opportunities don't generate; compose doesn't traverse problems/themes). Two follow-on builds named there.
