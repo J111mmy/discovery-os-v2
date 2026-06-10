@@ -3085,3 +3085,41 @@ This *clarifies* the stopping rule rather than failing it: temperature isn't a t
 **REAL RUN CLEARED.** Everything is reviewed and safe: schema/RLS/backfill applied; agent scoping + ID-sanitisation + C3 preservation verified; resilient parser committed; distribution sane; zero-write dry-runs confirmed. The first real (writing) run is approved to execute. It is the one irreversible step → **requires Jimmy's explicit trigger.** The discovered problems will be `suggested` (human-reviewed), traceable to evidence, with the occasional candidate dropped (logged, recoverable).
 
 Separately: documented the end-to-end GTM traceability audit in `docs/architecture/GTM_TRACEABILITY_CHAIN.md` — what's wired (transcript→evidence→themes→problems; artifact→evidence) vs schema-only (opportunities don't generate; compose doesn't traverse problems/themes). Two follow-on builds named there.
+
+---
+
+## 2026-06-10 — JIMMY → OPUS: temp override committed (with inert-on-gpt-5* comment). FIRST REAL RUN EXECUTED on Inspections. 6 problems written, full yield, zero drops. Sequence complete.
+
+Both your instructions done.
+
+**1. Temp override committed** — `4a253fc feat(p3): add per-call temperature override (discovery uses 0.25)`. Folded in the comment tidy you asked for: `client.ts` `LLMCallOptions` and the discovery call site both now document that the override is **inert on gpt-5*/o-series** (temperature isn't sent for those), so it's a no-op while premium routes to gpt-5.4 and takes effect only if re-routed to a temperature-supporting model. (Independently spotted the same inert-on-gpt-5.4 issue you caught — good, we agree on the mechanism.) `tsc --noEmit` clean.
+
+**2. First REAL run executed** (Jimmy's explicit trigger) — `dry_run` off, Inspections, real `discoverProblems.fn`. All six steps ran; **status `completed`**, `gpt-5.4`, `agent_runs` id `93d2c2f7-…`.
+
+```json
+{ "dry_run": false, "candidates": 6, "dropped_candidates": 0,
+  "inserted": 4, "updated": 2, "locked": 0, "locked_linked": 0, "skipped": 0,
+  "dedupe_methods": { "new": 4, "embedding": 1, "normalised_title": 1 },
+  "similarity_histogram": { "<0.70": 1, "0.70-0.79": 1, "0.80-0.85": 2, "0.86-0.89": 1, ">=0.90": 1, "null": 0 },
+  "theme_links": 11, "evidence_links": 39, "topic_links": 48 }
+```
+
+**This run was a clean full-yield draw — `dropped_candidates: 0`, all 6 candidates valid.** Dedupe: 4 net-new inserted, 2 matched existing `surfaced` problems and were updated (1 normalised-title, 1 embedding-merge at ≥0.86 — the embedding axis fired this time). `problems_written: 6`.
+
+**Writes (measured before→after):**
+| table | before | after | Δ |
+|---|---|---|---|
+| problems | 39 | 43 | **+4** (4 inserted; 2 were updates-in-place) |
+| problem_themes | 73 | 84 | +11 |
+| problem_evidence | 480 | 519 | +39 |
+| problem_topics | 1061 | 1106 | +45 |
+
+`projects.problems_discovered_at` stamped `2026-06-10T22:59:35Z`. The 6 problems written by this run (all `source: ai`, `review_state: suggested`, `status: surfaced`, agent_run-traceable):
+1. Inspectors lack submittal context at delivery — high
+2. Manual inspection admin delays delivery records — high
+3. Trade partners struggle with duplicated workflows — high
+4. Fragmented procurement data obscures material status — medium
+5. Procore usability drives off-platform workarounds — medium
+6. Unscheduled deliveries are hard to reconcile — medium
+
+All land as `suggested` for human review, traceable to evidence/themes/topics via the typed link tables. **P3 problem-discovery pipeline is live and has produced its first real output.** Nothing further queued — the registry is ready for review. Logged future lever (per your note): route discovery to a temperature-supporting model (e.g. `claude-sonnet-4-6`) if we want to push the intermittent enum drop toward 0; not a blocker.
