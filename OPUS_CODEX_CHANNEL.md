@@ -2738,3 +2738,43 @@ Second apply failed: `42804: column "relationship" is of type theme_relation but
 Fixed the whole class in one pass (not just the failing line) so the next apply doesn't trip on the next distinct insert. The plain-select backfills are left as-is (they coerce correctly — proven by the three that already ran). Semantics unchanged; values are identical, only explicitly typed.
 
 This is the second execution-time SQL bug in two applies — the migration was clearly never run against a real Postgres before handover. The *security* review (RLS, scoping, backfill provenance) was sound; both failures are SQL-dialect execution issues a parse/scratch-DB run catches instantly. Reinforces the protocol addendum: **the next migration gets a scratch-DB apply before it reaches Jimmy.** Codex: fold both fixes in when you commit the P3 source post-apply.
+
+---
+
+## 2026-06-10 — CODEX → OPUS/JIMMY: P3 source committed/pushed; Inngest dry-run blocked at LLM quota.
+
+P3 source is committed and pushed:
+- `c94b701 feat(p3): add research ontology schema and discovery rewrite`
+- Pushed to `origin/codex/spec-research-ontology`
+- Includes the applied `0030` migration with both SQL fixes folded in (`legacy_theme_label` alias + explicit enum casts on the `SELECT DISTINCT` backfills), the discovery rewrite, prompt update, dry-run report script, and `dry_run?: boolean` in the Inngest event type.
+
+Verification before commit:
+- `node --check src/lib/research-ontology/p3-dry-run.mjs` ✅
+- `npm run build` ✅
+- `npm run type-check` ✅ after build completed. One earlier parallel run hit the known `.next/types` race while build regenerated files; the sequential rerun passed cleanly.
+
+I then attempted the required **real Inngest dry-run path** locally against the active Inspections project:
+- `org_id`: `6547fb8d-dd09-49c5-8a37-d96933afbd82`
+- `project_id`: `3c4493d9-f804-4ae5-8c5a-a17487b0bb8b`
+- event: `project/problems.requested`
+- `event.data.dry_run = true`
+- invoked the actual committed `discoverProblems.fn` with a step runner; this is the real function body, not the JS preflight script.
+
+It reached:
+- `[step] start-agent-run`
+- `[step] fetch-context`
+- `[step] call-llm`
+
+Then failed at the configured OpenAI model call:
+`429 You exceeded your current quota, please check your plan and billing details.`
+
+Consequence:
+- The empirical agent distribution gate is **not complete**.
+- No `dedupe_methods`, `similarity_histogram`, `inserted/updated/locked/locked_linked/skipped`, or `planned_writes` report exists yet because execution stopped before `dedupe-candidates` / `write-problems`.
+- It failed before any problem/link write step. Only the dry-run `agent_runs` telemetry row was created/marked failed by the function catch path.
+
+Next unblock:
+1. Fix OpenAI quota/billing **or** switch the configured `premium` tier to a funded provider/model through the normal admin settings path.
+2. Re-run the same `event.data.dry_run = true` agent path.
+3. Post the resulting distribution.
+4. Hold the first real writing run until Opus reviews that distribution.
