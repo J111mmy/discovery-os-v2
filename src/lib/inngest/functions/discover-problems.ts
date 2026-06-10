@@ -17,6 +17,12 @@ type ThemeRow = {
   evidence_count: number;
 };
 
+type ExistingProblemRow = {
+  id: string;
+  title: string;
+  status: "surfaced" | "acknowledged" | "active" | "resolved" | "dismissed";
+};
+
 const ProblemSchema = z.object({
   title: z.string().trim().min(1).max(120),
   description: z.string().trim().min(1).max(800),
@@ -49,6 +55,14 @@ function formatThemesForPrompt(themes: ThemeRow[]) {
       return lines.join("\n");
     })
     .join("\n\n---\n\n");
+}
+
+function normalizeProblemTitle(title: string) {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export const discoverProblems = inngest.createFunction(
@@ -147,9 +161,28 @@ export const discoverProblems = inngest.createFunction(
         return { problems: parsed.data, model_used: result.model };
       });
 
-      const { problems_written } = await step.run("write-problems", async () => {
+      const { problems_written, problems_locked } = await step.run("write-problems", async () => {
         const allowedThemeIds = new Set(themes.map((t) => t.id));
         let written = 0;
+        let locked = 0;
+
+        const { data: existingProblems, error: existingProblemsError } = await supabase
+          .from("problems")
+          .select("id, title, status")
+          .eq("org_id", org_id)
+          .eq("project_id", project_id);
+
+        if (existingProblemsError) {
+          throw new Error(`Failed to fetch existing problems: ${existingProblemsError.message}`);
+        }
+
+        const existingByNormalizedTitle = new Map<string, ExistingProblemRow>();
+        for (const row of (existingProblems ?? []) as ExistingProblemRow[]) {
+          const key = normalizeProblemTitle(row.title);
+          if (key && !existingByNormalizedTitle.has(key)) {
+            existingByNormalizedTitle.set(key, row);
+          }
+        }
 
         // Collect evidence IDs for each problem via its themes
         const themeToEvidenceIds = new Map<string, string[]>();
@@ -169,6 +202,8 @@ export const discoverProblems = inngest.createFunction(
 
         for (const problem of problems) {
           if (!problem.title.trim()) continue;
+          const normalizedTitle = normalizeProblemTitle(problem.title);
+          if (!normalizedTitle) continue;
 
           const validThemeIds = problem.theme_ids.filter((id) => allowedThemeIds.has(id));
 
@@ -180,8 +215,36 @@ export const discoverProblems = inngest.createFunction(
             }
           }
 
-          const { error } = await supabase.from("problems").upsert(
-            {
+          const existingProblem = existingByNormalizedTitle.get(normalizedTitle);
+          if (existingProblem) {
+            if (existingProblem.status !== "surfaced") {
+              locked++;
+              continue;
+            }
+
+            const { error } = await supabase
+              .from("problems")
+              .update({
+                description: problem.description,
+                severity: problem.severity,
+                source_theme_ids: validThemeIds,
+                source_evidence_ids: Array.from(evidenceIdSet),
+              })
+              .eq("org_id", org_id)
+              .eq("project_id", project_id)
+              .eq("id", existingProblem.id)
+              .eq("status", "surfaced");
+
+            if (error) {
+              throw new Error(`Failed to update problem "${problem.title}": ${error.message}`);
+            }
+            written++;
+            continue;
+          }
+
+          const { data: inserted, error } = await supabase
+            .from("problems")
+            .insert({
               org_id,
               project_id,
               title: problem.title,
@@ -190,12 +253,15 @@ export const discoverProblems = inngest.createFunction(
               status: "surfaced",
               source_theme_ids: validThemeIds,
               source_evidence_ids: Array.from(evidenceIdSet),
-            },
-            { onConflict: "org_id,project_id,title" }
-          );
+            })
+            .select("id, title, status")
+            .single();
 
           if (error) {
             throw new Error(`Failed to write problem "${problem.title}": ${error.message}`);
+          }
+          if (inserted) {
+            existingByNormalizedTitle.set(normalizedTitle, inserted as ExistingProblemRow);
           }
           written++;
         }
@@ -207,7 +273,7 @@ export const discoverProblems = inngest.createFunction(
           .eq("org_id", org_id)
           .eq("id", project_id);
 
-        return { problems_written: written };
+        return { problems_written: written, problems_locked: locked };
       });
 
       await step.run("complete-agent-run", async () => {
@@ -215,7 +281,7 @@ export const discoverProblems = inngest.createFunction(
           .from("agent_runs")
           .update({
             status: "completed",
-            output: { themes: themes.length, problems_written },
+            output: { themes: themes.length, problems_written, problems_locked },
             model_used,
             completed_at: new Date().toISOString(),
           })

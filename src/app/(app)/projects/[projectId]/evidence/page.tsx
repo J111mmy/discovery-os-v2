@@ -7,25 +7,84 @@ import { EvidenceBrowser } from "./evidence-browser";
 
 interface Props {
   params: { projectId: string };
-  searchParams?: { theme?: string };
+  searchParams?: { theme?: string; theme_id?: string };
+}
+
+type EvidenceResult = {
+  records: EvidenceRecord[];
+  appliedThemeLabel?: string;
+};
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuid(value: string | undefined) {
+  return Boolean(value && UUID_RE.test(value));
+}
+
+async function resolveThemeEvidenceFilter(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  orgId: string,
+  projectId: string,
+  themeId: string | undefined
+): Promise<{ label: string; evidenceIds: string[] } | null> {
+  if (!isUuid(themeId)) return null;
+
+  const { data: theme, error: themeError } = await supabase
+    .from("themes")
+    .select("id, label")
+    .eq("org_id", orgId)
+    .eq("project_id", projectId)
+    .eq("id", themeId)
+    .maybeSingle();
+
+  if (themeError || !theme) return null;
+
+  const { data: links, error: linksError } = await supabase
+    .from("evidence_themes")
+    .select("evidence_id")
+    .eq("org_id", orgId)
+    .eq("theme_id", theme.id);
+
+  if (linksError) return null;
+
+  return {
+    label: theme.label as string,
+    evidenceIds: Array.from(new Set((links ?? []).map((link) => link.evidence_id as string))),
+  };
 }
 
 async function getRecentEvidence(
   orgId: string,
   projectId: string,
   trustScope: EvidenceRecord["trust_scope"] | "all" = "all",
-  themeFilter?: string
-): Promise<EvidenceRecord[]> {
+  themeFilter?: string,
+  themeIdFilter?: string
+): Promise<EvidenceResult> {
   const supabase = await createClient();
+  const themeEvidenceFilter = await resolveThemeEvidenceFilter(
+    supabase,
+    orgId,
+    projectId,
+    themeIdFilter
+  );
+
   let evidenceQuery = supabase
     .from("evidence")
     .select("id, org_id, project_id, source_id, segment_id, content, trust_scope, summary, classification, sentiment, themes, metadata, ai_trust_grade, ai_trust_reason, ai_graded_at, created_at")
     .eq("org_id", orgId)
     .eq("project_id", projectId);
 
-  if (themeFilter) {
-    // Filter by theme label — themes is a text[] column; contains = @> (subset)
+  if (themeEvidenceFilter) {
+    if (themeEvidenceFilter.evidenceIds.length === 0) {
+      return { records: [], appliedThemeLabel: themeEvidenceFilter.label };
+    }
+    evidenceQuery = evidenceQuery.in("id", themeEvidenceFilter.evidenceIds);
+  } else if (themeFilter) {
+    // Legacy topic/code filter — themes is a text[] column; contains = @> (subset)
     evidenceQuery = evidenceQuery.contains("themes", [themeFilter]);
+  } else if (themeIdFilter) {
+    evidenceQuery = evidenceQuery.eq("trust_scope", "pending");
   } else if (trustScope !== "all") {
     evidenceQuery = evidenceQuery.eq("trust_scope", trustScope);
   }
@@ -86,7 +145,10 @@ async function getRecentEvidence(
     });
   }
 
-  return records;
+  return {
+    records,
+    appliedThemeLabel: themeEvidenceFilter?.label,
+  };
 }
 
 function researchContextIsEmpty(context: Record<string, unknown> | null) {
@@ -123,12 +185,13 @@ export default async function EvidencePage({ params, searchParams }: Props) {
   if (!project) notFound();
 
   const themeFilter = searchParams?.theme ?? undefined;
+  const themeIdFilter = searchParams?.theme_id ?? undefined;
 
   const [
     { count: pendingCount },
     { count: trustedCount },
     { count: excludedCount },
-    records,
+    evidenceResult,
     { count: sourcesCount },
     { count: problemCount },
     { data: internalPeople },
@@ -151,8 +214,8 @@ export default async function EvidencePage({ params, searchParams }: Props) {
       .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .eq("trust_scope", "excluded"),
-    themeFilter
-      ? getRecentEvidence(project.org_id, project.id, "all", themeFilter)
+    themeFilter || themeIdFilter
+      ? getRecentEvidence(project.org_id, project.id, "all", themeFilter, themeIdFilter)
       : getRecentEvidence(project.org_id, project.id, "pending"),
     supabase
       .from("sources")
@@ -172,6 +235,8 @@ export default async function EvidencePage({ params, searchParams }: Props) {
   ]);
 
   const evidenceCount = (pendingCount ?? 0) + (trustedCount ?? 0) + (excludedCount ?? 0);
+  const records = evidenceResult.records;
+  const appliedThemeFilter = evidenceResult.appliedThemeLabel ?? themeFilter;
 
   const internalSpeakerNames = (internalPeople ?? [])
     .map((p: { display_name: string | null }) => (p.display_name ?? "").trim().toLowerCase())
@@ -204,7 +269,7 @@ export default async function EvidencePage({ params, searchParams }: Props) {
         pendingCount={pendingCount ?? 0}
         trustedCount={trustedCount ?? 0}
         excludedCount={excludedCount ?? 0}
-        themeFilter={themeFilter}
+        themeFilter={appliedThemeFilter}
         researchContextEmpty={researchContextIsEmpty(project.research_context)}
         internalSpeakerNames={internalSpeakerNames}
       />

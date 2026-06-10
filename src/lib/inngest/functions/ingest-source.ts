@@ -5,6 +5,7 @@ import { z } from "zod";
 import { inngest } from "../client";
 import { createServiceClient } from "@/lib/supabase/server";
 import { callLLM, embedBatch } from "@/lib/llm/client";
+import { matchEvidenceToSegment } from "@/lib/evidence/anchor.mjs";
 import { PROCESSED_MARKER_ERROR, looksLikeProcessedMarker } from "@/lib/ingest/quality";
 import { redactPII } from "@/lib/llm/pii";
 import {
@@ -100,6 +101,15 @@ const ExtractedClaimSchema = z.object({
 });
 
 type ExtractedClaim = z.infer<typeof ExtractedClaimSchema>;
+
+type AnchoredClaim = ExtractedClaim & {
+  segment_id: string;
+  unit_id: string;
+  anchor_method: "exact" | "normalised" | "fuzzy" | "speaker" | "fallback_first_segment";
+  anchor_char_start: number | null;
+  anchor_char_end: number | null;
+  anchor_score: number | null;
+};
 
 function normalizedText(text: string) {
   return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -914,7 +924,7 @@ export const ingestSource = inngest.createFunction(
         buildConversationUnits(segments).filter((unit) => unit.content.trim())
       );
 
-      const extractedClaims: Array<ExtractedClaim & { segment_id: string; unit_id: string }> = [];
+      const extractedClaims: AnchoredClaim[] = [];
       const extractionErrors: string[] = [];
 
       for (let unitIndex = 0; unitIndex < units.length; unitIndex++) {
@@ -960,14 +970,28 @@ export const ingestSource = inngest.createFunction(
             }
 
             const array = Array.isArray(parsed) ? parsed : [];
-            const primarySegmentId = unit.segments[0]?.id;
-            if (!primarySegmentId) return { claims: [], error: null };
+            if (unit.segments.length === 0) return { claims: [], error: null };
 
-            const claims: Array<ExtractedClaim & { segment_id: string; unit_id: string }> = [];
+            const claims: AnchoredClaim[] = [];
             for (const item of array) {
               const claim = normalizeClaim(item);
               if (!claim) continue;
-              claims.push({ ...claim, segment_id: primarySegmentId, unit_id: unit.id });
+              const anchor = matchEvidenceToSegment({
+                content: claim.content,
+                speaker: claim.speaker ?? null,
+                segments: unit.segments,
+              });
+              if (!anchor) continue;
+
+              claims.push({
+                ...claim,
+                segment_id: anchor.segment_id,
+                unit_id: unit.id,
+                anchor_method: anchor.anchor_method as AnchoredClaim["anchor_method"],
+                anchor_char_start: anchor.anchor_char_start,
+                anchor_char_end: anchor.anchor_char_end,
+                anchor_score: anchor.anchor_score,
+              });
             }
 
             return { claims, error: null };
@@ -975,9 +999,7 @@ export const ingestSource = inngest.createFunction(
         );
 
         extractedClaims.push(
-          ...(unitResult.claims.filter(Boolean) as Array<
-            ExtractedClaim & { segment_id: string; unit_id: string }
-          >)
+          ...(unitResult.claims.filter(Boolean) as AnchoredClaim[])
         );
         if (unitResult.error) extractionErrors.push(unitResult.error);
       }
@@ -1026,6 +1048,11 @@ export const ingestSource = inngest.createFunction(
               metadata: {
                 speaker: claim.speaker ?? null,
                 conversation_unit_id: claim.unit_id,
+                original_segment_id: claim.segment_id,
+                anchor_method: claim.anchor_method,
+                anchor_char_start: claim.anchor_char_start,
+                anchor_char_end: claim.anchor_char_end,
+                anchor_score: claim.anchor_score,
                 prompt_version: INGEST_EXTRACTION_PROMPT_VERSION,
                 adjacent_project_hint: adjacentHint || null,
                 adjacent_project_reason: claim.adjacent_project_reason ?? null,

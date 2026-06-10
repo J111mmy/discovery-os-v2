@@ -998,7 +998,7 @@ export function WorkspaceView({
                     items={themeRows.map((t) => ({
                       label: t.label,
                       count: t.evidence_count,
-                      href: `/projects/${project.id}/evidence?theme=${encodeURIComponent(t.label)}`,
+                      href: `/projects/${project.id}/evidence?theme_id=${encodeURIComponent(t.id)}`,
                     }))}
                   />
 

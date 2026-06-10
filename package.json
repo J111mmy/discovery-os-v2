@@ -12,7 +12,8 @@
     "backfill:artifact-html": "node src/lib/sanitize/backfill-artifact-html.mjs",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "backfill:evidence-anchors": "node src/lib/evidence/backfill-evidence-anchors.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.0",
