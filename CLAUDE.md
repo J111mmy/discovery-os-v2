@@ -851,9 +851,9 @@ These outputs live in the DB and are surfaced in the project overview. The Compo
 
 3. **Claim verification agent** — `claim/verification.requested` Inngest event is already defined. Wire the agent that checks each artifact claim against trusted evidence.
 
-4. **Global entity tables** — `people`, `companies`, `competitors` tables with cross-project participation join tables. Currently evidence only stores `speaker text` — no person FK, no cross-project intelligence.
+4. **Global entity tables** — ✅ **the tables exist** (`people`, `companies`, `competitors` + `evidence_entities` join, migrations 0006/0007/0014/0016/0018). What is missing is *population*: the entity-extraction agent in item 5 has not been built, so these tables are largely empty and evidence is still anchored via `speaker` text in metadata rather than resolved person/company records. UI that reads `evidence_entities` must degrade gracefully when the join returns nothing (render placeholder, not an error). Do **not** treat these tables as not-yet-created.
 
-5. **Entity extraction agent** — fires after ingest, resolves people and orgs mentioned in evidence against global entity tables.
+5. **Entity extraction agent** — fires after ingest, resolves people and orgs mentioned in evidence against global entity tables. **This is the actual gap** — the destination tables already exist (item 4); this agent is what fills them.
 
 6. **Skill configs table + versioned prompt defaults** — as described in §9.
 
