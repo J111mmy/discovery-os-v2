@@ -58,6 +58,14 @@ from model output, AI HTML sanitised on store+render, no `dangerouslySetInnerHTM
 with AI/user content, etc.). Breaking an invariant is a security decision, not a
 refactor → Opus review.
 
+**Backfills & agent-judgment changes.** Any change that writes to existing rows at
+scale, or changes how an agent decides what to write (ingest extraction, problem
+discovery, synthesis, entity resolution), follows
+`docs/ops/BACKFILL_AGENT_CHANGE_PROTOCOL.md` — dry-run first, reviewer reads the
+code, weakness-stratified sample, a mechanical acceptance gate, no write until
+Opus approves. Aggregate green (build/type-check/smoke) is not safety for this
+class of change.
+
 ---
 
 Everything else — architecture, ingestion model, schema rules, taxonomy, file
