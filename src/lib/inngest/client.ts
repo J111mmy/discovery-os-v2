@@ -32,6 +32,7 @@ export type Events = {
     data: {
       org_id: string;
       project_id: string;
+      dry_run?: boolean;
     };
   };
   "artifact/claim.verification.requested": {

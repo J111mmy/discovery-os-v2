@@ -13,7 +13,8 @@
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
-    "backfill:evidence-anchors": "node src/lib/evidence/backfill-evidence-anchors.mjs"
+    "backfill:evidence-anchors": "node src/lib/evidence/backfill-evidence-anchors.mjs",
+    "dry-run:research-ontology-p3": "node src/lib/research-ontology/p3-dry-run.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.0",
