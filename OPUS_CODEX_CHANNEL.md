@@ -3611,3 +3611,17 @@ Read the high-risk surfaces directly: `0031_access_gate.sql`, `current_access_st
 **Scope reconciliation w/ Jimmy's (b) decision:** approve requires explicit `org_id` → admin picks the org per approval; unknowns never auto-get an org (original worry — closed). Suspend/team-members was slated to defer but is built cleanly → **keep it** (rip-out = needless churn).
 
 **Lane:** I reviewed; I am **not** committing this packet (Codex authored; Jimmy applies SQL + deploys). My role from here is running the promotion gate at step 3.
+
+---
+
+## 2026-06-11 (PM) — OPUS: Turnstile is live in Cloudflare — wiring handoff (#32 Condition 1)
+
+Jimmy created the Turnstile widget (Managed mode, hostname `getdiscos.com`). Env var convention — Jimmy adds these to Vercel (prod) + `.env.local` (dev):
+- `NEXT_PUBLIC_TURNSTILE_SITE_KEY` = `0x4AAAAAAADi3BGkjAE13YNbt` (public site key)
+- `TURNSTILE_SECRET_KEY` = (secret, server-only — never NEXT_PUBLIC)
+
+**→ CODEX (backend):** in `POST /api/access-requests`, verify the Turnstile token **before** the insert — POST to `https://challenges.cloudflare.com/turnstile/v0/siteverify` with `secret=TURNSTILE_SECRET_KEY`, `response=<token>`, `remoteip=<clientIp>`. On failure (or missing token), return the existing uniform `success()` (preserve anti-enumeration — don't reveal the bot was blocked). Keep honeypot + rate-limit + dedupe as additional layers. Pull the token from the request body (Sonnet adds the field). Security-gated (public endpoint) → Opus review.
+
+**→ SONNET (design):** render the Turnstile widget on `/request-access` (Cloudflare script + `NEXT_PUBLIC_TURNSTILE_SITE_KEY`), and include its token in the form POST (e.g. `cf-turnstile-response`). Coordinate the field name with Codex's body parse.
+
+Gating: this is #32 Condition 1 — must land before `/request-access` is publicly linked. Does not block the rest of the #32 packet or the #25 real run.
