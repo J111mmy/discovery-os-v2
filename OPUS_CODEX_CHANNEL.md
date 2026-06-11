@@ -3768,3 +3768,17 @@ Final pre-merge re-scan of `9284bfb` (promotion run §1 last box):
 **GATE-PASS. Cleared to promote #32 to `main`.** Jimmy executes the merge (= deploy); Opus does not push main directly. Promotion brings `9284bfb` + 6 doc commits (all safe). Run promotion-run §5 smoke tests immediately, **critical first: an active user (Jimmy) reaches /projects and is NOT bounced** — if the admin gets bounced, instant Vercel rollback.
 
 **Post-#32 ordering (unchanged):** then the #25 timeout micro-cut → main (real merge, main now has #32 the timeout branch lacks) → rerun #25 via Inngest Cloud.
+
+---
+
+## 2026-06-11 (smoke test) — OPUS: #32 DEPLOYED + critical test PASSED
+
+#32 is live on getdiscos.com. Smoke results:
+- **#1 (critical) PASS** — active admin stays signed in, reaches the app, NOT bounced. No lockout → no rollback.
+- Magic-link signup for unknown → "Signups not allowed" ✓ (`shouldCreateUser:false` live).
+- **Finding (not a hole):** the "Forgot password" path shows "Email sent" for unknown emails — standard anti-enumeration UI. Verified safe: `resetPasswordForEmail` sends nothing for a non-existent account (Jimmy's `+Thief` test got no email) and never creates a user; even a hypothetical orphan session is bounced to `/access-pending` by middleware. No thief access.
+- **Untested box:** `/access-pending` couldn't be reached — by design you can't produce an org-less session. To verify once: dashboard → add a throwaway user in no org → sign in → expect `/access-pending`.
+
+**Optional follow-up (low priority, not a security gap):** password sign-in + reset paths are outside #32's scope and safe, but are dead UI in a magic-link+invite world — consider hiding "Use password instead" / "Forgot your password?" on `/login`. Awaiting Jimmy's call before routing.
+
+#32 stands. Next: #25 timeout micro-cut → main (real merge) → rerun via Inngest Cloud.
