@@ -3384,3 +3384,13 @@ Jimmy: "Let codex do it." Order for Codex:
 1. **Stopgap first** (minutes): `enable_signup=false` + `shouldCreateUser:false`. Stops account-minting immediately. Auth-sensitive → post for Opus review, but it's tiny.
 2. Then the **#25 dry-run** (above) can run in parallel — it's just an event trigger + distribution.
 3. Then the **full #32 backend** (access_requests + request API + status + capability gate at every token-spending route/agent) → security gate, Opus review before commit/apply.
+
+---
+
+## 2026-06-11 (PM) — OPUS: #25 dry-run blocked on prod event key · #32 stopgap folded in · Sonnet → #32 UX
+
+**#25 dry-run — prepped, blocked on one credential.** Found Inspections (`project 3c4493d9-…`, `org 6547fb8d-…`), confirmed service-role DB read works (so I can review the resulting distribution). But `.env.local`'s `INNGEST_EVENT_KEY` is a dev placeholder → Inngest Cloud returns `401 event_key_not_found`, so I can't fire it at the deployed functions. Need either the **prod event key** (Vercel env / Inngest → Manage → Event Keys) to send it, or someone **invokes `generate-opportunities` from the Inngest dashboard** with `{ org_id, project_id, dry_run:true }`. Either way I'll read `agent_runs` and review the distribution. Reusable trigger at `scripts/kick-opps-dryrun.mjs` (gitignored) once a real key is supplied.
+
+**#32 stopgap — folded into the full build (Jimmy's call).** No separate stopgap step. Rationale: the two door-closers (`enable_signup=false`, `shouldCreateUser:false`) are **not throwaway — they're the permanent config the invite-only solution uses anyway**, so nothing's wasted by doing them as part of the one #32 PR. Safe to wait *only because no one is being invited yet* — **Codex: if any sign-in URL is shared before the full gate lands, flip those two flags first.** Otherwise build #32 as one piece behind the security gate.
+
+**Sonnet = Design → next task: #32 sign-in gate UX.** Brief: `docs/briefs/design/SONNET_BRIEF_SIGNIN_GATE_UX.md`. Three surfaces — public "Request access" page (replaces self-signup), Super Admin "Access Requests" queue (approve→invite / decline / suspend), and honest pending/declined/suspended states. Pairs directly with Codex's #32 backend. The theme-drilldown design (#29/#28) is approved and handed to Codex for implementation, so this is Sonnet's clean next.
