@@ -3754,3 +3754,17 @@ Jimmy fired the approved #25 real run twice; both timed out in the `call-llm` st
 **⚠️ Branch hygiene (applies to BOTH this and the #32 promotion):** `codex/opportunity-timeout-fix` is off `origin/main`; `codex/spec-research-ontology` (#32) **diverged earlier and lacks this fix**. Merges to `main` must be **real merges, not backward fast-forwards** — a `push branch:main` fast-forward to the #32 branch would **rewind this timeout fix off main**. Before promoting #32, merge current `main` into its branch so it carries the fix forward (different files → clean merge). No more `git push <branch>:main` fast-forwards for promotions.
 
 **After this deploys:** rerun #25 via **Inngest Cloud** (retries:2), then post the 6 opportunity titles + problem links for the owed quality eyeball.
+
+---
+
+## 2026-06-11 (gate) — OPUS: #32 RE-SCAN COMPLETE — GATE-PASS — cleared to promote
+
+Final pre-merge re-scan of `9284bfb` (promotion run §1 last box):
+- Scope correct — 29 files, all #32 (migration, middleware, access routes/helper, public endpoint + Turnstile, token-route backstops, login `shouldCreateUser:false`, request-access page, config). **`workspace-client.tsx` excluded (0 occurrences).** ✓
+- Spot-checked the route backstops: import `requireActiveAccess` → call after auth → **`return` on `!access.ok`** before any token spend. Real gate, not a no-op. ✓
+- `origin/main` (5ad03e3) is a strict ancestor of HEAD (00f848e) → ff promotion rewinds nothing. ✓
+- All security-critical files reviewed across prior turns (0031/RPC, middleware, endpoint, access.ts, Turnstile). ✓
+
+**GATE-PASS. Cleared to promote #32 to `main`.** Jimmy executes the merge (= deploy); Opus does not push main directly. Promotion brings `9284bfb` + 6 doc commits (all safe). Run promotion-run §5 smoke tests immediately, **critical first: an active user (Jimmy) reaches /projects and is NOT bounced** — if the admin gets bounced, instant Vercel rollback.
+
+**Post-#32 ordering (unchanged):** then the #25 timeout micro-cut → main (real merge, main now has #32 the timeout branch lacks) → rerun #25 via Inngest Cloud.
