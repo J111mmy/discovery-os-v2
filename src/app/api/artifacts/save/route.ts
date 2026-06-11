@@ -1,4 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import { requireActiveAccess } from "@/lib/auth/access";
 import { inngest } from "@/lib/inngest/client";
 import { ArtifactHtmlValidationError } from "@/lib/sanitize/artifact-html";
 import { markdownToSanitizedArtifactHtml } from "@/lib/sanitize/artifact-markdown";
@@ -41,6 +42,14 @@ export async function POST(req: NextRequest) {
 
   if (authError || !user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const access = await requireActiveAccess({ id: user.id, email: user.email });
+  if (!access.ok) {
+    return NextResponse.json(
+      { error: access.error, access_status: access.status },
+      { status: 403 }
+    );
   }
 
   const parsed = SaveArtifactSchema.safeParse(await req.json());

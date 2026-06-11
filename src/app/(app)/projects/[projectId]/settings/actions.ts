@@ -1,5 +1,6 @@
 "use server";
 
+import { accessRedirectPath, requireActiveAccess } from "@/lib/auth/access";
 import { getProjectForUser } from "@/lib/auth/org";
 import { callLLM } from "@/lib/llm/client";
 import { createClient } from "@/lib/supabase/server";
@@ -216,6 +217,8 @@ export async function generateFrameAction(formData: FormData): Promise<string> {
   } = await supabase.auth.getUser();
 
   if (!user) redirect("/login");
+  const access = await requireActiveAccess({ id: user.id, email: user.email });
+  if (!access.ok) redirect(accessRedirectPath(access.status));
   if (!projectId) throw new Error("Missing project.");
 
   const project = await getProjectForUser<{ id: string; org_id: string; name: string }>(
@@ -308,6 +311,8 @@ export async function suggestProjectSettingsAction(
   } = await supabase.auth.getUser();
 
   if (!user) redirect("/login");
+  const access = await requireActiveAccess({ id: user.id, email: user.email });
+  if (!access.ok) redirect(accessRedirectPath(access.status));
   if (!projectId) throw new Error("Missing project.");
 
   const project = await getProjectForUser<{

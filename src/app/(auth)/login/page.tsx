@@ -1,5 +1,6 @@
 "use client";
 import { Suspense, useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -34,6 +35,7 @@ function LoginForm() {
         email,
         options: {
           emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+          shouldCreateUser: false,
         },
       });
       if (error) setError(error.message);
@@ -145,6 +147,15 @@ function LoginForm() {
               >
                 Back to sign in
               </button>
+            )}
+
+            {mode !== "reset" && (
+              <Link
+                href="/request-access"
+                className="mt-3 block text-xs text-[var(--ink-2)] hover:text-[var(--ink)] w-full text-center"
+              >
+                Don&apos;t have access yet? Request access
+              </Link>
             )}
           </>
         )}

@@ -9,6 +9,19 @@ type CookieToSet = {
   options: CookieOptions;
 };
 
+type AccessStatus = "active" | "pending" | "declined" | "suspended";
+
+function accessPath(status: AccessStatus) {
+  if (status === "suspended") return "/access-suspended";
+  if (status === "declined") return "/access-declined";
+  if (status === "pending") return "/access-pending";
+  return "/projects";
+}
+
+function isAccessStatus(value: unknown): value is AccessStatus {
+  return value === "active" || value === "pending" || value === "declined" || value === "suspended";
+}
+
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
@@ -43,11 +56,27 @@ export async function middleware(request: NextRequest) {
     path.startsWith("/auth") ||
     path.startsWith("/invite") ||
     path.startsWith("/accept-invite") ||
+    path.startsWith("/request-access") ||
+    path.startsWith("/access-pending") ||
+    path.startsWith("/access-declined") ||
+    path.startsWith("/access-suspended") ||
     path.startsWith("/callback") ||
+    path.startsWith("/api/access-requests") ||
+    path.startsWith("/api/auth/sign-out") ||
+    path.startsWith("/api/auth/signout") ||
     path.startsWith("/api/inngest"); // Inngest sync requires no auth cookies
 
   if (!user && !isPublic) {
     return NextResponse.redirect(new URL("/login", request.url));
+  }
+
+  if (user && !isPublic) {
+    const { data, error } = await supabase.rpc("current_access_status");
+    const status = isAccessStatus(data) ? data : error ? "pending" : "pending";
+
+    if (status !== "active") {
+      return NextResponse.redirect(new URL(accessPath(status), request.url));
+    }
   }
 
   return supabaseResponse;

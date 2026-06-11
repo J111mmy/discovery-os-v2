@@ -1,5 +1,6 @@
 "use server";
 
+import { accessRedirectPath, requireActiveAccess } from "@/lib/auth/access";
 import { getProjectForUser, projectSlugFromName } from "@/lib/auth/org";
 import { inngest } from "@/lib/inngest/client";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
@@ -16,6 +17,9 @@ export async function runProjectSynthesisAction(formData: FormData) {
   } = await supabase.auth.getUser();
 
   if (!user) redirect("/login");
+
+  const access = await requireActiveAccess({ id: user.id, email: user.email });
+  if (!access.ok) redirect(accessRedirectPath(access.status));
 
   const project = await getProjectForUser<{ id: string; org_id: string }>(
     user.id,
