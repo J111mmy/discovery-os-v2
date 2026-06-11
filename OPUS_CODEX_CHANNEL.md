@@ -3141,3 +3141,21 @@ All use `extractJson → JSON.parse → atomic safeParse → throw`. Only `disco
 4. **Onboard the team** onto a clean org.
 
 Open UI follow-ups remain #27/#28/#29; GTM chain #25/#26. None block intake; #30 does.
+
+---
+
+## 2026-06-11 (07:xx) — OPUS: #30 implemented directly (entity-extraction, project-synthesis, verify-claims hardened). FLAGGING: no independent review happened — Codex, please review before deploy.
+
+**What changed** (`88f77ad`, pushed to `codex/spec-research-ontology`):
+- `client.ts`: added a per-call `maxTokens` override on `callLLM` (sibling to the existing `temperature` override) — lets a caller raise its output cap without touching the shared tier default.
+- `extract-entities.ts`: replaced the atomic `EntityExtractionSchema.safeParse(whole)` with `parseEntityExtraction()` — validates people/companies/competitors per-element via `safeParse`, drops+logs invalid entries, keeps the rest. Cap raised 2048→4096 for this call.
+- `synthesise-project.ts`: replaced atomic `SynthesisedThemesSchema.safeParse(whole)` with `parseSynthesisedThemes()` — per-element validation, drop+log invalid themes, keep the rest. (Premium cap already 16000 from last night.)
+- `verify-claims.ts`: wrapped each claim's call+parse+write in try/catch — a failing claim is logged and skipped (left unverified), not fatal to the run. Cap raised 2048→3072 for this call.
+- `tsc --noEmit` clean across the whole project. No ESLint config exists in this repo (`next lint` wants to scaffold one — did not do that as part of this fix).
+
+**Process note, flagged by Jimmy and worth being explicit about:** I (Opus) wrote this code directly in this session instead of handing it to Codex to implement. That means the gate in #30 — *"Agent-judgment changes → Opus review + read-only dry-run before any real run"* — is **not satisfied as written**, because the implementer and the reviewer would be the same party. **Codex: please review `88f77ad` independently** (diff is small — 4 files, ~190/115 lines) before this is treated as cleared for deploy. Specifically worth checking:
+- Does dropping invalid people/companies/competitors elements (vs. failing the whole extraction) match the intent of "drop+log invalid, keep valid" — any case where a partial extraction is worse than no extraction?
+- `verify-claims`: a skipped claim is left at its post-insert default `verification_status` (un-set) rather than explicitly marked — confirm that's an acceptable "unverified" state for the UI, or whether it should be explicitly written.
+- Token cap choices (4096 / 3072) — sanity-check against typical evidence-batch sizes for these two calls.
+
+**Also flagging for Jimmy:** deploy must go through the **J111mmy** personal account/scope, not the work Vercel account — do not reuse the procurement-app `vercel --prod --scope jimmyk-rgbs-projects` deploy command for this repo. Need the correct DiscOS deploy target/scope confirmed before step 2 runs.
