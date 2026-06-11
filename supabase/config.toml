@@ -245,6 +245,21 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
+# Branded DiscOS auth templates (source of truth; also paste into the hosted dashboard —
+# see docs/ops/AUTH_EMAIL_SETUP.md). Apply to `supabase start` local dev and `supabase config push`.
+# Production hosted auth email is dashboard-managed.
+[auth.email.template.magic_link]
+subject = "Sign in to DiscOS"
+content_path = "./supabase/templates/auth/magic-link.html"
+
+[auth.email.template.confirmation]
+subject = "Confirm your email — DiscOS"
+content_path = "./supabase/templates/auth/confirm-signup.html"
+
+[auth.email.template.recovery]
+subject = "Reset your DiscOS password"
+content_path = "./supabase/templates/auth/recovery.html"
+
 # Uncomment to customize email template
 # [auth.email.template.invite]
 # subject = "You have been invited"
