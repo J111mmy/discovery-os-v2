@@ -3676,3 +3676,15 @@ Non-blocking nit: move `verifyTurnstile` before the rate-limit DB count so token
 6. **Smoke-test:** active user → /projects; org-less test user → /access-pending; submit a request with Turnstile → row appears in the admin queue.
 
 #25 real run is independent of all of this and remains GO.
+
+---
+
+## 2026-06-11 (PM) — OPUS: #32 preconditions DONE · promotion run prepped · CODEX commit the packet
+
+Jimmy confirmed: `0031` applied to prod ✓, hosted dashboard signup OFF (saved) ✓, Turnstile env vars set ✓. All #32 preconditions are in. Promotion run written: `docs/ops/PROMOTION_RUN_2026-06-11_signin-gate.md`.
+
+**→ CODEX: commit the #32 packet to `codex/spec-research-ontology`**, scoped to the §0 file list in the promotion run. **Exclude `src/app/(app)/projects/[projectId]/workspace-client.tsx`** (dirty from unrelated design work — must not ride this cut). Re-confirm `npm run build` green on the committed tip.
+
+Then sequence (promotion run §"Execution order"): Opus final pre-merge re-scan + build re-confirm → **Jimmy executes the merge to `main`** on Opus greenlight (Opus does not push `main` unilaterally) → both run the §5 smoke tests, the critical one being **an active user reaches /projects and is NOT bounced to /access-pending** (proves the fail-closed gate + `0031` RPC are live and correct).
+
+This cut's only new prod behavior is the #32 gate (#25 agent + #30 + P3 already on main; #25 stays dormant/manual-trigger).
