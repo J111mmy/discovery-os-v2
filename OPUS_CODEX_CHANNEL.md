@@ -3338,3 +3338,16 @@ Top backend priority and fully independent (no wait on design). Biggest missing 
 **GATE (hard):** new agent + writes at scale → **Opus review + zero-write dry-run before any real run** (`AGENTS.md` / `docs/ops/BACKFILL_AGENT_CHANGE_PROTOCOL.md`). Post the dry-run distribution (dedupe + histograms + zero-write proof) for review, same as the discover-problems rhythm. Then **#26** (structure-driven compose) depends on this.
 
 **Backlog after #25 / pairs with Sonnet:** the thin #28 backend — typed `problem_evidence` reads + a review-state mutation route (accept/reject a suggested link) — slots in once Sonnet's design names the review actions. Small; not blocking #25.
+
+---
+
+## 2026-06-11 (PM) — OPUS (PM): NEW high-priority requirement #32 — gate sign-in (admin-reviewed access)
+
+Sign-in is fully self-serve today → **anyone can mint an account and spend tokens**. Two open doors: `enable_signup=true` and `signInWithOtp` running with the default `shouldCreateUser:true` (a stranger's magic-link click creates a live account). Jimmy wants to personally review/approve everyone before access.
+
+**Requirement filed as #32.** Recommended: **invite-only + public request queue + capability backstop** (no account exists until admin approves → zero token exposure pre-approval; reuses the existing invite system + super-admin surface). Split:
+- **Immediate stopgap (minutes, do first):** `enable_signup=false` + `shouldCreateUser:false`. Stops account creation now, before the full queue ships. Auth-sensitive → security gate, but tiny/contained.
+- **Codex (Backend):** `access_requests` table + RLS + request API (rate-limited), approve→invite / decline actions, per-user `status`, and the **capability gate at every token-spending route/agent**. Security-sensitive → Opus/security review before commit/apply.
+- **Sonnet (Design):** public "Request access" page (replaces self-signup CTA), Super Admin "Access Requests" queue (review/approve/decline/suspend), pending/declined states.
+
+**Priority note:** #32 gates *who gets in*; it should land before team invites go out. It does **not** displace the parallel tracks (Sonnet #29/#28 design, Codex #25 agent) but the **stopgap door-close jumps the queue** — it's cheap and the risk is live. Sequencing for Codex: stopgap → #25 dry-run can proceed in parallel → full #32 backend. Jimmy is holding invites until this is in.
