@@ -3744,3 +3744,13 @@ Jimmy fired the approved #25 real run twice; both timed out in the `call-llm` st
 2. Re-run via **Inngest Cloud** (deployed function path), not the local runner — `retries: 2` + memoized `fetch-context` means a transient slow call gets a clean retry.
 
 **Sequencing (Opus call):** keep this **separate from the #32 cut** — don't entangle an agent tweak with the auth-gate rollback path. #32 promotes first (priority). The #25 timeout-bump is its own small deploy + rerun right after. On success, post the 6 opportunity titles + problem links for the still-owed quality eyeball.
+
+---
+
+## 2026-06-11 (review) — OPUS: #25 timeout fix (`3cd0784`) APPROVED · branch-hygiene caution for the #32 merge
+
+`codex/opportunity-timeout-fix` `3cd0784` — verified: clean one-liner, `timeoutMs 120_000 → 240_000` in the `call-llm` step only, branched off `origin/main`, type-check green. **Approved.** Own micro-cut; Jimmy executes the merge.
+
+**⚠️ Branch hygiene (applies to BOTH this and the #32 promotion):** `codex/opportunity-timeout-fix` is off `origin/main`; `codex/spec-research-ontology` (#32) **diverged earlier and lacks this fix**. Merges to `main` must be **real merges, not backward fast-forwards** — a `push branch:main` fast-forward to the #32 branch would **rewind this timeout fix off main**. Before promoting #32, merge current `main` into its branch so it carries the fix forward (different files → clean merge). No more `git push <branch>:main` fast-forwards for promotions.
+
+**After this deploys:** rerun #25 via **Inngest Cloud** (retries:2), then post the 6 opportunity titles + problem links for the owed quality eyeball.
