@@ -56,13 +56,24 @@ type EntityExtraction = {
   competitors: z.infer<typeof CompetitorCandidateSchema>[];
 };
 
+type EntityDropCounts = { people: number; companies: number; competitors: number };
+
 // Resilient parse: a single malformed person/company/competitor must not fail
 // the whole extraction. Validate each element individually, drop (with a
 // warning) the invalid ones, and keep the valid ones — mirrors discover-problems.
-function parseEntityExtraction(raw: unknown): EntityExtraction {
+// Returns dropped counts so an apparently-successful extraction that was
+// actually partial is auditable in agent_runs.output (Codex P3 review of 88f77ad).
+function parseEntityExtraction(raw: unknown): {
+  extraction: EntityExtraction;
+  dropped: EntityDropCounts;
+} {
   const root = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const dropped: EntityDropCounts = { people: 0, companies: 0, competitors: 0 };
 
-  function parseList<T extends z.ZodTypeAny>(key: string, schema: T): z.infer<T>[] {
+  function parseList<T extends z.ZodTypeAny>(
+    key: keyof EntityDropCounts,
+    schema: T
+  ): z.infer<T>[] {
     const list = root[key];
     if (!Array.isArray(list)) return [];
     const valid: z.infer<T>[] = [];
@@ -72,6 +83,7 @@ function parseEntityExtraction(raw: unknown): EntityExtraction {
         valid.push(parsed.data);
         return;
       }
+      dropped[key] += 1;
       const failingPaths = parsed.error.issues
         .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
         .join("; ");
@@ -83,9 +95,12 @@ function parseEntityExtraction(raw: unknown): EntityExtraction {
   }
 
   return {
-    people: parseList("people", PersonCandidateSchema),
-    companies: parseList("companies", CompanyCandidateSchema),
-    competitors: parseList("competitors", CompetitorCandidateSchema),
+    extraction: {
+      people: parseList("people", PersonCandidateSchema),
+      companies: parseList("companies", CompanyCandidateSchema),
+      competitors: parseList("competitors", CompetitorCandidateSchema),
+    },
+    dropped,
   };
 }
 
@@ -335,10 +350,13 @@ export const extractEntities = inngest.createFunction(
 
         // Resilient parse: a truncated/malformed people/companies/competitors
         // entry must not fail the whole extraction — see parseEntityExtraction.
-        const extractionResult = parseEntityExtraction(extractJsonObject(result.content));
+        const { extraction: parsedExtraction, dropped } = parseEntityExtraction(
+          extractJsonObject(result.content)
+        );
 
         return {
-          extraction: extractionResult,
+          extraction: parsedExtraction,
+          dropped,
           model_used: result.model,
         };
       });
@@ -533,7 +551,10 @@ export const extractEntities = inngest.createFunction(
           .from("agent_runs")
           .update({
             status: "completed",
-            output,
+            // Persist partial-drop counts so an apparently-successful extraction
+            // that silently dropped malformed entities is auditable (Codex P3
+            // review of 88f77ad).
+            output: { ...output, entities_dropped: extraction.dropped },
             model_used: extraction.model_used,
             completed_at: new Date().toISOString(),
           })

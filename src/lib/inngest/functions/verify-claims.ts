@@ -255,6 +255,14 @@ export const verifyClaims = inngest.createFunction(
 
         let droppedClaims = 0;
         for (const claim of claims) {
+          // RESILIENT SCOPE (Codex P2 review of 88f77ad): only the LLM call and
+          // its JSON/schema parse are caught-and-skipped here. Truncated or
+          // malformed model output must not fail the whole run — but a database
+          // persistence failure is NOT a model-output problem and must NOT be
+          // silently swallowed as a "skipped claim." Persistence happens after
+          // this block and its errors are thrown to fail the step.
+          let parsed: z.infer<typeof VerificationResultSchema>;
+          let modelUsed: string;
           try {
             const result = await callLLM({
               tier: "eval",
@@ -276,74 +284,84 @@ export const verifyClaims = inngest.createFunction(
               timeoutMs: 120_000,
             });
 
-            const parsed = VerificationResultSchema.safeParse(extractJsonObject(result.content));
-            if (!parsed.success) {
-              const failingPaths = parsed.error.issues
+            const parseResult = VerificationResultSchema.safeParse(
+              extractJsonObject(result.content)
+            );
+            if (!parseResult.success) {
+              const failingPaths = parseResult.error.issues
                 .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
                 .join("; ");
               throw new Error(`schema mismatch (${failingPaths})`);
             }
-
-            const supportingEvidenceIds = Array.from(
-              new Set(parsed.data.supporting_evidence_ids.filter((id) => allowedEvidenceIds.has(id)))
-            );
-
-            const { error: updateError } = await supabase
-              .from("artifact_claims")
-              .update({
-                verification_status: claimStatus(parsed.data.verdict),
-                verified: parsed.data.verdict === "supported",
-                verification_note: parsed.data.note,
-                verified_at: new Date().toISOString(),
-                verifier_model: result.model,
-                notes: parsed.data.note,
-              })
-              .eq("org_id", org_id)
-              .eq("artifact_id", artifact_id)
-              .eq("id", claim.id);
-
-            if (updateError) {
-              throw new Error(`Failed to update claim verification: ${updateError.message}`);
-            }
-
-            await supabase
-              .from("artifact_claim_evidence")
-              .delete()
-              .eq("org_id", org_id)
-              .eq("claim_id", claim.id);
-
-            if (supportingEvidenceIds.length > 0) {
-              const { error: linkError } = await supabase.from("artifact_claim_evidence").insert(
-                supportingEvidenceIds.map((evidenceId) => ({
-                  claim_id: claim.id,
-                  evidence_id: evidenceId,
-                  org_id,
-                  relevance: null,
-                }))
-              );
-
-              if (linkError) {
-                throw new Error(`Failed to link supporting evidence: ${linkError.message}`);
-              }
-            }
-
-            results.push({
-              claim_id: claim.id,
-              verdict: parsed.data.verdict,
-              supporting_evidence_ids: supportingEvidenceIds,
-              note: parsed.data.note,
-              model_used: result.model,
-            });
+            parsed = parseResult.data;
+            modelUsed = result.model;
           } catch (claimError) {
-            // Resilient per-claim handling: a single claim failing (truncated
-            // output, schema mismatch, transient LLM error) must not fail the
-            // whole verification run — log and move on, leaving this claim
-            // unverified. Mirrors discover-problems' per-candidate parsing
-            // (issue #30).
+            // Resilient per-claim handling: LLM/parse failure (truncation,
+            // schema mismatch, transient model error) → log and skip, leaving
+            // this claim unverified. Skipped claims are surfaced in the summary
+            // and prevent an artifact-level "verified" (see compute-status).
             droppedClaims += 1;
             const message = claimError instanceof Error ? claimError.message : "Unknown error";
             console.warn(`[verify-claims] skipped claim ${claim.id}: ${message}`);
+            continue;
           }
+
+          // PERSISTENCE — outside the resilient catch. Any error here throws and
+          // fails the run (it is a real persistence fault, not flaky model output).
+          const supportingEvidenceIds = Array.from(
+            new Set(parsed.supporting_evidence_ids.filter((id) => allowedEvidenceIds.has(id)))
+          );
+
+          const { error: updateError } = await supabase
+            .from("artifact_claims")
+            .update({
+              verification_status: claimStatus(parsed.verdict),
+              verified: parsed.verdict === "supported",
+              verification_note: parsed.note,
+              verified_at: new Date().toISOString(),
+              verifier_model: modelUsed,
+              notes: parsed.note,
+            })
+            .eq("org_id", org_id)
+            .eq("artifact_id", artifact_id)
+            .eq("id", claim.id);
+
+          if (updateError) {
+            throw new Error(`Failed to update claim verification: ${updateError.message}`);
+          }
+
+          const { error: deleteError } = await supabase
+            .from("artifact_claim_evidence")
+            .delete()
+            .eq("org_id", org_id)
+            .eq("claim_id", claim.id);
+
+          if (deleteError) {
+            throw new Error(`Failed to clear claim evidence links: ${deleteError.message}`);
+          }
+
+          if (supportingEvidenceIds.length > 0) {
+            const { error: linkError } = await supabase.from("artifact_claim_evidence").insert(
+              supportingEvidenceIds.map((evidenceId) => ({
+                claim_id: claim.id,
+                evidence_id: evidenceId,
+                org_id,
+                relevance: null,
+              }))
+            );
+
+            if (linkError) {
+              throw new Error(`Failed to link supporting evidence: ${linkError.message}`);
+            }
+          }
+
+          results.push({
+            claim_id: claim.id,
+            verdict: parsed.verdict,
+            supporting_evidence_ids: supportingEvidenceIds,
+            note: parsed.note,
+            model_used: modelUsed,
+          });
         }
 
         if (droppedClaims > 0) {
@@ -352,23 +370,31 @@ export const verifyClaims = inngest.createFunction(
           );
         }
 
-        return results;
+        return { results, droppedClaims, attempted: claims.length };
       });
 
       const output = await step.run("compute-status", async () => {
-        const total = verification.length;
-        const supported = verification.filter((result) => result.verdict === "supported").length;
-        const partial = verification.filter(
+        const verificationResults = verification.results;
+        const droppedClaims = verification.droppedClaims;
+        // Denominator includes skipped claims (Codex P1 review of 88f77ad): a
+        // claim we could not verify is unverified, not absent.
+        const total = verification.attempted;
+        const supported = verificationResults.filter((result) => result.verdict === "supported").length;
+        const partial = verificationResults.filter(
           (result) => result.verdict === "partially_supported"
         ).length;
-        const unsupported = verification.filter(
+        const unsupported = verificationResults.filter(
           (result) => result.verdict === "unsupported"
         ).length;
 
+        // An artifact is only "verified" when every attempted claim was actually
+        // verified AND supported — a skipped claim (droppedClaims > 0) means we
+        // could not assess part of the artifact, so it can be at most "partial"
+        // (Codex P1 review of 88f77ad).
         const verificationStatus =
-          total > 0 && supported === total
+          total > 0 && supported === total && droppedClaims === 0
             ? "verified"
-            : supported > 0 || partial > 0
+            : supported > 0 || partial > 0 || droppedClaims > 0
             ? "partial"
             : "unverified";
 
@@ -377,12 +403,13 @@ export const verifyClaims = inngest.createFunction(
           supported,
           partial,
           unsupported,
+          skipped: droppedClaims,
           prompt_version: CLAIM_VERIFICATION_PROMPT_VERSION,
         };
 
-        const modelUsed = Array.from(new Set(verification.map((result) => result.model_used))).join(
-          ", "
-        );
+        const modelUsed = Array.from(
+          new Set(verificationResults.map((result) => result.model_used))
+        ).join(", ");
 
         const { error: artifactError } = await supabase
           .from("artifacts")

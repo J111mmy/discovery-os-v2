@@ -32,18 +32,25 @@ const SynthesisedThemeSchema = z.object({
 // Resilient parse: a single malformed theme must not fail the whole batch —
 // validate per-element, drop (with a warning) the invalid ones, keep the
 // valid ones. Mirrors discover-problems' per-candidate parsing (issue #30).
-function parseSynthesisedThemes(raw: unknown): z.infer<typeof SynthesisedThemeSchema>[] {
+// Returns the dropped count so the caller can audit/guard against silent
+// data loss (Codex P1/P3 review of 88f77ad).
+function parseSynthesisedThemes(raw: unknown): {
+  themes: z.infer<typeof SynthesisedThemeSchema>[];
+  dropped: number;
+} {
   if (!Array.isArray(raw)) {
     throw new Error("Synthesis did not return a JSON array");
   }
 
   const valid: z.infer<typeof SynthesisedThemeSchema>[] = [];
+  let dropped = 0;
   raw.forEach((element, index) => {
     const parsed = SynthesisedThemeSchema.safeParse(element);
     if (parsed.success) {
       valid.push(parsed.data);
       return;
     }
+    dropped += 1;
     const failingPaths = parsed.error.issues
       .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
       .join("; ");
@@ -51,7 +58,7 @@ function parseSynthesisedThemes(raw: unknown): z.infer<typeof SynthesisedThemeSc
       `[synthesise-project] dropped invalid theme candidate at index ${index}: ${failingPaths}`
     );
   });
-  return valid;
+  return { themes: valid, dropped };
 }
 
 function chunk<T>(items: T[], size: number) {
@@ -224,6 +231,7 @@ export const synthesiseProject = inngest.createFunction(
         const batches = chunk(trustedEvidence, 30);
         const themes: z.infer<typeof SynthesisedThemeSchema>[] = [];
         const models = new Set<string>();
+        let droppedThemes = 0;
 
         for (const batch of batches) {
           const result = await callLLM({
@@ -246,13 +254,15 @@ export const synthesiseProject = inngest.createFunction(
           // Resilient parse: extractJsonArray still throws if the response is
           // not a parseable JSON array at all. A single malformed theme within
           // the array must not fail the whole batch — see parseSynthesisedThemes.
-          const batchThemes = parseSynthesisedThemes(extractJsonArray(result.content));
+          const batchResult = parseSynthesisedThemes(extractJsonArray(result.content));
 
-          themes.push(...batchThemes);
+          themes.push(...batchResult.themes);
+          droppedThemes += batchResult.dropped;
         }
 
         return {
           themes,
+          dropped_themes: droppedThemes,
           model_used: Array.from(models).join(", "),
         };
       });
@@ -261,6 +271,35 @@ export const synthesiseProject = inngest.createFunction(
         const allowedEvidenceIds = new Set(trustedEvidence.map((record) => record.id));
         const touchedThemeIds = new Set<string>();
         let linksCreated = 0;
+
+        // FAIL CLOSED before the destructive clear (Codex P1 review of 88f77ad).
+        // The resilient per-theme parse means a mostly/entirely invalid model
+        // response can yield an empty (or no-writeable) theme set. If we delete
+        // all existing evidence_themes first and then write nothing, a model-
+        // output failure becomes silent synthesis data loss. So: compute the
+        // writeable themes (valid label + at least one allowed evidence id)
+        // BEFORE deleting anything, and abort the run (preserving existing
+        // links, leaving synthesis_stale=true) if there are none while trusted
+        // evidence exists. The throw propagates to the catch block, which marks
+        // the agent run failed and never reaches complete-agent-run/completeRun
+        // (so synthesis is NOT marked fresh and downstream agents do not fire).
+        const writeableThemes = synthesis.themes
+          .map((theme) => ({
+            label: cleanThemeLabel(theme.label),
+            description: theme.description,
+            evidenceIds: Array.from(
+              new Set(theme.evidence_ids.filter((id) => allowedEvidenceIds.has(id)))
+            ),
+          }))
+          .filter((theme) => theme.label && theme.evidenceIds.length > 0);
+
+        if (writeableThemes.length === 0 && trustedEvidence.length > 0) {
+          throw new Error(
+            `Synthesis produced no writeable themes from ${trustedEvidence.length} trusted ` +
+              `evidence records (parsed ${synthesis.themes.length}, dropped ${synthesis.dropped_themes}). ` +
+              `Failing closed to preserve existing theme links rather than clearing them.`
+          );
+        }
 
         if (allProjectEvidenceIds.length > 0) {
           for (const ids of chunk(allProjectEvidenceIds, 200)) {
@@ -274,14 +313,9 @@ export const synthesiseProject = inngest.createFunction(
           }
         }
 
-        for (const theme of synthesis.themes) {
-          const label = cleanThemeLabel(theme.label);
-          if (!label) continue;
-
-          const evidenceIds = Array.from(
-            new Set(theme.evidence_ids.filter((id) => allowedEvidenceIds.has(id)))
-          );
-          if (evidenceIds.length === 0) continue;
+        for (const theme of writeableThemes) {
+          const label = theme.label;
+          const evidenceIds = theme.evidenceIds;
 
           const { data, error } = await supabase
             .from("themes")
@@ -346,6 +380,8 @@ export const synthesiseProject = inngest.createFunction(
         return {
           trusted_evidence: trustedEvidence.length,
           themes_created: touchedThemeIds.size,
+          themes_parsed: synthesis.themes.length,
+          themes_dropped: synthesis.dropped_themes,
           links_created: linksCreated,
         };
       });
