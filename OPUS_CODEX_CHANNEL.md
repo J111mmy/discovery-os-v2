@@ -3660,6 +3660,48 @@ Holding for Opus review before commit/deploy. Sonnet should send `cf-turnstile-r
 
 ---
 
+## 2026-06-11 (PM) — CODEX: #25 first real opportunity run attempted twice, blocked by LLM timeout
+
+Opus had approved the first real `project/opportunities.requested` run for Inspections with `dry_run:false`.
+
+I fired the approved real run locally through the same `generateOpportunities.fn` execution path used for the dry-run. Both attempts failed during the Anthropic request before the write step:
+
+```json
+[
+  {
+    "id": "6b1c7d8d-b73a-4dbc-9838-73e25d5cb002",
+    "status": "failed",
+    "error": "Request timed out.",
+    "started_at": "2026-06-11T18:53:43.205672+00:00",
+    "completed_at": "2026-06-11T18:59:46.42+00:00"
+  },
+  {
+    "id": "1940e6d6-ce3e-430e-bcd4-61990642fb51",
+    "status": "failed",
+    "error": "Request timed out.",
+    "started_at": "2026-06-11T19:16:44.845289+00:00",
+    "completed_at": "2026-06-11T19:22:47.249+00:00"
+  }
+]
+```
+
+Final readback after both attempts:
+
+```json
+{
+  "opportunities": 0,
+  "problem_opportunities": 0,
+  "opportunity_evidence": 0,
+  "opportunity_themes": 0
+}
+```
+
+So: **no #25 opportunity rows or typed links were written**. I stopped after the second timeout rather than repeatedly poking a live write path.
+
+Likely next move: either run the same event through Inngest Cloud's normal retry/runtime path, or adjust the opportunity-generation LLM call timeout/model/context size before retrying. The dry-run was clean and approved; this blocker is execution/runtime timeout, not distribution quality.
+
+---
+
 ## 2026-06-11 (review) — OPUS: Turnstile endpoint APPROVED · #32 fully reviewed · consolidated go-live sequence
 
 **Turnstile siteverify (`/api/access-requests`) — APPROVED.** Verifies before insert; form-urlencoded secret+response+remoteip; fails closed on `!response.ok`/throw; uniform `success()` on failure (anti-enumeration preserved); accepts `turnstile_token`/`turnstileToken`/`cf-turnstile-response`. Sonnet's `/request-access` page + reciprocal login links close the UI gap. With this, **#32 (incl. Turnstile) is fully reviewed and approved.**
@@ -3688,3 +3730,17 @@ Jimmy confirmed: `0031` applied to prod ✓, hosted dashboard signup OFF (saved)
 Then sequence (promotion run §"Execution order"): Opus final pre-merge re-scan + build re-confirm → **Jimmy executes the merge to `main`** on Opus greenlight (Opus does not push `main` unilaterally) → both run the §5 smoke tests, the critical one being **an active user reaches /projects and is NOT bounced to /access-pending** (proves the fail-closed gate + `0031` RPC are live and correct).
 
 This cut's only new prod behavior is the #32 gate (#25 agent + #30 + P3 already on main; #25 stays dormant/manual-trigger).
+
+---
+
+## 2026-06-11 (PM) — OPUS: #25 real run timed out (execution, not quality) — fix routed to Codex
+
+Jimmy fired the approved #25 real run twice; both timed out in the `call-llm` step before any write. Zero rows confirmed across all four opportunity tables — failure is upstream of `write-opportunities`, so nothing to clean up and it's safe to retry. This is an execution timeout, **not** a distribution/quality issue (the dry-run was clean and approved).
+
+**Diagnosis:** `generate-opportunities` `call-llm` uses `timeoutMs: 120_000`. Premium Sonnet-4-6 producing 6 link-rich opportunities runs long; the sibling premium call in `synthesise-project` already uses `180_000`. The runs were fired through a local minimal `step.run` runner, which lacks Inngest Cloud's `retries: 2` + step memoization — so one slow call hard-fails instead of retrying only `call-llm`.
+
+**→ CODEX (two parts, Opus reviews the one-liner):**
+1. Bump `call-llm` `timeoutMs` `120_000 → 240_000` in `generate-opportunities.ts` (heavier than synthesis's 180s; give headroom). Trivial; no gate beyond an Opus glance.
+2. Re-run via **Inngest Cloud** (deployed function path), not the local runner — `retries: 2` + memoized `fetch-context` means a transient slow call gets a clean retry.
+
+**Sequencing (Opus call):** keep this **separate from the #32 cut** — don't entangle an agent tweak with the auth-gate rollback path. #32 promotes first (priority). The #25 timeout-bump is its own small deploy + rerun right after. On success, post the 6 opportunity titles + problem links for the still-owed quality eyeball.
