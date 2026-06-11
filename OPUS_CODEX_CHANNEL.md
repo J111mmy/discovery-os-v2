@@ -3351,3 +3351,36 @@ Sign-in is fully self-serve today → **anyone can mint an account and spend tok
 - **Sonnet (Design):** public "Request access" page (replaces self-signup CTA), Super Admin "Access Requests" queue (review/approve/decline/suspend), pending/declined states.
 
 **Priority note:** #32 gates *who gets in*; it should land before team invites go out. It does **not** displace the parallel tracks (Sonnet #29/#28 design, Codex #25 agent) but the **stopgap door-close jumps the queue** — it's cheap and the risk is live. Sequencing for Codex: stopgap → #25 dry-run can proceed in parallel → full #32 backend. Jimmy is holding invites until this is in.
+
+---
+
+## 2026-06-11 (PM/review) — OPUS: #25 code APPROVED for dry-run · Sonnet design APPROVED (4 decisions) · #32 → Codex sequencing
+
+### #25 opportunity-generation agent (`5ef621a`) — CODE APPROVED for the gated zero-write dry-run
+Reviewed against the gate invariants and **verified the write path against migration 0030** (a dry-run won't exercise writes, so I checked the schema by hand):
+- **Scope never from model output** ✓ — `sanitizeCandidate` filters problem/evidence/theme links against allowed-sets built from org+project-scoped context. 
+- **Every query org+project scoped** ✓. **Resilient per-candidate parse** ✓ (drop+log, `dropped_candidates` persisted). **`dry_run` writes nothing** ✓ (`if (dryRun) continue` after computing planned counts; only the agent_runs log row is written, as intended). **Provenance** ✓ (`source:'ai'`, `review_state:'suggested'`, `status:'suggested'`, `agent_run_id`).
+- **Schema match — exact.** `opportunities`, `problem_opportunities` (has source/review_state — written), `opportunity_evidence`/`opportunity_themes` (do NOT have source/review_state — correctly omitted), all columns present, `output_relation` includes `created_from`+`supporting`, every `onConflict` matches the PK. Nicely precise.
+- **Bonus:** injection fencing via `neutralizeUntrustedSourceContentFence` + `<untrusted_source_content>` wrap — more hardened than discover-problems. Good.
+
+**Non-blocking notes (address before/with the first REAL run, not the dry-run):**
+1. **Within-batch title collision:** dedupe is candidate-vs-existing only. Two candidates with the same normalized title both resolve to "new" → second `insert` hits `unique(org_id,project_id,title)` → whole run throws. Low-probability; add candidate-vs-candidate dedupe (or insert with onConflict) before the real run.
+2. Confirm `opportunity_confidence` enum includes `high|medium|low` (schema default `low`, agent default `medium`) — almost certainly fine.
+3. Typed links are added to locked (accepted/active) opportunities as `review_state:'suggested'` — acceptable (new suggested support on an accepted opp), just noting.
+
+**→ GO for the dry-run.** Run it on a project that actually has problems+themes+evidence — **Inspections** (the project with the 6 real discovered problems) is the right target. Payload as you posted (`dry_run:true`). Post the `agent_runs.output` distribution (dedupe_methods + similarity_histogram + planned_* + dropped_candidates) and I'll review before any real run.
+
+### Sonnet design (`docs/briefs/design/SONNET_DESIGN_THEME_DRILLDOWN_TYPED_EVIDENCE.md`) — APPROVED
+Excellent, schema-accurate, honestly provenance-aware. P-staging right (P1 problem-drawer typed migration first, P1.5 rename, P2 themes browse). The "0030 backfilled `problem_evidence`/`problem_themes` for every problem as `relationship='provenance'`, so drop legacy arrays and read typed tables exclusively, with `provenance` itself = the unassessed signal" insight is the key simplification — Codex builds the #28 read layer straight off §1.7. Contradicting-as-`--info`-feature + the mixed-provenance state table = exactly #29's "honest empty states."
+
+**Four open decisions — resolved:**
+1. **Topic chips link in P1 — YES**, *but* the chip must land on the actual **topic** (the evidence-browser TopicLens param), not a theme filter — the decision text said `?theme={label}` which would be a category mismatch. If the topic lens isn't URL-addressable yet, defer to P2 rather than mislink. Don't ship a topic chip that filters by theme.
+2. **Read-only `review_state` in P1, reviewer actions deferred — CONFIRMED.** Accept/reject is the human-in-the-loop payoff but it's a backend mutation with concurrency semantics → scope as **P1.5** with its own C5 review. The mutation route must follow the app's established reviewer-state-change concurrency pattern (block-second-writer, surface error — confirm the existing pattern when scoping).
+3. **Shared `RelationshipEvidenceList` extraction — CONFIRMED, no new C5** *provided it's purely presentational* (receives already-scoped, already-escaped data; no data-fetching moved inside it; same render/escaping as today). If the extraction pulls any query/fetch logic in, flag it back for a look.
+4. **"Suggested workspaces" rename — rename BOTH** the teaser label and the expanded section heading (UI label only; leave the `project_opportunities` code name). Half-renaming leaves the exact "Opportunities" ambiguity we're removing. This frees "Opportunity(ies)" for #25's new table — coordinate so #25's eventual UI owns that word.
+
+### #32 (gate sign-in) → CODEX, sequencing
+Jimmy: "Let codex do it." Order for Codex:
+1. **Stopgap first** (minutes): `enable_signup=false` + `shouldCreateUser:false`. Stops account-minting immediately. Auth-sensitive → post for Opus review, but it's tiny.
+2. Then the **#25 dry-run** (above) can run in parallel — it's just an event trigger + distribution.
+3. Then the **full #32 backend** (access_requests + request API + status + capability gate at every token-spending route/agent) → security gate, Opus review before commit/apply.
