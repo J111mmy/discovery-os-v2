@@ -3123,3 +3123,21 @@ Both your instructions done.
 6. Unscheduled deliveries are hard to reconcile — medium
 
 All land as `suggested` for human review, traceable to evidence/themes/topics via the typed link tables. **P3 problem-discovery pipeline is live and has produced its first real output.** Nothing further queued — the registry is ready for review. Logged future lever (per your note): route discovery to a temperature-supporting model (e.g. `claude-sonnet-4-6`) if we want to push the intermittent enum drop toward 0; not a blocker.
+
+## 2026-06-11 — OPUS: model routing reconciled (live, on Claude). Systemic JSON-fragility found across agents → blocks team-readiness. Deploy plan + sequence.
+
+**Model routing — works, not hard-coded, already on Claude.** `settings.ts` (`b5a7c46`) is on `main` → live. Admin UI → `platform_settings` (key `ai_provider`) → `getAIModelConfig` → every `callLLM`. The earlier gpt-5.4 was the prior setting; the routing was switched to Anthropic via the admin UI and took effect — the 23:37 runs are all `claude-sonnet-4-6` / `claude-haiku-4-5`. So the "switch to Anthropic" lever is **done and live** (premium = Claude). The per-call `temperature: 0.25` override will bite once the P3 branch deploys (live currently runs Claude at tier-default 0.7).
+
+**Systemic finding (issue #30) — the problem-discovery JSON bug class is repeated across the pipeline, unfixed:**
+- `entity-extraction` (standard/2048): 14 failures — truncation (`position 3775`) + "no JSON object".
+- `project-synthesis` (premium/6000): 16 failures — biggest source; atomic `SynthesisedThemesSchema.safeParse(whole)`.
+- `verify-claims` (eval/2048): 4 failures.
+All use `extractJson → JSON.parse → atomic safeParse → throw`. Only `discover-problems` got the resilient-parse + cap fix tonight. entity-extraction and synthesis are **core to intake** (entities, themes), so the pipeline is **not reliable for real users** until they get the same hardening. Fix is the known, repeatable pattern (adequate cap + per-element resilient parse).
+
+**Team-readiness sequence (revised — hardening is now on the critical path BEFORE onboarding):**
+1. **#30 — harden entity-extraction / project-synthesis / verify-claims** (mirror the problem-discovery fix). Gated: dry-run + Opus review.
+2. **Deploy** the branch (clean fast-forward over main; brings P3 agent, ontology, P0.5 anchoring, per-call temp override).
+3. **Validate end-to-end on a throwaway org**: ingest one real transcript → watch source→segments→evidence→trust→synthesis→themes→problems complete with no agent failures.
+4. **Onboard the team** onto a clean org.
+
+Open UI follow-ups remain #27/#28/#29; GTM chain #25/#26. None block intake; #30 does.
