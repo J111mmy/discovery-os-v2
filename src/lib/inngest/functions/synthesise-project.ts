@@ -29,7 +29,30 @@ const SynthesisedThemeSchema = z.object({
   evidence_ids: z.array(z.string().uuid()).default([]),
 });
 
-const SynthesisedThemesSchema = z.array(SynthesisedThemeSchema).default([]);
+// Resilient parse: a single malformed theme must not fail the whole batch —
+// validate per-element, drop (with a warning) the invalid ones, keep the
+// valid ones. Mirrors discover-problems' per-candidate parsing (issue #30).
+function parseSynthesisedThemes(raw: unknown): z.infer<typeof SynthesisedThemeSchema>[] {
+  if (!Array.isArray(raw)) {
+    throw new Error("Synthesis did not return a JSON array");
+  }
+
+  const valid: z.infer<typeof SynthesisedThemeSchema>[] = [];
+  raw.forEach((element, index) => {
+    const parsed = SynthesisedThemeSchema.safeParse(element);
+    if (parsed.success) {
+      valid.push(parsed.data);
+      return;
+    }
+    const failingPaths = parsed.error.issues
+      .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+      .join("; ");
+    console.warn(
+      `[synthesise-project] dropped invalid theme candidate at index ${index}: ${failingPaths}`
+    );
+  });
+  return valid;
+}
 
 function chunk<T>(items: T[], size: number) {
   const batches: T[][] = [];
@@ -220,15 +243,12 @@ export const synthesiseProject = inngest.createFunction(
           });
 
           models.add(result.model);
-          const parsed = SynthesisedThemesSchema.safeParse(
-            extractJsonArray(result.content)
-          );
+          // Resilient parse: extractJsonArray still throws if the response is
+          // not a parseable JSON array at all. A single malformed theme within
+          // the array must not fail the whole batch — see parseSynthesisedThemes.
+          const batchThemes = parseSynthesisedThemes(extractJsonArray(result.content));
 
-          if (!parsed.success) {
-            throw new Error("Synthesis JSON did not match expected schema");
-          }
-
-          themes.push(...parsed.data);
+          themes.push(...batchThemes);
         }
 
         return {

@@ -42,6 +42,10 @@ export interface LLMCallOptions {
   // never sent for them (see supportsOpenAITemperature). The override only takes
   // effect on Anthropic models and temperature-supporting OpenAI models.
   temperature?: number;
+  // Per-call max-output-tokens override. Falls back to the tier default when unset.
+  // Use this to raise the budget for callers prone to truncation (e.g. JSON list
+  // outputs) without bumping the shared tier default for every other caller.
+  maxTokens?: number;
 }
 
 export interface LLMCallResult {
@@ -61,7 +65,7 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
     const response = await getAnthropic().messages.create(
       {
         model: config.model,
-        max_tokens: config.maxTokens,
+        max_tokens: opts.maxTokens ?? config.maxTokens,
         temperature: opts.temperature ?? config.temperature,
         system: opts.system,
         messages: opts.messages,
@@ -94,7 +98,7 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
     // and requires security review; see docs/security/SECURITY_POSTURE.md.
     const request: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming = {
       model: config.model,
-      max_completion_tokens: config.maxTokens,
+      max_completion_tokens: opts.maxTokens ?? config.maxTokens,
       messages,
     };
 

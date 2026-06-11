@@ -253,78 +253,103 @@ export const verifyClaims = inngest.createFunction(
           model_used: string;
         }> = [];
 
+        let droppedClaims = 0;
         for (const claim of claims) {
-          const result = await callLLM({
-            tier: "eval",
-            system:
-              "You verify artifact claims against trusted evidence. Return strict JSON only.",
-            messages: [
-              {
-                role: "user",
-                content: buildClaimVerificationPrompt({
-                  claim: claim.claim_text,
-                  evidence: evidencePool,
-                }),
-              },
-            ],
-            timeoutMs: 120_000,
-          });
+          try {
+            const result = await callLLM({
+              tier: "eval",
+              // Eval tier defaults to 2048 output tokens; bump for this call to
+              // reduce truncation on the verdict+note+evidence_ids object — see
+              // issue #30.
+              maxTokens: 3072,
+              system:
+                "You verify artifact claims against trusted evidence. Return strict JSON only.",
+              messages: [
+                {
+                  role: "user",
+                  content: buildClaimVerificationPrompt({
+                    claim: claim.claim_text,
+                    evidence: evidencePool,
+                  }),
+                },
+              ],
+              timeoutMs: 120_000,
+            });
 
-          const parsed = VerificationResultSchema.safeParse(extractJsonObject(result.content));
-          if (!parsed.success) {
-            throw new Error(`Claim verification JSON did not match schema for ${claim.id}`);
-          }
+            const parsed = VerificationResultSchema.safeParse(extractJsonObject(result.content));
+            if (!parsed.success) {
+              const failingPaths = parsed.error.issues
+                .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+                .join("; ");
+              throw new Error(`schema mismatch (${failingPaths})`);
+            }
 
-          const supportingEvidenceIds = Array.from(
-            new Set(parsed.data.supporting_evidence_ids.filter((id) => allowedEvidenceIds.has(id)))
-          );
-
-          const { error: updateError } = await supabase
-            .from("artifact_claims")
-            .update({
-              verification_status: claimStatus(parsed.data.verdict),
-              verified: parsed.data.verdict === "supported",
-              verification_note: parsed.data.note,
-              verified_at: new Date().toISOString(),
-              verifier_model: result.model,
-              notes: parsed.data.note,
-            })
-            .eq("org_id", org_id)
-            .eq("artifact_id", artifact_id)
-            .eq("id", claim.id);
-
-          if (updateError) {
-            throw new Error(`Failed to update claim verification: ${updateError.message}`);
-          }
-
-          await supabase
-            .from("artifact_claim_evidence")
-            .delete()
-            .eq("org_id", org_id)
-            .eq("claim_id", claim.id);
-
-          if (supportingEvidenceIds.length > 0) {
-            const { error: linkError } = await supabase.from("artifact_claim_evidence").insert(
-              supportingEvidenceIds.map((evidenceId) => ({
-                claim_id: claim.id,
-                evidence_id: evidenceId,
-                org_id,
-                relevance: null,
-              }))
+            const supportingEvidenceIds = Array.from(
+              new Set(parsed.data.supporting_evidence_ids.filter((id) => allowedEvidenceIds.has(id)))
             );
 
-            if (linkError) {
-              throw new Error(`Failed to link supporting evidence: ${linkError.message}`);
-            }
-          }
+            const { error: updateError } = await supabase
+              .from("artifact_claims")
+              .update({
+                verification_status: claimStatus(parsed.data.verdict),
+                verified: parsed.data.verdict === "supported",
+                verification_note: parsed.data.note,
+                verified_at: new Date().toISOString(),
+                verifier_model: result.model,
+                notes: parsed.data.note,
+              })
+              .eq("org_id", org_id)
+              .eq("artifact_id", artifact_id)
+              .eq("id", claim.id);
 
-          results.push({
-            claim_id: claim.id,
-            verdict: parsed.data.verdict,
-            supporting_evidence_ids: supportingEvidenceIds,
-            note: parsed.data.note,
-            model_used: result.model,
-          });
+            if (updateError) {
+              throw new Error(`Failed to update claim verification: ${updateError.message}`);
+            }
+
+            await supabase
+              .from("artifact_claim_evidence")
+              .delete()
+              .eq("org_id", org_id)
+              .eq("claim_id", claim.id);
+
+            if (supportingEvidenceIds.length > 0) {
+              const { error: linkError } = await supabase.from("artifact_claim_evidence").insert(
+                supportingEvidenceIds.map((evidenceId) => ({
+                  claim_id: claim.id,
+                  evidence_id: evidenceId,
+                  org_id,
+                  relevance: null,
+                }))
+              );
+
+              if (linkError) {
+                throw new Error(`Failed to link supporting evidence: ${linkError.message}`);
+              }
+            }
+
+            results.push({
+              claim_id: claim.id,
+              verdict: parsed.data.verdict,
+              supporting_evidence_ids: supportingEvidenceIds,
+              note: parsed.data.note,
+              model_used: result.model,
+            });
+          } catch (claimError) {
+            // Resilient per-claim handling: a single claim failing (truncated
+            // output, schema mismatch, transient LLM error) must not fail the
+            // whole verification run — log and move on, leaving this claim
+            // unverified. Mirrors discover-problems' per-candidate parsing
+            // (issue #30).
+            droppedClaims += 1;
+            const message = claimError instanceof Error ? claimError.message : "Unknown error";
+            console.warn(`[verify-claims] skipped claim ${claim.id}: ${message}`);
+          }
+        }
+
+        if (droppedClaims > 0) {
+          console.warn(
+            `[verify-claims] ${droppedClaims}/${claims.length} claim(s) skipped for artifact ${artifact_id}`
+          );
         }
 
         return results;

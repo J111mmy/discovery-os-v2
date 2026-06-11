@@ -30,39 +30,64 @@ type ExistingCompetitor = {
   slug: string;
 };
 
-const EntityExtractionSchema = z.object({
-  people: z
-    .array(
-      z.object({
-        name: z.string().trim().min(1),
-        role: z.string().trim().nullable().optional(),
-        company: z.string().trim().nullable().optional(),
-        evidence_ids: z.array(z.string().uuid()).default([]),
-      })
-    )
-    .default([]),
-  companies: z
-    .array(
-      z.object({
-        name: z.string().trim().min(1),
-        domain: z.string().trim().nullable().optional(),
-        evidence_ids: z.array(z.string().uuid()).default([]),
-      })
-    )
-    .default([]),
-  competitors: z
-    .array(
-      z.object({
-        name: z.string().trim().min(1),
-        slug: z.string().trim().min(1),
-        website: z.string().trim().nullable().optional(),
-        evidence_ids: z.array(z.string().uuid()).default([]),
-      })
-    )
-    .default([]),
+const PersonCandidateSchema = z.object({
+  name: z.string().trim().min(1),
+  role: z.string().trim().nullable().optional(),
+  company: z.string().trim().nullable().optional(),
+  evidence_ids: z.array(z.string().uuid()).default([]),
 });
 
-type EntityExtraction = z.infer<typeof EntityExtractionSchema>;
+const CompanyCandidateSchema = z.object({
+  name: z.string().trim().min(1),
+  domain: z.string().trim().nullable().optional(),
+  evidence_ids: z.array(z.string().uuid()).default([]),
+});
+
+const CompetitorCandidateSchema = z.object({
+  name: z.string().trim().min(1),
+  slug: z.string().trim().min(1),
+  website: z.string().trim().nullable().optional(),
+  evidence_ids: z.array(z.string().uuid()).default([]),
+});
+
+type EntityExtraction = {
+  people: z.infer<typeof PersonCandidateSchema>[];
+  companies: z.infer<typeof CompanyCandidateSchema>[];
+  competitors: z.infer<typeof CompetitorCandidateSchema>[];
+};
+
+// Resilient parse: a single malformed person/company/competitor must not fail
+// the whole extraction. Validate each element individually, drop (with a
+// warning) the invalid ones, and keep the valid ones — mirrors discover-problems.
+function parseEntityExtraction(raw: unknown): EntityExtraction {
+  const root = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+
+  function parseList<T extends z.ZodTypeAny>(key: string, schema: T): z.infer<T>[] {
+    const list = root[key];
+    if (!Array.isArray(list)) return [];
+    const valid: z.infer<T>[] = [];
+    list.forEach((element, index) => {
+      const parsed = schema.safeParse(element);
+      if (parsed.success) {
+        valid.push(parsed.data);
+        return;
+      }
+      const failingPaths = parsed.error.issues
+        .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+        .join("; ");
+      console.warn(
+        `[extract-entities] dropped invalid ${key} candidate at index ${index}: ${failingPaths}`
+      );
+    });
+    return valid;
+  }
+
+  return {
+    people: parseList("people", PersonCandidateSchema),
+    companies: parseList("companies", CompanyCandidateSchema),
+    competitors: parseList("competitors", CompetitorCandidateSchema),
+  };
+}
 
 function normalizeName(value: string) {
   return value
@@ -291,6 +316,10 @@ export const extractEntities = inngest.createFunction(
       const extraction = await step.run("extract-entities", async () => {
         const result = await callLLM({
           tier: "standard",
+          // Standard tier defaults to 2048 output tokens, which truncates on
+          // evidence-dense sources with many people/companies/competitors.
+          // Bump the cap for this call only — see issue #30.
+          maxTokens: 4096,
           system:
             "You extract structured entities from evidence. Return strict JSON only.",
           messages: [
@@ -304,16 +333,12 @@ export const extractEntities = inngest.createFunction(
           timeoutMs: 120_000,
         });
 
-        const parsed = EntityExtractionSchema.safeParse(
-          extractJsonObject(result.content)
-        );
-
-        if (!parsed.success) {
-          throw new Error("Entity extraction JSON did not match expected schema");
-        }
+        // Resilient parse: a truncated/malformed people/companies/competitors
+        // entry must not fail the whole extraction — see parseEntityExtraction.
+        const extractionResult = parseEntityExtraction(extractJsonObject(result.content));
 
         return {
-          extraction: parsed.data,
+          extraction: extractionResult,
           model_used: result.model,
         };
       });
