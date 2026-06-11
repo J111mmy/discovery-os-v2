@@ -3,7 +3,7 @@
 **Status:** Ready to build. Self-contained. No design dependency.
 **Author:** Opus
 **Date:** 2026-06-11
-**For:** Codex stand-in (bounded correctness task; ~half day)
+**For:** Codex stand-in (you've been in this codebase all night — this is a fast, well-bounded first task chosen for low blast-radius against this morning's fresh deploy, not because it needs hand-holding. See §7 for what to pick up next so you're not idle.)
 **Issue:** [#27](https://github.com/J111mmy/discovery-os-v2/issues/27) — Workspace links to generic `/evidence` instead of specific records (traceability break)
 **Reference:** `docs/architecture/UI_AUDIT.md` §1
 
@@ -95,3 +95,30 @@ problem.
 Pure frontend, no schema/RLS/agent/auth surface → **no security gate**, standard self-review.
 Post the diff + a screenshot/gif of the three link behaviours in the channel when done. Opus will
 glance before it's considered cleared.
+
+## 7. What to pick up next (don't sit idle after #27)
+You finish #27 fast — here's the decoupled next slice, chosen to **not collide with Sonnet**, who is
+designing the problem-drawer/themes *presentation* in parallel
+(`docs/briefs/design/SONNET_BRIEF_THEME_DRILLDOWN_TYPED_EVIDENCE.md`).
+
+**The #28 typed-read data layer** — the part that's determined by the schema, not by visual design, so
+it's safe to build before Sonnet's mockups land:
+- `problems/page.tsx` (and the problem-preview loader) currently read legacy `source_evidence_ids` /
+  `source_theme_ids` arrays (lines ~58–59, ~184–185, ~253). Add a parallel read path that resolves a
+  problem's evidence/themes from the **typed** tables — `problem_evidence` (with `relationship`,
+  `rationale`, `review_state`, `confidence`) and `problem_themes` (with `relationship`,
+  `rationale`) — alongside the legacy arrays, not replacing them yet.
+- Surface it as **typed data + types/query helpers** the drawer can consume, with the legacy arrays
+  as fallback for pre-P3 problems (live data is a mix — P3 problems have typed links, older ones only
+  have the arrays or nothing). Get the *data and the mixed-provenance fallback logic* right; leave the
+  visual treatment (how supporting vs contradicting renders, badge styling, empty-state copy) for
+  Sonnet's design so you're not building UI she'll redesign.
+- **Coordinate, don't pre-empt:** if you're unsure whether something is "data" or "presentation,"
+  it's presentation — leave it. The seam is: you deliver typed reads + helpers + fallback; Sonnet
+  defines how they look. Post in the channel when the data layer is ready so Sonnet/Opus can confirm
+  the shape before the presentation build.
+
+This keeps you productive on the critical path (the review surface the team needs today) without
+front-running the design. If you'd rather not risk any overlap, the alternative idle-filler is
+hardening/observability on the agents that just shipped (#30) — but the #28 data layer is the higher-
+value use of your time.
