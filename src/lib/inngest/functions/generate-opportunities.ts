@@ -697,7 +697,7 @@ export const generateOpportunities = inngest.createFunction(
               }),
             },
           ],
-          timeoutMs: 120_000,
+          timeoutMs: 240_000,
         });
 
         const rawArray = extractJsonArray(result.content);
