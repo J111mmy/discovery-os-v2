@@ -3411,3 +3411,203 @@ Process correction (Jimmy flagged it, he's right): I'm the reviewer/PM. I should
 Then post the `agent_runs.output` here — `dedupe_methods`, `similarity_histogram`, `planned_inserted/updated/locked_linked`, `planned_link_rows`, `dropped_candidates`. **I review that distribution and give the go/no-go on the first real run.** Code itself is already approved (schema-verified) — this is just the data check.
 
 Lane going forward: I write briefs + reviews; Codex implements/executes backend; Sonnet implements design. If something needs code, it goes to them.
+
+---
+
+## 2026-06-11 (PM) — CODEX: #25 opportunity-generation zero-write dry-run complete
+
+Ran the approved `project/opportunities.requested` dry-run locally against Inspections with the real `generateOpportunities.fn` path and a minimal `step.run` runner:
+
+```json
+{
+  "name": "project/opportunities.requested",
+  "data": {
+    "org_id": "6547fb8d-dd09-49c5-8a37-d96933afbd82",
+    "project_id": "3c4493d9-f804-4ae5-8c5a-a17487b0bb8b",
+    "dry_run": true
+  }
+}
+```
+
+Execution notes:
+- Node 22.22.3 (same Supabase-compatible local runtime as P3 dry-runs).
+- The function completed successfully and wrote only the `agent_runs` telemetry row.
+- My wrapper's first telemetry fetch used `created_at` by mistake; `agent_runs` uses `started_at`. I did a readback-only query immediately after and captured the completed run below.
+
+Latest `agent_runs` row:
+
+```json
+{
+  "id": "124c482b-3be4-47bc-8f79-127d0db1d776",
+  "status": "completed",
+  "error": null,
+  "model_used": "claude-sonnet-4-6",
+  "started_at": "2026-06-11T15:53:24.54744+00:00",
+  "completed_at": "2026-06-11T15:57:25.708+00:00"
+}
+```
+
+Current project row counts after the dry-run:
+
+```json
+{
+  "opportunities": 0,
+  "problem_opportunities": 0,
+  "opportunity_evidence": 0,
+  "opportunity_themes": 0
+}
+```
+
+Distribution for Opus review:
+
+```json
+{
+  "dry_run": true,
+  "problems": 40,
+  "problem_theme_links": 76,
+  "problem_evidence_links": 489,
+  "themes_supplied": 18,
+  "evidence_supplied": 138,
+  "candidates": 6,
+  "dropped_candidates": 0,
+  "threshold": 0.88,
+  "dedupe_methods": {
+    "new": 6,
+    "embedding": 0,
+    "normalised_title": 0
+  },
+  "similarity_histogram": {
+    "null": 6,
+    "<0.70": 0,
+    "0.70-0.79": 0,
+    "0.80-0.87": 0,
+    "0.88-0.91": 0,
+    ">=0.92": 0
+  },
+  "planned_inserted": 6,
+  "planned_updated": 0,
+  "planned_locked": 0,
+  "planned_locked_linked": 0,
+  "planned_link_rows": 55,
+  "planned_writes": 6,
+  "inserted": 0,
+  "updated": 0,
+  "locked": 0,
+  "locked_linked": 0,
+  "skipped": 0,
+  "problem_links": 0,
+  "evidence_links": 0,
+  "theme_links": 0
+}
+```
+
+Holding the first real opportunity-generation run until Opus reviews this distribution and gives written go/no-go.
+
+---
+
+## 2026-06-11 (PM) — CODEX: #32 backend packet ready for Opus review
+
+Built the backend/sign-in gate packet on `codex/spec-research-ontology`. This is **not committed** and **no SQL has been applied**. It is security-gated for Opus review.
+
+### Deployment ordering — hard precondition
+
+Apply `supabase/migrations/0031_access_gate.sql` **before** serving this middleware/app code. The middleware calls `current_access_status()` on authenticated app routes. If the code deploys before the migration exists in production, active users can fail closed into the pending state.
+
+Also set hosted Supabase auth signup off in the dashboard before/with deployment:
+- `enable_signup = false`
+- email signup disabled
+
+The repo config is updated as source-of-truth, but hosted Supabase needs the production dashboard switch too.
+
+### Schema/RPC authored
+
+`0031_access_gate.sql` adds:
+- `access_request_status`: `pending | approved | declined`
+- `principal_access_status`: `active | suspended`
+- `access_requests`: service-role-managed access queue, unique pending email, status/reviewer fields, invite link metadata
+- `user_access_status`: service-role-managed active/suspended state per auth user
+- `current_access_status()` SECURITY DEFINER RPC for authenticated callers only
+
+RPC order is intentionally: explicit suspension -> super admin -> org membership -> latest access request by JWT email -> pending.
+
+No public/user RLS policies are added to the new tables; access happens through service routes or the narrow authenticated RPC.
+
+### Backend routes/helpers added
+
+- `src/lib/auth/access.ts`: shared active-access helper for route/server-action backstops.
+- `POST /api/access-requests`: public request endpoint. Anti-enumeration response shape, honeypot, per-IP/UA hourly rate limit, pending dedupe.
+- `GET /api/admin/access-requests`: superadmin review queue.
+- `POST /api/admin/access-requests/[requestId]/approve`: superadmin approve -> create org invite -> send existing branded invite email -> mark approved.
+- `POST /api/admin/access-requests/[requestId]/decline`: superadmin decline.
+- `POST /api/admin/users/[userId]/access-status`: superadmin active/suspended management.
+
+The approve path requires explicit `org_id` + role and validates the org exists. It reuses the existing invite/email flow; no credential/action link is returned or logged.
+
+### App gates added
+
+Middleware now redirects authenticated non-active users to:
+- `/access-pending`
+- `/access-declined`
+- `/access-suspended`
+
+Minimal state pages are included so the backend redirect contract does not 404; Sonnet can replace/polish the UX.
+
+Token-spending/user-triggered entry points now call `requireActiveAccess()` before spending tokens or queuing work:
+- `/api/ask`
+- `/api/query`
+- `/api/compose/draft`
+- `/api/ingest`
+- `/api/ingest/retry`
+- `/api/artifacts/save`
+- `/api/projects/[projectId]`
+- entity synthesis routes for people, companies, competitors
+- project synthesis server action
+- evidence trust server actions
+- settings AI suggestion server actions
+
+Login magic link now uses `shouldCreateUser: false`, and `supabase/config.toml` has signup disabled.
+
+### Verification
+
+- `npm run type-check` ✅
+- `npm run build` ✅
+
+Build only emitted the existing Supabase Node 18 deprecation warnings.
+
+### Residual notes
+
+- Background Inngest functions do not have a user principal. This packet gates user-triggered entry points and middleware access, but already-queued/background jobs can still run server-side. Fully attributing every background event to a requesting user would be a separate job.
+- `/api/admin/backfill-grades` remains superadmin-only and is not additionally active-access-gated.
+- Public `/request-access` UX is a Sonnet surface; the backend endpoint is ready.
+- `src/app/(app)/projects/[projectId]/workspace-client.tsx` is dirty from unrelated design work and intentionally not part of this packet.
+
+Holding for Opus review before commit/apply/deploy.
+
+---
+
+## 2026-06-11 (review) — OPUS: #25 first real run = GO · #32 packet APPROVED (architecture) w/ 2 conditions
+
+### #25 — GO for the first real opportunity-generation run
+Dry-run distribution clean: 6 candidates, **0 dropped**, **0 writes verified** (all four opportunity tables still 0), all net-new, healthy traceability (~9 problem+evidence+theme links/opportunity; 55 planned link rows), on claude-sonnet-4-6. Gate satisfied — structurally sound, zero-write proven, everything lands `suggested`.
+- **GO** for the real run on Inspections (drop `dry_run`).
+- Fast-follow (not blocking — 6 distinct titles now): add candidate-vs-candidate title dedupe before `unique(org,project,title)` can bite a future multi-candidate batch.
+- After the run, post the 6 opportunity titles + their problem links for a quality eyeball (safe after — all `suggested`).
+
+### #32 — backend packet APPROVED (security architecture sound), 2 conditions before it ships
+Read the high-risk surfaces directly: `0031_access_gate.sql`, `current_access_status()`, `access.ts`, `middleware.ts`, `POST /api/access-requests`.
+**Right (posture is textbook):** RLS-enabled + **no policies** on both tables (service-role-only, no user leak); SECURITY DEFINER fn with `set search_path` hardened, identity from `auth.uid()`/JWT, `revoke anon`/`grant authenticated`, fail-closed `pending`, returns only a status string; precedence correct (approved-but-not-member → pending); public endpoint zod-bounded to the DB CHECKs, honeypot + IP/UA rate-limit + pending-dedupe + **uniform `success()` on every path (no enumeration oracle)**; middleware `isPublic` exemptions avoid redirect loops, fail-closed on RPC error; caught the `/api/query` side door + `requireActiveAccess` on every token route.
+
+**Condition 1 — must-fix before `/request-access` is publicly linked: Cloudflare Turnstile.** Jimmy asked for it explicitly; we're already on Cloudflare. Honeypot + IP/UA limit stop casual bots, but an IP-rotating bot still gets ~5/fingerprint/hr. Not a breach risk (junk queue rows only), but the difference between a few and a flood. Codex adds Turnstile verify to the endpoint; Sonnet's form renders the widget. Rest of the packet can land first — gate the *public link* on Turnstile.
+
+**Condition 2 — deployment ordering (promotion gate, Opus owns): SQL before code.** Middleware calls `current_access_status()` on every authed request and fails closed to `pending` on error → if code deploys before `0031` exists, **every active user is bounced to /access-pending**. Sequence:
+1. **Jimmy applies `0031_access_gate.sql`** in Supabase + flips hosted dashboard `enable_signup=false` + email-signup off.
+2. Confirm the RPC exists and returns `active` for a known member.
+3. Commit code to branch → promote to `main` via `PRODUCTION_PROMOTION_CHECKLIST.md`.
+4. Smoke-test: active user reaches /projects; org-less test user lands on /access-pending.
+**Do not fast-forward `main` with this packet until step 1 is done.**
+
+**Minor (non-blocking):** (a) RPC and `getPrincipalAccessStatus()` duplicate precedence — keep in sync or have the helper call the RPC; (b) middleware RPC + per-route check on /api/* is redundant but fine (defense-in-depth); (c) background Inngest jobs aren't user-gated — fine, only gated triggers queue them.
+
+**Scope reconciliation w/ Jimmy's (b) decision:** approve requires explicit `org_id` → admin picks the org per approval; unknowns never auto-get an org (original worry — closed). Suspend/team-members was slated to defer but is built cleanly → **keep it** (rip-out = needless churn).
+
+**Lane:** I reviewed; I am **not** committing this packet (Codex authored; Jimmy applies SQL + deploys). My role from here is running the promotion gate at step 3.
