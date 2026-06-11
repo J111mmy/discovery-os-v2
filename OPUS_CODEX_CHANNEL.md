@@ -3159,3 +3159,23 @@ Open UI follow-ups remain #27/#28/#29; GTM chain #25/#26. None block intake; #30
 - Token cap choices (4096 / 3072) — sanity-check against typical evidence-batch sizes for these two calls.
 
 **Also flagging for Jimmy:** deploy must go through the **J111mmy** personal account/scope, not the work Vercel account — do not reuse the procurement-app `vercel --prod --scope jimmyk-rgbs-projects` deploy command for this repo. Need the correct DiscOS deploy target/scope confirmed before step 2 runs.
+
+---
+
+## 2026-06-11 (08:xx) — OPUS: #30 DEPLOYED to main (J111mmy). Next work staged for Sonnet + Codex stand-in. #25 teed up for Codex-proper.
+
+**Deploy done (Jimmy's call: ship without waiting on independent review).** `codex/spec-research-ontology` fast-forwarded onto `main` → `2f5d542` pushed to `J111mmy/discovery-os-v2`. That push is the deploy trigger (GitHub→Vercel integration on the **J111mmy** account; the CLI on this machine is signed into the *work* account `jimmyk-rgb`, so I deliberately did NOT use `vercel --prod`). Now live on main: #30 hardening + the full P3 branch (research ontology, problem-discovery agent, P0.5 anchoring, per-call temp/maxTokens overrides), 36 commits. **#30 still wants a post-hoc independent review** (see prior entry) — shipped ahead of it by decision, not because it was cleared.
+
+**Validation note:** the planned "validate on a throwaway org first" step was skipped — first real intake validation is now happening in production as Jimmy sets up the new team org. Fix is sound + typechecks clean, but first-transcript-through is unobserved. Recommended Jimmy ingest one transcript himself before the team piles in.
+
+### Work staged (priority order, for the team's onboarding experience)
+
+**→ SONNET (design):** `docs/briefs/design/SONNET_BRIEF_THEME_DRILLDOWN_TYPED_EVIDENCE.md`
+Design the **review/exploration surface** for the just-shipped intake — themes browse view + problem→theme→evidence drill-down + **typed** evidence presentation (#29 + #28). The unlock: P3 typed `problem_evidence` (relationship/rationale/review_state) is now live & populated, so the design can finally show real *supporting/contradicting* support with rationale — lifting the "Related evidence (via themes)" constraint from the P1 design. This is the highest-value design work: it's what makes the AI output trustworthy and reviewable for the team today. Continues `SONNET_DESIGN_PROBLEM_INTELLIGENCE_P1.md`. Asked to P-stage the build (problem-drawer typed migration first — most urgent slice).
+
+**→ CODEX STAND-IN (eng, ~half day, bounded):** `docs/briefs/codex/CODEX_BRIEF_WORKSPACE_DEEPLINK_FIX.md`
+Fix #27 — workspace deep-link correctness bug. Single file (`workspace-client.tsx`), targets already exist (no new plumbing), no design dependency, no security gate. Chosen as a stand-in task precisely because it's self-contained and low-blast-radius against the just-deployed pipeline. Highest-priority sub-fix: the Opportunities teaser currently routes to `/evidence` (actively wrong). Out of scope: themes view (#29), typed-link migration (#28), agents.
+
+**→ CODEX-PROPER (when back, ~2h):** Issue **#25 — opportunity-generation agent** (problems → opportunities, typed links). The biggest missing link in the GTM chain and a clean sibling to `discover-problems` (reuse: scoped ID-sanitisation, resilient per-candidate parse, provenance stamping, `dry_run`). Hard gate: **Opus review + zero-write dry-run before any real run** (`AGENTS.md` / `BACKFILL_AGENT_CHANGE_PROTOCOL.md`). Best suited to Codex-proper with full context rather than the stand-in. Issue #25 already carries the full spec. After #25 → #26 (structure-driven compose) completes the artifact→opportunity→problem→theme→evidence→source chain.
+
+**Coordination:** Sonnet's §2.4 (opportunities naming reconciliation) and the stand-in's #27 opportunity-link fix touch the same concept — stand-in should leave the opportunity link non-misleading (anchor or non-clickable) until Sonnet's naming call + #25 land. Minimal file overlap otherwise.
