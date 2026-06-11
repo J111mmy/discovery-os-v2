@@ -3583,6 +3583,20 @@ Build only emitted the existing Supabase Node 18 deprecation warnings.
 
 Holding for Opus review before commit/apply/deploy.
 
+### #32 addendum — Turnstile server verification on public request endpoint
+
+Per Jimmy's security note, `POST /api/access-requests` now verifies Cloudflare Turnstile server-side before any insert:
+- accepts `turnstile_token`, `turnstileToken`, or native `cf-turnstile-response`
+- calls `https://challenges.cloudflare.com/turnstile/v0/siteverify`
+- uses server-only `TURNSTILE_SECRET_KEY`
+- includes `remoteip`
+- if the secret is missing, the token is missing, verification fails, Cloudflare returns non-2xx, or the fetch throws, the endpoint returns the same anti-enumeration success body and does not create an `access_requests` row
+- `.env.local.example` documents `TURNSTILE_SECRET_KEY`
+
+Re-verified after the addendum:
+- `npm run type-check` ✅
+- `npm run build` ✅
+
 ---
 
 ## 2026-06-11 (review) — OPUS: #25 first real run = GO · #32 packet APPROVED (architecture) w/ 2 conditions
@@ -3625,3 +3639,40 @@ Jimmy created the Turnstile widget (Managed mode, hostname `getdiscos.com`). Env
 **→ SONNET (design):** render the Turnstile widget on `/request-access` (Cloudflare script + `NEXT_PUBLIC_TURNSTILE_SITE_KEY`), and include its token in the form POST (e.g. `cf-turnstile-response`). Coordinate the field name with Codex's body parse.
 
 Gating: this is #32 Condition 1 — must land before `/request-access` is publicly linked. Does not block the rest of the #32 packet or the #25 real run.
+
+---
+
+## 2026-06-11 (PM) — CODEX: #32 Turnstile server verification added
+
+Implemented the backend side of #32 Condition 1 in `POST /api/access-requests`:
+- accepts `turnstile_token`, `turnstileToken`, or native `cf-turnstile-response`
+- verifies with Cloudflare `https://challenges.cloudflare.com/turnstile/v0/siteverify`
+- sends `secret=TURNSTILE_SECRET_KEY`, `response=<token>`, and `remoteip=<clientIp>`
+- failure modes all preserve the anti-enumeration contract: missing secret, missing token, non-2xx Cloudflare response, `success:false`, or fetch error all return the same `{ ok: true, status: "received" }` response and do **not** insert an `access_requests` row
+- existing honeypot, fingerprint rate limit, pending dedupe, and unique-violation masking stay in place
+- `.env.local.example` now documents server-only `TURNSTILE_SECRET_KEY`
+
+Verification:
+- `npm run type-check` ✅
+- `npm run build` ✅
+
+Holding for Opus review before commit/deploy. Sonnet should send `cf-turnstile-response` or `turnstile_token` from `/request-access`.
+
+---
+
+## 2026-06-11 (review) — OPUS: Turnstile endpoint APPROVED · #32 fully reviewed · consolidated go-live sequence
+
+**Turnstile siteverify (`/api/access-requests`) — APPROVED.** Verifies before insert; form-urlencoded secret+response+remoteip; fails closed on `!response.ok`/throw; uniform `success()` on failure (anti-enumeration preserved); accepts `turnstile_token`/`turnstileToken`/`cf-turnstile-response`. Sonnet's `/request-access` page + reciprocal login links close the UI gap. With this, **#32 (incl. Turnstile) is fully reviewed and approved.**
+
+**New config precondition (capture for go-live):** `verifyTurnstile` returns false when `TURNSTILE_SECRET_KEY` is unset → if the secret is missing in prod, the form returns success but **stores nothing (silent black hole for real requests)**. So the secret is a hard launch precondition. Suggest Codex add a one-line `console.warn` when the secret is absent so the black-hole state is visible in logs (non-blocking).
+Non-blocking nit: move `verifyTurnstile` before the rate-limit DB count so tokenless floods are rejected without a DB roundtrip.
+
+### Consolidated #32 go-live sequence (order matters)
+1. **Jimmy — env (Vercel prod + `.env.local`):** `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`. (Missing secret = silent black hole.)
+2. **Jimmy — Supabase:** apply `0031_access_gate.sql` (additive, approved, invisible to current prod); confirm `current_access_status()` exists + returns `active` for a known member.
+3. **Jimmy — hosted Supabase dashboard:** `enable_signup=false` + email signup off.
+4. **Codex — commit** the full #32 packet (backend + Turnstile + Sonnet's page) to the branch.
+5. **Opus — promote** to `main` via `PRODUCTION_PROMOTION_CHECKLIST.md` (security re-scan + the preconditions above + smoke test). **Hold `main` until 1–3 are confirmed.**
+6. **Smoke-test:** active user → /projects; org-less test user → /access-pending; submit a request with Turnstile → row appears in the admin queue.
+
+#25 real run is independent of all of this and remains GO.
