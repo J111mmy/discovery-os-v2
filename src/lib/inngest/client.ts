@@ -35,6 +35,13 @@ export type Events = {
       dry_run?: boolean;
     };
   };
+  "project/opportunities.requested": {
+    data: {
+      org_id: string;
+      project_id: string;
+      dry_run?: boolean;
+    };
+  };
   "artifact/claim.verification.requested": {
     data: {
       org_id: string;

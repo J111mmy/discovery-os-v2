@@ -5,6 +5,7 @@ import { extractEntities } from "@/lib/inngest/functions/extract-entities";
 import { ingestSource } from "@/lib/inngest/functions/ingest-source";
 import { synthesiseProject } from "@/lib/inngest/functions/synthesise-project";
 import { discoverProblems } from "@/lib/inngest/functions/discover-problems";
+import { generateOpportunities } from "@/lib/inngest/functions/generate-opportunities";
 import { verifyClaims } from "@/lib/inngest/functions/verify-claims";
 import { detectGaps } from "@/lib/inngest/functions/detect-gaps";
 import { weeklyProjectSynthesis } from "@/lib/inngest/functions/scheduled-synthesis";
@@ -24,6 +25,7 @@ export const { GET, POST, PUT } = serve({
     extractEntities,
     synthesiseProject,
     discoverProblems,
+    generateOpportunities,
     verifyClaims,
     detectGaps,
     weeklyProjectSynthesis,
