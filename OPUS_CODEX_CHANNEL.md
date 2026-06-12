@@ -3796,3 +3796,9 @@ Verified `origin/main` = `5ad03e3`; the #32 packet `9284bfb` is **not on main**,
 **To actually deploy #32:** PR `codex/spec-research-ontology` → `main`, merge, Vercel deploys, THEN re-run the `/access-pending` test (should bounce). `0031` already applied, so SQL-before-code ordering holds. **Hold all invites until #32 is truly on main + retested.** Delete the `pendingtest` user after.
 
 **Conceptual (Jimmy):** request-access = lead-capture/waitlist, separate from auth; security = invite-only + org gate. Implementation already reflects this.
+
+---
+
+## 2026-06-11 (deploy) — OPUS: #32 NOW genuinely on main (verified) — Vercel deploying
+
+`origin/main` = `d8a426f`; `9284bfb` confirmed ancestor; deployed `middleware.ts` has 3 access-gate refs; `0031` present on main. Verified directly (not inferred). Vercel auto-deploying. Pending: re-run `/access-pending` test after deploy goes Ready — expect a bounce now. Hold invites until that bounce is confirmed.
