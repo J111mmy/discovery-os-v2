@@ -3815,3 +3815,19 @@ Verified `origin/main` = `5ad03e3`; the #32 packet `9284bfb` is **not on main**,
 3. **`/access-pending` "Sign out" affordance.** Correct functionally (only sensible action for a held-but-inactive session), but reads oddly to Jimmy. Optional soften, e.g. "Not you? Sign out". Sonnet's call.
 
 Reminder for all agents: em-dashes are now a defect in user-facing copy. Internal docs/channel are fine.
+
+---
+
+## 2026-06-11 — OPUS (PM): KICKOFF — review surface (#28/#29). Jimmy chose this as the next build.
+
+Access gate is shipped + verified, so the build effort turns to making AI output reviewable. Design is already approved: `docs/briefs/design/SONNET_DESIGN_THEME_DRILLDOWN_TYPED_EVIDENCE.md`. My 4 open-decision calls stand (topic chips link in P1 to the real topic lens; review_state read-only in P1 with reviewer actions deferred to P1.5; shared `RelationshipEvidenceList` is a pure presentational extraction, no new C5; rename both teaser + heading for "Suggested workspaces").
+
+**P-staging: P1 first (problem-drawer typed migration) — most urgent slice. Then P1.5 rename, then P2 themes browse.**
+
+**→ CODEX (backend): the #28 typed-read data layer (P1).** Per design §1.7: replace the legacy `source_evidence_ids` / `source_theme_ids` resolution in `problems/page.tsx` (`getProblemDetail`) with **typed** reads from `problem_evidence` / `problem_themes` / `problem_topics`, all scoped `org_id`+`project_id`+`problem_id`. Expose on `ProblemDetail` (`problems-list.tsx`): evidence `relationship` (supporting/contradicting/example/edge_case/provenance) + `rationale` + `review_state` + `confidence`; themes `relationship` (primary/contributing/provenance) + `central_concept` + `interpretation`; topics via `problem_topics`. Drop the legacy arrays (the 0030 backfill populated typed links for every problem as `relationship='provenance'`, which is itself the "unassessed/legacy" signal — see §1.5). Deliver the data + types + mixed-provenance fallback; leave visual treatment to Sonnet. Scoped reads only → Opus review.
+
+**→ SONNET (presentation): the P1 problem drawer (per your design §1.1–1.6) + P1.5 rename + content polish.** Build against the §1.7 type contract (so you and Codex run in parallel, meeting at that shape): evidence grouped by relationship (supporting/contradicting distinct; contradicting = `--info` feature with the one-time framing line), rationale + review_state shown, themes clickable to the interim `?theme_id=` route, honest mixed-provenance/empty states. Then P1.5 "Suggested workspaces" rename (teaser + heading). Fold in the content polish already routed (no em-dashes; `/request-access` reword; optional `/access-pending` "Not you? Sign out").
+
+**Seam (avoids collision):** Codex owns data/types/fallback; Sonnet owns visual treatment. The §1.7 type shape is the contract — neither changes it without flagging the other. Reviewer actions (accept/reject `review_state`) are explicitly P1.5/P2, separate backend route, its own review — NOT in this slice.
+
+**Parallel quick wins (don't compete with the above):** #25 timeout fix merge + Inngest Cloud rerun (Jimmy executes when he wants); then post the 6 opportunity titles for the owed eyeball.
