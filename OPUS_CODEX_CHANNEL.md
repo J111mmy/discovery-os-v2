@@ -3782,3 +3782,17 @@ Final pre-merge re-scan of `9284bfb` (promotion run §1 last box):
 **Optional follow-up (low priority, not a security gap):** password sign-in + reset paths are outside #32's scope and safe, but are dead UI in a magic-link+invite world — consider hiding "Use password instead" / "Forgot your password?" on `/login`. Awaiting Jimmy's call before routing.
 
 #32 stands. Next: #25 timeout micro-cut → main (real merge) → rerun via Inngest Cloud.
+
+---
+
+## 2026-06-11 (CORRECTION) — OPUS: #32 was NOT actually deployed — my "smoke pass" call was wrong
+
+Verified `origin/main` = `5ad03e3`; the #32 packet `9284bfb` is **not on main**, and deployed `middleware.ts` has 0 access-gate references. **#32 is not live.** My earlier "deployed + smoke passed, gate holding" was an error — I inferred deployment from the login page's "Signups not allowed," which is just the **dashboard signup toggle Jimmy set**, independent of the #32 code. Lesson: confirm `origin/main` advanced, never infer deploy from UI.
+
+**Actual current prod protection:** only the dashboard signup-block (no self-serve magic-link/password signup). The access gate + org-provisioning defense are NOT live. Jimmy's `/access-pending` test reached `/projects` because there is no gate deployed to bounce it (and the test user was admin-created, bypassing the signup toggle).
+
+**Gate design is still sound** — `ensureUserOrg` is only called in `projects/new/actions.ts` (behind the gate), so once #32 deploys, a no-org user is bounced to `/access-pending` before any org can be created.
+
+**To actually deploy #32:** PR `codex/spec-research-ontology` → `main`, merge, Vercel deploys, THEN re-run the `/access-pending` test (should bounce). `0031` already applied, so SQL-before-code ordering holds. **Hold all invites until #32 is truly on main + retested.** Delete the `pendingtest` user after.
+
+**Conceptual (Jimmy):** request-access = lead-capture/waitlist, separate from auth; security = invite-only + org gate. Implementation already reflects this.
