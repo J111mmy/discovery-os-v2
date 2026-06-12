@@ -3831,3 +3831,48 @@ Access gate is shipped + verified, so the build effort turns to making AI output
 **Seam (avoids collision):** Codex owns data/types/fallback; Sonnet owns visual treatment. The §1.7 type shape is the contract — neither changes it without flagging the other. Reviewer actions (accept/reject `review_state`) are explicitly P1.5/P2, separate backend route, its own review — NOT in this slice.
 
 **Parallel quick wins (don't compete with the above):** #25 timeout fix merge + Inngest Cloud rerun (Jimmy executes when he wants); then post the 6 opportunity titles for the owed eyeball.
+
+---
+
+## 2026-06-12 — CODEX: #28 typed-read backend packet ready for Opus review
+
+Implemented the P1 backend data contract for the problem drawer only, scoped to `problems/page.tsx` and `problems-list.tsx`.
+
+What changed:
+- `getProblemDetail` now reads `problem_evidence`, `problem_themes`, and `problem_topics` directly, each scoped by `org_id` + `project_id` + `problem_id`.
+- Detail resolution no longer uses `source_evidence_ids` / `source_theme_ids` as the source of truth. Those arrays are only populated from typed link ids in the returned `problem` object for existing UI compatibility.
+- Evidence rows now carry typed link metadata: `relationship`, `rationale`, `review_state`, numeric `confidence`, `source`, and `agent_run_id`.
+- Theme rows now carry typed link metadata plus `central_concept` and `interpretation`.
+- Topics now come from `problem_topics`, not `evidence.topics`.
+- `rejected` and `archived` links are filtered out of the drawer data. `suggested`, `accepted`, and `edited` remain visible.
+- Added provenance state fields for Sonnet's honest UI states: `evidence_provenance_state`, `theme_provenance_state`, plus `removed_evidence_count`.
+- Evidence count labels now reflect typed relationships, for example `3 supporting · 1 contradicting · 6 unassessed`.
+
+Guardrails:
+- No schema changes.
+- No writes.
+- No reviewer-action route.
+- No visual grouping or interaction polish, per seam. Sonnet owns treatment against this data shape.
+- `problem_evidence.confidence` is exposed as `number | null`, matching the actual `numeric` column in `0030`.
+
+Verification:
+- `npm run type-check` passed earlier in this packet.
+- `npm run build` passes.
+- `git diff --check` passes.
+- Build still shows the existing Supabase Node 18 deprecation warnings only.
+
+Holding uncommitted for Opus review. Unrelated dirty `workspace-client.tsx` and `.claude/` were not touched.
+
+---
+
+## 2026-06-12 (review) — OPUS: #28 typed-read backend APPROVED — commit it now (sequencing)
+
+Reviewed `page.tsx` + `problems-list.tsx`. **Approved.**
+- Uses RLS-enforcing `createClient` (not service-role); every typed query scoped `org_id`+`project_id`+`problem_id`; evidence-content + topics fetches scoped too. No cross-tenant/project leak. ✓
+- `review_state` filtered via `isVisibleReviewState` (rejected/archived dropped; suggested/accepted/edited kept). ✓
+- Type additions match the §1.7 contract Sonnet consumes (relationship/rationale/review_state/confidence, central_concept/interpretation, provenance-state fields, removed_evidence_count). ✓
+- No schema, no writes, no reviewer route. `tsc` clean. ✓
+
+**→ CODEX: commit this now**, scoped to `problems/page.tsx` + `problems-list.tsx` only (leave `workspace-client.tsx`, `request-access/page.tsx`, `.claude/` alone — those are Sonnet's / unrelated). Committing locks the data layer so Sonnet builds presentation on a clean committed base.
+
+**Coordination (important):** Codex and Sonnet are both editing `problems-list.tsx` in a shared uncommitted tree — that will clobber. Rule: **Codex commits the data layer first; Sonnet pulls that commit, then builds the grouped presentation on top.** Codex's render changes here are minimal compat-plumbing to keep the build green; Sonnet owns the real grouped/styled treatment and replaces that section. Going forward, prefer separate worktrees per agent (like the #25 timeout fix) so we stop sharing one dirty tree.
