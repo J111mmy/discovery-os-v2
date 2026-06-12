@@ -8,6 +8,11 @@ import { updateProblemStatusAction } from "./actions";
 export type ProblemStatus = "surfaced" | "acknowledged" | "active" | "resolved" | "dismissed";
 export type ProblemSeverity = "high" | "medium" | "low";
 export type AnchorMethod = "exact" | "normalised" | "fuzzy" | "speaker" | "fallback_first_segment";
+export type EvidenceRelationship = "supporting" | "contradicting" | "example" | "edge_case" | "provenance";
+export type ThemeRelationship = "primary" | "contributing" | "provenance";
+export type ReviewState = "suggested" | "accepted" | "edited" | "rejected" | "archived";
+export type AnalysisSource = "ai" | "human" | "imported" | "system";
+export type ProvenanceState = "empty" | "assessed" | "legacy_only" | "mixed";
 
 export type ProblemRow = {
   id: string;
@@ -27,6 +32,13 @@ export type ProblemDetail = {
     label: string;
     description: string | null;
     evidence_count: number;
+    central_concept: string | null;
+    interpretation: string | null;
+    relationship: ThemeRelationship;
+    rationale: string | null;
+    review_state: ReviewState;
+    source: AnalysisSource;
+    agent_run_id: string | null;
   }>;
   evidence: Array<{
     id: string;
@@ -43,7 +55,22 @@ export type ProblemDetail = {
     segment_speaker: string | null;
     segment_index: number | null;
     anchor_method: string | null;
+    relationship: EvidenceRelationship;
+    rationale: string | null;
+    review_state: ReviewState;
+    confidence: number | null;
+    source: AnalysisSource;
+    agent_run_id: string | null;
     created_at: string;
+  }>;
+  topics: Array<{
+    id: string;
+    label: string;
+    relationship: ThemeRelationship;
+    rationale: string | null;
+    review_state: ReviewState;
+    source: AnalysisSource;
+    agent_run_id: string | null;
   }>;
   entities: Array<{
     evidence_id: string;
@@ -52,7 +79,10 @@ export type ProblemDetail = {
     relationship: string | null;
   }>;
   unavailable_evidence_count: number;
+  removed_evidence_count: number;
   related_evidence_label: string;
+  evidence_provenance_state: ProvenanceState;
+  theme_provenance_state: ProvenanceState;
 };
 
 interface ProblemsListProps {
@@ -294,7 +324,7 @@ function ProblemEvidenceList({ detail, projectId }: { detail: ProblemDetail; pro
         </p>
       )}
       {rows.map((evidence) => (
-        <article key={evidence.id} className="rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3">
+        <article key={`${evidence.id}:${evidence.relationship}`} className="rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3">
           {evidence.summary && (
             <div className="mb-1 text-sm font-medium text-[var(--ink)]">{evidence.summary}</div>
           )}
@@ -368,7 +398,7 @@ function ProblemDetailDrawer({
       .filter((entity) => entity.entity_type === "competitor")
       .map((entity) => entity.label)
   );
-  const topics = uniqueLabels((detail?.evidence ?? []).flatMap((row) => row.topics));
+  const topics = detail?.topics.map((topic) => topic.label) ?? [];
   const latestEvidenceAt = detail?.evidence
     .map((row) => new Date(row.created_at).getTime())
     .filter(Number.isFinite)
@@ -579,7 +609,7 @@ function ProblemDetailDrawer({
               ) : (
                 <div className="grid gap-2">
                   {detail.themes.map((theme, index) => (
-                    <div key={theme.id} className="rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3">
+                    <div key={`${theme.id}:${theme.relationship}`} className="rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3">
                       <div className="text-[11px] font-medium uppercase tracking-wide text-[var(--ink-faint)]">
                         {index === 0 ? "Primary theme" : "Contributing theme"}
                       </div>

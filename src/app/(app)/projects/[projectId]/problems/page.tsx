@@ -44,8 +44,98 @@ function unique(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
 }
 
-function evidenceCountLabel(count: number) {
-  return `${count} related evidence`;
+type ProblemEvidenceLink = {
+  evidence_id: string;
+  relationship: ProblemDetail["evidence"][number]["relationship"];
+  rationale: string | null;
+  review_state: ProblemDetail["evidence"][number]["review_state"];
+  confidence: number | string | null;
+  source: ProblemDetail["evidence"][number]["source"];
+  agent_run_id: string | null;
+  created_at: string;
+};
+
+type ProblemThemeLink = {
+  theme_id: string;
+  relationship: ProblemDetail["themes"][number]["relationship"];
+  rationale: string | null;
+  review_state: ProblemDetail["themes"][number]["review_state"];
+  source: ProblemDetail["themes"][number]["source"];
+  agent_run_id: string | null;
+  created_at: string;
+};
+
+type ProblemTopicLink = {
+  topic_id: string;
+  relationship: ProblemDetail["topics"][number]["relationship"];
+  rationale: string | null;
+  review_state: ProblemDetail["topics"][number]["review_state"];
+  source: ProblemDetail["topics"][number]["source"];
+  agent_run_id: string | null;
+  created_at: string;
+};
+
+const visibleReviewStates = new Set(["suggested", "accepted", "edited"]);
+
+const evidenceRelationshipOrder: Record<ProblemEvidenceLink["relationship"], number> = {
+  supporting: 0,
+  contradicting: 1,
+  example: 2,
+  edge_case: 3,
+  provenance: 4,
+};
+
+const themeRelationshipOrder: Record<ProblemThemeLink["relationship"], number> = {
+  primary: 0,
+  contributing: 1,
+  provenance: 2,
+};
+
+function isVisibleReviewState(value: string) {
+  return visibleReviewStates.has(value);
+}
+
+function numericConfidence(value: number | string | null) {
+  if (value === null) return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function confidenceRank(value: number | string | null) {
+  const parsed = numericConfidence(value);
+  return parsed === null ? -1 : parsed;
+}
+
+function provenanceState(
+  relationships: string[],
+  provenanceRelationship = "provenance"
+): ProblemDetail["evidence_provenance_state"] {
+  if (relationships.length === 0) return "empty";
+  const hasProvenance = relationships.includes(provenanceRelationship);
+  const hasAssessed = relationships.some((relationship) => relationship !== provenanceRelationship);
+  if (hasProvenance && hasAssessed) return "mixed";
+  if (hasProvenance) return "legacy_only";
+  return "assessed";
+}
+
+function evidenceCountLabel(links: ProblemEvidenceLink[]) {
+  const counts = links.reduce<Record<ProblemEvidenceLink["relationship"], number>>(
+    (acc, link) => {
+      acc[link.relationship] += 1;
+      return acc;
+    },
+    { supporting: 0, contradicting: 0, example: 0, edge_case: 0, provenance: 0 }
+  );
+
+  const parts = [
+    counts.supporting > 0 ? `${counts.supporting} supporting` : null,
+    counts.contradicting > 0 ? `${counts.contradicting} contradicting` : null,
+    counts.example > 0 ? `${counts.example} examples` : null,
+    counts.edge_case > 0 ? `${counts.edge_case} edge cases` : null,
+    counts.provenance > 0 ? `${counts.provenance} unassessed` : null,
+  ].filter(Boolean);
+
+  return parts.length > 0 ? parts.join(" · ") : "0 evidence";
 }
 
 async function getProblemDetail(input: {
@@ -55,14 +145,66 @@ async function getProblemDetail(input: {
   problem: ProblemRow;
 }): Promise<ProblemDetail> {
   const { supabase, orgId, projectId, problem } = input;
-  const evidenceIds = asStringArray(problem.source_evidence_ids);
-  const themeIds = asStringArray(problem.source_theme_ids);
 
-  const [themesResult, evidenceResult] = await Promise.all([
+  const [problemEvidenceResult, problemThemesResult, problemTopicsResult] = await Promise.all([
+    supabase
+      .from("problem_evidence")
+      .select("evidence_id, relationship, rationale, review_state, confidence, source, agent_run_id, created_at")
+      .eq("org_id", orgId)
+      .eq("project_id", projectId)
+      .eq("problem_id", problem.id),
+    supabase
+      .from("problem_themes")
+      .select("theme_id, relationship, rationale, review_state, source, agent_run_id, created_at")
+      .eq("org_id", orgId)
+      .eq("project_id", projectId)
+      .eq("problem_id", problem.id),
+    supabase
+      .from("problem_topics")
+      .select("topic_id, relationship, rationale, review_state, source, agent_run_id, created_at")
+      .eq("org_id", orgId)
+      .eq("project_id", projectId)
+      .eq("problem_id", problem.id),
+  ]);
+
+  if (problemEvidenceResult.error) throw new Error("Failed to load problem evidence links");
+  if (problemThemesResult.error) throw new Error("Failed to load problem theme links");
+  if (problemTopicsResult.error) throw new Error("Failed to load problem topic links");
+
+  const allEvidenceLinks = (problemEvidenceResult.data ?? []) as ProblemEvidenceLink[];
+  const allThemeLinks = (problemThemesResult.data ?? []) as ProblemThemeLink[];
+  const allTopicLinks = (problemTopicsResult.data ?? []) as ProblemTopicLink[];
+  const visibleEvidenceLinks = allEvidenceLinks
+    .filter((link) => isVisibleReviewState(link.review_state))
+    .sort((a, b) => {
+      const relationshipDelta =
+        evidenceRelationshipOrder[a.relationship] - evidenceRelationshipOrder[b.relationship];
+      if (relationshipDelta !== 0) return relationshipDelta;
+      const confidenceDelta = confidenceRank(b.confidence) - confidenceRank(a.confidence);
+      if (confidenceDelta !== 0) return confidenceDelta;
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    });
+  const visibleThemeLinks = allThemeLinks
+    .filter((link) => isVisibleReviewState(link.review_state))
+    .sort((a, b) => {
+      const relationshipDelta =
+        themeRelationshipOrder[a.relationship] - themeRelationshipOrder[b.relationship];
+      if (relationshipDelta !== 0) return relationshipDelta;
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    });
+  const visibleTopicLinks = allTopicLinks
+    .filter((link) => isVisibleReviewState(link.review_state))
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+  const evidenceIds = unique(visibleEvidenceLinks.map((link) => link.evidence_id));
+  const themeIds = unique(visibleThemeLinks.map((link) => link.theme_id));
+  const topicIds = unique(visibleTopicLinks.map((link) => link.topic_id));
+
+  const [themesResult, evidenceResult, topicsResult] = await Promise.all([
     themeIds.length > 0
       ? supabase
           .from("themes")
-          .select("id, label, description, evidence_count")
+          .select("id, label, description, evidence_count, central_concept, interpretation")
           .eq("org_id", orgId)
           .eq("project_id", projectId)
           .in("id", themeIds)
@@ -77,10 +219,19 @@ async function getProblemDetail(input: {
           .eq("project_id", projectId)
           .in("id", evidenceIds)
       : Promise.resolve({ data: [], error: null }),
+    topicIds.length > 0
+      ? supabase
+          .from("topics")
+          .select("id, label")
+          .eq("org_id", orgId)
+          .eq("project_id", projectId)
+          .in("id", topicIds)
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (themesResult.error) throw new Error("Failed to load problem themes");
   if (evidenceResult.error) throw new Error("Failed to load problem evidence");
+  if (topicsResult.error) throw new Error("Failed to load problem topics");
 
   const relatedEvidence = (evidenceResult.data ?? []) as Array<{
     id: string;
@@ -94,6 +245,18 @@ async function getProblemDetail(input: {
     created_at: string;
     classification: string | null;
     sentiment: string | null;
+  }>;
+  const themes = (themesResult.data ?? []) as Array<{
+    id: string;
+    label: string;
+    description: string | null;
+    evidence_count: number;
+    central_concept: string | null;
+    interpretation: string | null;
+  }>;
+  const topics = (topicsResult.data ?? []) as Array<{
+    id: string;
+    label: string;
   }>;
   const sourceIds = unique(relatedEvidence.map((row) => row.source_id));
   const segmentIds = unique(relatedEvidence.map((row) => row.segment_id));
@@ -173,10 +336,12 @@ async function getProblemDetail(input: {
 
   const sourceById = new Map(sources.map((source) => [source.id, source]));
   const segmentById = new Map(segments.map((segment) => [segment.id, segment]));
+  const evidenceById = new Map(relatedEvidence.map((row) => [row.id, row]));
+  const themeById = new Map(themes.map((theme) => [theme.id, theme]));
+  const topicById = new Map(topics.map((topic) => [topic.id, topic]));
   const peopleById = new Map(((peopleResult.data ?? []) as Array<{ id: string; name: string }>).map((person) => [person.id, person.name]));
   const companiesById = new Map(((companiesResult.data ?? []) as Array<{ id: string; name: string }>).map((company) => [company.id, company.name]));
   const competitorsById = new Map(((competitorsResult.data ?? []) as Array<{ id: string; name: string }>).map((competitor) => [competitor.id, competitor.name]));
-  const evidenceOrder = new Map(evidenceIds.map((id, index) => [id, index]));
 
   return {
     problem: {
@@ -184,11 +349,29 @@ async function getProblemDetail(input: {
       source_evidence_ids: evidenceIds,
       source_theme_ids: themeIds,
     },
-    themes: ((themesResult.data ?? []) as ProblemDetail["themes"]).sort(
-      (a, b) => themeIds.indexOf(a.id) - themeIds.indexOf(b.id)
-    ),
-    evidence: relatedEvidence
-      .map((row) => {
+    themes: visibleThemeLinks
+      .map((link) => {
+        const theme = themeById.get(link.theme_id);
+        if (!theme) return null;
+        return {
+          id: theme.id,
+          label: theme.label,
+          description: theme.description,
+          evidence_count: theme.evidence_count,
+          central_concept: theme.central_concept,
+          interpretation: theme.interpretation,
+          relationship: link.relationship,
+          rationale: link.rationale,
+          review_state: link.review_state,
+          source: link.source,
+          agent_run_id: link.agent_run_id,
+        };
+      })
+      .filter((theme): theme is ProblemDetail["themes"][number] => Boolean(theme)),
+    evidence: visibleEvidenceLinks
+      .map((link) => {
+        const row = evidenceById.get(link.evidence_id);
+        if (!row) return null;
         const source = sourceById.get(row.source_id) ?? null;
         const segment = row.segment_id ? segmentById.get(row.segment_id) ?? null : null;
         const metadata = metadataObject(row.metadata);
@@ -207,10 +390,31 @@ async function getProblemDetail(input: {
           segment_speaker: segment?.speaker ?? null,
           segment_index: segment?.segment_index ?? null,
           anchor_method: typeof metadata.anchor_method === "string" ? metadata.anchor_method : null,
+          relationship: link.relationship,
+          rationale: link.rationale,
+          review_state: link.review_state,
+          confidence: numericConfidence(link.confidence),
+          source: link.source,
+          agent_run_id: link.agent_run_id,
           created_at: row.created_at,
         };
       })
-      .sort((a, b) => (evidenceOrder.get(a.id) ?? 0) - (evidenceOrder.get(b.id) ?? 0)),
+      .filter((row): row is ProblemDetail["evidence"][number] => Boolean(row)),
+    topics: visibleTopicLinks
+      .map((link) => {
+        const topic = topicById.get(link.topic_id);
+        if (!topic) return null;
+        return {
+          id: topic.id,
+          label: topic.label,
+          relationship: link.relationship,
+          rationale: link.rationale,
+          review_state: link.review_state,
+          source: link.source,
+          agent_run_id: link.agent_run_id,
+        };
+      })
+      .filter((topic): topic is ProblemDetail["topics"][number] => Boolean(topic)),
     entities: entities.map((entity) => ({
       evidence_id: entity.evidence_id,
       entity_type: entity.entity_type,
@@ -221,8 +425,11 @@ async function getProblemDetail(input: {
         entity.label,
       relationship: entity.relationship,
     })),
-    unavailable_evidence_count: Math.max(0, evidenceIds.length - relatedEvidence.length),
-    related_evidence_label: evidenceCountLabel(evidenceIds.length),
+    unavailable_evidence_count: Math.max(0, visibleEvidenceLinks.length - relatedEvidence.length),
+    removed_evidence_count: allEvidenceLinks.length - visibleEvidenceLinks.length,
+    related_evidence_label: evidenceCountLabel(visibleEvidenceLinks),
+    evidence_provenance_state: provenanceState(visibleEvidenceLinks.map((link) => link.relationship)),
+    theme_provenance_state: provenanceState(visibleThemeLinks.map((link) => link.relationship)),
   };
 }
 
