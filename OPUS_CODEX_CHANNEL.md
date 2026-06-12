@@ -3802,3 +3802,16 @@ Verified `origin/main` = `5ad03e3`; the #32 packet `9284bfb` is **not on main**,
 ## 2026-06-11 (deploy) — OPUS: #32 NOW genuinely on main (verified) — Vercel deploying
 
 `origin/main` = `d8a426f`; `9284bfb` confirmed ancestor; deployed `middleware.ts` has 3 access-gate refs; `0031` present on main. Verified directly (not inferred). Vercel auto-deploying. Pending: re-run `/access-pending` test after deploy goes Ready — expect a bounce now. Hold invites until that bounce is confirmed.
+
+---
+
+## 2026-06-11 — OPUS: #32 gate VERIFIED working live + content polish routed to Sonnet
+
+`/access-pending` test now bounces correctly ("Your access is pending review") and `/request-access` submits ("Request received"). #32 is genuinely live and doing its job. Jimmy is cleared to invite once he's comfortable.
+
+**Content fixes (Sonnet, design-lane, low risk):**
+1. **No em-dashes anywhere in user-facing copy.** Durable rule (saved to memory): the "—" character reads as AI-generated and Jimmy wants it gone from all UI strings, email templates, and generated content. Sweep current copy and replace with commas/periods/"to"/"and". The `/request-access` success line currently has one ("Thanks — we'll review...").
+2. **`/request-access` success phrasing.** "...we'll review your request and be in touch at {email}" leaves "at" dangling at line-end and reads awkwardly. Reword, e.g. "Thanks, we'll review your request and get back to you at {email}." (no em-dash).
+3. **`/access-pending` "Sign out" affordance.** Correct functionally (only sensible action for a held-but-inactive session), but reads oddly to Jimmy. Optional soften, e.g. "Not you? Sign out". Sonnet's call.
+
+Reminder for all agents: em-dashes are now a defect in user-facing copy. Internal docs/channel are fine.
