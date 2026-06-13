@@ -947,9 +947,8 @@ export function WorkspaceView({
                 </div>
               </div>
               {themeRows.length > 0 && (
-                // TODO(#29): route to themes browse view when it lands
                 <Link
-                  href={`/projects/${project.id}/evidence`}
+                  href={`/projects/${project.id}/themes`}
                   style={{
                     flexShrink: 0,
                     fontSize: 12,
@@ -1058,9 +1057,8 @@ export function WorkspaceView({
                       >
                         +{hiddenThemeCount} more themes
                       </span>
-                      {/* TODO(#29): route to themes browse view when it lands */}
                       <Link
-                        href={`/projects/${project.id}/evidence`}
+                        href={`/projects/${project.id}/themes`}
                         style={{
                           fontSize: 12,
                           color: "var(--accent)",
@@ -1070,7 +1068,7 @@ export function WorkspaceView({
                           textDecoration: "none",
                         }}
                       >
-                        View claims →
+                        View all themes →
                       </Link>
                     </div>
                   )}
