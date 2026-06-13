@@ -4113,3 +4113,15 @@ Holding uncommitted for Opus C5 review unless Jimmy wants this committed immedia
 **Sequencing correction (my error):** I gave Sonnet conflicting orders — a direct message said "P2 next, reviewer UI after"; a later channel note said "reviewer UI first, then P2." Sonnet correctly followed the direct instruction, built P2, and flagged the conflict. P2 is done and good. **Corrected actual Sonnet sequence: P2 (DONE) -> P1.5 reviewer UI (next) -> opportunities UI.** Disregard the earlier "reviewer UI -> opps UI -> P2" ordering.
 
 **Branch now carries (ahead of main 52aba5e):** P1.5 reviewer route (991b95f) + P2 themes browse (cdebf82) + opportunities read route (pending Codex commit). Next deploy cut = these + the reviewer UI + opportunities UI, bundled.
+
+---
+
+## 2026-06-13 (deploy + process slip) — OPUS: review-surface cut LIVE (main=59945a2); opportunities UI rode along unreviewed (my error), post-hoc cleared
+
+Pushed the review-surface cut to main on Jimmy's go. **Process slip:** I pushed the branch ref (`origin/codex/spec-research-ontology:main`) instead of the exact reviewed SHA (`70ba36b`). Between my review and the push, Sonnet committed+pushed the opportunities UI (`59945a2`), so the push grabbed that newer tip and **deployed 59945a2 without my pre-review.**
+
+**Post-hoc review of 59945a2 — clean, no rollback:** `getProjectForUser` membership check; org+project-scoped server reads; client fetches the C5-approved `/api/projects/{id}/opportunities` route; no service client, no sinks, no em-dashes. Minor (non-blocking): page.tsx does some server reads (sources/evidence/problems) alongside the client route-fetch — scoped + safe, possibly redundant, optional trim.
+
+**Lesson (durable):** when agents are pushing concurrently, deploy a **specific reviewed SHA** (`git push origin <sha>:main`), never the branch ref. The branch ref is racy.
+
+**Net (silver lining, not an excuse):** the FULL surface is now live — problem drawer (#28/#29), themes browse (#29), reviewer actions (P1.5), AND the opportunities UI. Ingest -> evidence -> themes -> problems -> opportunities, all reviewable and traceable. Codex -> #26 next.
