@@ -365,6 +365,8 @@ function TeaserCard({
                 />
                 <span
                   style={{
+                    flex: "1 1 auto",
+                    minWidth: 0,
                     overflow: "hidden",
                     whiteSpace: "nowrap",
                     textOverflow: "ellipsis",
@@ -383,6 +385,7 @@ function TeaserCard({
               color: "var(--ink-3)",
               lineHeight: 1.4,
               textDecoration: "none",
+              minWidth: 0,
             };
 
             return item.href ? (
