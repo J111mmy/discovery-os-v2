@@ -133,7 +133,7 @@ export default function RequestAccessPage() {
           <div className="text-center">
             <h1 className="text-lg font-semibold text-[var(--ink)] mb-2">Request received</h1>
             <p className="text-[var(--ink-2)] text-sm leading-6">
-              Thanks — we&apos;ll review your request and be in touch at <strong>{email}</strong>.
+              Thanks, we&apos;ll review your request and get back to you at <strong>{email}</strong>.
             </p>
             <Link
               href="/login"

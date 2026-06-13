@@ -118,26 +118,6 @@ function provenanceState(
   return "assessed";
 }
 
-function evidenceCountLabel(links: ProblemEvidenceLink[]) {
-  const counts = links.reduce<Record<ProblemEvidenceLink["relationship"], number>>(
-    (acc, link) => {
-      acc[link.relationship] += 1;
-      return acc;
-    },
-    { supporting: 0, contradicting: 0, example: 0, edge_case: 0, provenance: 0 }
-  );
-
-  const parts = [
-    counts.supporting > 0 ? `${counts.supporting} supporting` : null,
-    counts.contradicting > 0 ? `${counts.contradicting} contradicting` : null,
-    counts.example > 0 ? `${counts.example} examples` : null,
-    counts.edge_case > 0 ? `${counts.edge_case} edge cases` : null,
-    counts.provenance > 0 ? `${counts.provenance} unassessed` : null,
-  ].filter(Boolean);
-
-  return parts.length > 0 ? parts.join(" · ") : "0 evidence";
-}
-
 async function getProblemDetail(input: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   orgId: string;
@@ -425,9 +405,7 @@ async function getProblemDetail(input: {
         entity.label,
       relationship: entity.relationship,
     })),
-    unavailable_evidence_count: Math.max(0, visibleEvidenceLinks.length - relatedEvidence.length),
     removed_evidence_count: allEvidenceLinks.length - visibleEvidenceLinks.length,
-    related_evidence_label: evidenceCountLabel(visibleEvidenceLinks),
     evidence_provenance_state: provenanceState(visibleEvidenceLinks.map((link) => link.relationship)),
     theme_provenance_state: provenanceState(visibleThemeLinks.map((link) => link.relationship)),
   };

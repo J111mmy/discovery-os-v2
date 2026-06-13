@@ -278,80 +278,80 @@ function TeaserCard({
   label: string;
   count: number;
   color: string;
-  items: string[];
+  items: Array<string | { label: string; href?: string }>;
   href: string;
 }) {
   const [hovered, setHovered] = useState(false);
 
+  const normalizedItems = items.map((item) =>
+    typeof item === "string" ? { label: item, href: undefined as string | undefined } : item
+  );
+
+  // Items can carry their own deep-link (e.g. a specific problem). When they do, we
+  // can't wrap the whole card in a single <Link> (no nested <a>s), so the header and
+  // "View all" row become their own links to `href`, and per-item rows link to
+  // `item.href` when present.
   return (
-    <Link href={href} style={{ textDecoration: "none", display: "block" }}>
-      <div
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        background: "var(--surface)",
+        border: `1px solid ${hovered ? "var(--line-strong)" : "var(--line)"}`,
+        borderRadius: "var(--r-lg)",
+        overflow: "hidden",
+        transform: hovered ? "translateY(-2px)" : "none",
+        transition: "transform .12s, border-color .15s",
+        height: "100%",
+      }}
+    >
+      {/* Header */}
+      <Link
+        href={href}
         style={{
-          background: "var(--surface)",
-          border: `1px solid ${hovered ? "var(--line-strong)" : "var(--line)"}`,
-          borderRadius: "var(--r-lg)",
-          overflow: "hidden",
-          transform: hovered ? "translateY(-2px)" : "none",
-          transition: "transform .12s, border-color .15s",
-          height: "100%",
+          padding: "14px 16px 10px",
+          borderBottom: "1px solid var(--line)",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          textDecoration: "none",
         }}
       >
-        {/* Header */}
-        <div
+        <span
           style={{
-            padding: "14px 16px 10px",
-            borderBottom: "1px solid var(--line)",
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
+            fontWeight: 620,
+            fontSize: 13.5,
+            color: "var(--ink)",
+            flex: 1,
           }}
         >
-          <span
-            style={{
-              fontWeight: 620,
-              fontSize: 13.5,
-              color: "var(--ink)",
-              flex: 1,
-            }}
-          >
-            {label}
-          </span>
-          <span
-            style={{
-              fontSize: 18,
-              fontWeight: 700,
-              letterSpacing: "-0.02em",
-              color,
-            }}
-          >
-            {count}
-          </span>
-        </div>
+          {label}
+        </span>
+        <span
+          style={{
+            fontSize: 18,
+            fontWeight: 700,
+            letterSpacing: "-0.02em",
+            color,
+          }}
+        >
+          {count}
+        </span>
+      </Link>
 
-        {/* Item list */}
-        <div
-          style={{
-            padding: "10px 16px 14px",
-            display: "flex",
-            flexDirection: "column",
-            gap: 6,
-          }}
-        >
-          {items.length > 0 ? (
-            items.slice(0, 3).map((item, i) => (
-              <div
-                key={i}
-                style={{
-                  display: "flex",
-                  alignItems: "flex-start",
-                  gap: 7,
-                  fontSize: 12.5,
-                  color: "var(--ink-3)",
-                  lineHeight: 1.4,
-                }}
-              >
+      {/* Item list */}
+      <div
+        style={{
+          padding: "10px 16px 14px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+        }}
+      >
+        {normalizedItems.length > 0 ? (
+          normalizedItems.slice(0, 3).map((item, i) => {
+            const rowContent = (
+              <>
                 <span
                   style={{
                     width: 5,
@@ -370,46 +370,68 @@ function TeaserCard({
                     textOverflow: "ellipsis",
                   }}
                 >
-                  {item}
+                  {item.label}
                 </span>
-              </div>
-            ))
-          ) : (
-            <div style={{ fontSize: 12.5, color: "var(--ink-faint)" }}>
-              Nothing here yet.
-            </div>
-          )}
+              </>
+            );
 
-          {/* View all row */}
-          <div
-            style={{
-              marginTop: 4,
+            const rowStyle: React.CSSProperties = {
               display: "flex",
-              alignItems: "center",
-              gap: 5,
-              fontSize: 12,
-              color,
-              fontWeight: 580,
-            }}
-          >
-            <span>View all</span>
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <path d="M6 12l4-4-4-4" />
-            </svg>
+              alignItems: "flex-start",
+              gap: 7,
+              fontSize: 12.5,
+              color: "var(--ink-3)",
+              lineHeight: 1.4,
+              textDecoration: "none",
+            };
+
+            return item.href ? (
+              <Link key={i} href={item.href} style={rowStyle}>
+                {rowContent}
+              </Link>
+            ) : (
+              <div key={i} style={rowStyle}>
+                {rowContent}
+              </div>
+            );
+          })
+        ) : (
+          <div style={{ fontSize: 12.5, color: "var(--ink-faint)" }}>
+            Nothing here yet.
           </div>
-        </div>
+        )}
+
+        {/* View all row */}
+        <Link
+          href={href}
+          style={{
+            marginTop: 4,
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            fontSize: 12,
+            color,
+            fontWeight: 580,
+            textDecoration: "none",
+          }}
+        >
+          <span>View all</span>
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M6 12l4-4-4-4" />
+          </svg>
+        </Link>
       </div>
-    </Link>
+    </div>
   );
 }
 
@@ -915,6 +937,7 @@ export function WorkspaceView({
                 </div>
               </div>
               {themeRows.length > 0 && (
+                // TODO(#29): route to themes browse view when it lands
                 <Link
                   href={`/projects/${project.id}/evidence`}
                   style={{
@@ -1025,6 +1048,7 @@ export function WorkspaceView({
                       >
                         +{hiddenThemeCount} more themes
                       </span>
+                      {/* TODO(#29): route to themes browse view when it lands */}
                       <Link
                         href={`/projects/${project.id}/evidence`}
                         style={{
@@ -1062,7 +1086,10 @@ export function WorkspaceView({
             label="Problems"
             count={problemCount}
             color="var(--neg)"
-            items={problemPreviews.map((p) => p.title)}
+            items={problemPreviews.map((p) => ({
+              label: p.title,
+              href: `/projects/${project.id}/problems?problem=${p.id}`,
+            }))}
             href={`/projects/${project.id}/problems`}
           />
           <TeaserCard
@@ -1073,17 +1100,17 @@ export function WorkspaceView({
             href={`/projects/${project.id}/sources`}
           />
           <TeaserCard
-            label="Opportunities"
+            label="Suggested workspaces"
             count={opportunityRows.length}
             color="var(--info)"
             items={opportunityRows.map((o) => o.title)}
-            href={`/projects/${project.id}/evidence`}
+            href="#opportunities"
           />
         </div>
 
         {/* ── Opportunity detail rows (actions: create / watch / dismiss) ── */}
         {opportunityRows.length > 0 && (
-          <div style={cardStyle}>
+          <div id="opportunities" style={cardStyle}>
             <div
               style={{
                 padding: "14px 20px",
@@ -1096,7 +1123,7 @@ export function WorkspaceView({
             >
               <div>
                 <div style={{ fontWeight: 620, fontSize: 14, color: "var(--ink)" }}>
-                  Signals for new workspaces
+                  Suggested workspaces
                 </div>
                 <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 2 }}>
                   Evidence pointing at adjacent discovery areas

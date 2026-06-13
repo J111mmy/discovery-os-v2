@@ -78,9 +78,7 @@ export type ProblemDetail = {
     label: string;
     relationship: string | null;
   }>;
-  unavailable_evidence_count: number;
   removed_evidence_count: number;
-  related_evidence_label: string;
   evidence_provenance_state: ProvenanceState;
   theme_provenance_state: ProvenanceState;
 };
@@ -179,6 +177,75 @@ function trustLabel(scope: string) {
   if (scope === "excluded") return "Excluded";
   if (scope === "disputed") return "Disputed";
   return "Pending";
+}
+
+function evidenceCountSummary(evidence: ProblemDetail["evidence"]) {
+  const counts = evidence.reduce<Record<EvidenceRelationship, number>>(
+    (acc, row) => {
+      acc[row.relationship] += 1;
+      return acc;
+    },
+    { supporting: 0, contradicting: 0, example: 0, edge_case: 0, provenance: 0 }
+  );
+
+  const parts = [
+    counts.supporting > 0 ? `${counts.supporting} supporting` : null,
+    counts.contradicting > 0 ? `${counts.contradicting} contradicting` : null,
+    counts.example > 0 ? `${counts.example} examples` : null,
+    counts.edge_case > 0 ? `${counts.edge_case} edge cases` : null,
+    counts.provenance > 0 ? `${counts.provenance} unassessed` : null,
+  ].filter(Boolean);
+
+  return parts.length > 0 ? parts.join(" · ") : "0 evidence";
+}
+
+const evidenceRelationshipBadge: Record<EvidenceRelationship, { label: string; className: string }> = {
+  supporting: { label: "Supports", className: "border-pos/25 bg-pos-bg text-pos" },
+  contradicting: { label: "Contradicts", className: "border-info/25 bg-info-bg text-info" },
+  example: { label: "Example", className: "border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink-2)]" },
+  edge_case: { label: "Edge case", className: "border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink-2)]" },
+  provenance: {
+    label: "Unassessed",
+    className: "border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink-faint)]",
+  },
+};
+
+const themeRelationshipLabel: Record<ThemeRelationship, string> = {
+  primary: "Primary theme",
+  contributing: "Contributing theme",
+  provenance: "Linked theme (unassessed)",
+};
+
+const legacyProvenanceExplainer =
+  "This problem was identified before evidence-grounded review. The links below come from the original theme analysis and haven't been individually checked against this specific problem.";
+
+function RelationshipBadge({ relationship }: { relationship: EvidenceRelationship }) {
+  const config = evidenceRelationshipBadge[relationship];
+  return (
+    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${config.className}`}>
+      {config.label}
+    </span>
+  );
+}
+
+function ReviewStateBadge({ reviewState }: { reviewState: ReviewState }) {
+  if (reviewState === "suggested") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-warn">
+        <span className="h-1.5 w-1.5 rounded-full bg-warn" aria-hidden />
+        Needs review
+      </span>
+    );
+  }
+  if (reviewState === "edited") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-info">
+        <span className="h-1.5 w-1.5 rounded-full bg-info" aria-hidden />
+        Edited by reviewer
+      </span>
+    );
+  }
+  return null;
 }
 
 function SeverityPill({ severity }: { severity: ProblemSeverity }) {
@@ -302,63 +369,96 @@ function EvidenceLink({
   );
 }
 
-function ProblemEvidenceList({ detail, projectId }: { detail: ProblemDetail; projectId: string }) {
-  const [showAll, setShowAll] = useState(false);
-  const rows = showAll ? detail.evidence : detail.evidence.slice(0, 5);
+function EvidenceCard({
+  projectId,
+  evidence,
+}: {
+  projectId: string;
+  evidence: ProblemDetail["evidence"][number];
+}) {
+  return (
+    <article className="rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <RelationshipBadge relationship={evidence.relationship} />
+        <ReviewStateBadge reviewState={evidence.review_state} />
+      </div>
+      {evidence.rationale && (
+        <p className="mb-2 text-xs italic leading-5 text-[var(--ink-2)]">Why linked: {evidence.rationale}</p>
+      )}
+      {evidence.summary && (
+        <div className="mb-1 text-sm font-medium text-[var(--ink)]">{evidence.summary}</div>
+      )}
+      <p className="line-clamp-3 text-sm leading-6 text-[var(--ink)]">{evidence.content}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {evidence.topics.slice(0, 3).map((topic) => (
+          <Chip key={topic}>{topic}</Chip>
+        ))}
+        <span className="rounded-full border border-[var(--line)] bg-[var(--surface-2)] px-2 py-0.5 text-xs font-medium text-[var(--ink-2)]">
+          {trustLabel(evidence.trust_scope)}
+        </span>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[var(--ink-2)]">
+        {evidence.source_type && <span>{sourceTypeLabel(evidence.source_type)}</span>}
+        {evidence.segment_speaker && (
+          <>
+            <span className="text-[var(--ink-faint)]">/</span>
+            <span>{evidence.segment_speaker}</span>
+          </>
+        )}
+        <span className="flex-1" />
+        <EvidenceLink projectId={projectId} evidence={evidence} />
+      </div>
+    </article>
+  );
+}
 
+const evidenceGroupDefs: Array<{ relationships: EvidenceRelationship[]; title: string }> = [
+  { relationships: ["supporting"], title: "Supporting evidence" },
+  { relationships: ["contradicting"], title: "Contradicting evidence" },
+  { relationships: ["example", "edge_case"], title: "Examples and edge cases" },
+  { relationships: ["provenance"], title: "Linked, not yet individually assessed" },
+];
+
+function RelationshipEvidenceList({ detail, projectId }: { detail: ProblemDetail; projectId: string }) {
   if (detail.evidence.length === 0) {
-    return (
-      <p className="text-sm text-[var(--ink-2)]">
-        {detail.unavailable_evidence_count > 0
-          ? "This problem has evidence links, but some records are unavailable."
-          : "No related evidence yet."}
-      </p>
-    );
+    return <p className="text-sm text-[var(--ink-2)]">No evidence linked to this problem yet.</p>;
   }
 
   return (
-    <div className="grid gap-3">
-      {detail.unavailable_evidence_count > 0 && (
-        <p className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--ink-2)]">
-          This problem has evidence links, but some records are unavailable.
-        </p>
-      )}
-      {rows.map((evidence) => (
-        <article key={`${evidence.id}:${evidence.relationship}`} className="rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3">
-          {evidence.summary && (
-            <div className="mb-1 text-sm font-medium text-[var(--ink)]">{evidence.summary}</div>
-          )}
-          <p className="line-clamp-3 text-sm leading-6 text-[var(--ink)]">{evidence.content}</p>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {evidence.topics.slice(0, 3).map((topic) => (
-              <Chip key={topic}>{topic}</Chip>
-            ))}
-            <span className="rounded-full border border-[var(--line)] bg-[var(--surface-2)] px-2 py-0.5 text-xs font-medium text-[var(--ink-2)]">
-              {trustLabel(evidence.trust_scope)}
-            </span>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[var(--ink-2)]">
-            {evidence.source_type && <span>{sourceTypeLabel(evidence.source_type)}</span>}
-            {evidence.segment_speaker && (
-              <>
-                <span className="text-[var(--ink-faint)]">/</span>
-                <span>{evidence.segment_speaker}</span>
-              </>
+    <div className="grid gap-5">
+      {evidenceGroupDefs.map((group) => {
+        const rows = detail.evidence.filter((row) => group.relationships.includes(row.relationship));
+        if (rows.length === 0) return null;
+
+        const isProvenanceGroup = group.relationships[0] === "provenance";
+        const isContradictingGroup = group.relationships[0] === "contradicting";
+
+        return (
+          <div key={group.title} className="grid gap-2">
+            <div className="text-[11px] font-medium uppercase tracking-wide text-[var(--ink-faint)]">
+              {group.title}
+            </div>
+            {isProvenanceGroup && detail.evidence_provenance_state === "legacy_only" && (
+              <p className="text-xs leading-5 text-[var(--ink-2)]">{legacyProvenanceExplainer}</p>
             )}
-            <span className="flex-1" />
-            <EvidenceLink projectId={projectId} evidence={evidence} />
+            {isContradictingGroup && (
+              <p className="text-xs leading-5 text-[var(--ink-2)]">
+                The agent also found evidence that complicates or pushes back on this problem, shown
+                here for your review, not hidden.
+              </p>
+            )}
+            <div className="grid gap-3">
+              {rows.map((evidence) => (
+                <EvidenceCard
+                  key={`${evidence.id}:${evidence.relationship}`}
+                  projectId={projectId}
+                  evidence={evidence}
+                />
+              ))}
+            </div>
           </div>
-        </article>
-      ))}
-      {detail.evidence.length > 5 && (
-        <button
-          type="button"
-          onClick={() => setShowAll((value) => !value)}
-          className="w-fit rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-medium text-[var(--ink-2)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
-        >
-          {showAll ? "Show fewer" : `Show all ${detail.evidence.length} related evidence`}
-        </button>
-      )}
+        );
+      })}
     </div>
   );
 }
@@ -398,7 +498,6 @@ function ProblemDetailDrawer({
       .filter((entity) => entity.entity_type === "competitor")
       .map((entity) => entity.label)
   );
-  const topics = detail?.topics.map((topic) => topic.label) ?? [];
   const latestEvidenceAt = detail?.evidence
     .map((row) => new Date(row.created_at).getTime())
     .filter(Number.isFinite)
@@ -413,6 +512,13 @@ function ProblemDetailDrawer({
     }
     if (latestEvidenceAt && Date.now() - latestEvidenceAt > 30 * 24 * 60 * 60 * 1000) {
       items.push("Most related evidence is from over a month ago.");
+    }
+    if (detail.removed_evidence_count > 0) {
+      items.push(
+        detail.removed_evidence_count === 1
+          ? "1 evidence link was reviewed and removed."
+          : `${detail.removed_evidence_count} evidence links were reviewed and removed.`
+      );
     }
     return items;
   }, [detail, latestEvidenceAt]);
@@ -507,7 +613,7 @@ function ProblemDetailDrawer({
                 {problem.title}
               </h2>
               <p className="mt-2 text-xs text-[var(--ink-faint)]">
-                Updated {formatRelativeDate(problem.created_at)} · {detail.related_evidence_label}
+                Updated {formatRelativeDate(problem.created_at)} · {evidenceCountSummary(detail.evidence)}
               </p>
               {availableTransitions.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-2">
@@ -590,16 +696,8 @@ function ProblemDetailDrawer({
             </section>
 
             <section>
-              <div className="mb-3 flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-[var(--ink)]">Related evidence (via themes)</h3>
-                <span
-                  className="rounded-full border border-[var(--line)] px-1.5 text-[11px] text-[var(--ink-2)]"
-                  title="Evidence linked through this problem's themes. Not yet individually reviewed against this specific problem."
-                >
-                  i
-                </span>
-              </div>
-              <ProblemEvidenceList detail={detail} projectId={projectId} />
+              <h3 className="mb-3 text-sm font-semibold text-[var(--ink)]">Evidence</h3>
+              <RelationshipEvidenceList detail={detail} projectId={projectId} />
             </section>
 
             <section>
@@ -608,25 +706,40 @@ function ProblemDetailDrawer({
                 <p className="text-sm text-[var(--ink-2)]">No themes linked yet.</p>
               ) : (
                 <div className="grid gap-2">
-                  {detail.themes.map((theme, index) => (
-                    <div key={`${theme.id}:${theme.relationship}`} className="rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3">
+                  {detail.theme_provenance_state === "legacy_only" && (
+                    <p className="text-xs leading-5 text-[var(--ink-2)]">{legacyProvenanceExplainer}</p>
+                  )}
+                  {detail.themes.map((theme) => (
+                    <Link
+                      key={`${theme.id}:${theme.relationship}`}
+                      href={`/projects/${projectId}/evidence?theme_id=${theme.id}`}
+                      className="block rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3 transition-colors hover:border-[var(--accent)]/40"
+                    >
                       <div className="text-[11px] font-medium uppercase tracking-wide text-[var(--ink-faint)]">
-                        {index === 0 ? "Primary theme" : "Contributing theme"}
+                        {themeRelationshipLabel[theme.relationship]}
                       </div>
                       <div className="mt-1 text-sm font-medium text-[var(--ink)]">{theme.label}</div>
+                      {theme.central_concept && (
+                        <p className="mt-1 text-xs leading-5 text-[var(--ink-2)]">{theme.central_concept}</p>
+                      )}
+                      {theme.interpretation && (
+                        <p className="mt-1 text-xs italic leading-5 text-[var(--ink-2)]">{theme.interpretation}</p>
+                      )}
                       {theme.description && (
                         <p className="mt-1 text-xs leading-5 text-[var(--ink-2)]">{theme.description}</p>
                       )}
-                    </div>
+                    </Link>
                   ))}
                 </div>
               )}
-              {topics.length > 0 && (
+              {detail.topics.length > 0 && (
                 <div className="mt-3">
                   <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-[var(--ink-faint)]">
-                    Provenance topics
+                    Topics
                   </div>
-                  <div className="flex flex-wrap gap-2">{topics.map((topic) => <Chip key={topic}>{topic}</Chip>)}</div>
+                  <div className="flex flex-wrap gap-2">
+                    {detail.topics.map((topic) => <Chip key={topic.id}>{topic.label}</Chip>)}
+                  </div>
                 </div>
               )}
             </section>
