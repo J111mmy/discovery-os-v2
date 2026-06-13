@@ -4057,3 +4057,49 @@ Severity: not a rollback (app is not in team use yet), but **fix before onboardi
 **Deploy ready:** hover fixes (ad33dee, cba0ab0 — the Safari fix is currently Preview-only, never reached prod) + timeout code (9d5baa3) are a clean ff over main. Shipping them now.
 
 **Next:** Sonnet -> P1.5 reviewer UI (route is ready), then P2 themes browse. Codex -> opportunities read surface (the 5 written opportunities have no UI yet).
+
+---
+
+## 2026-06-13 — CODEX: opportunities read surface ready for C5 review
+
+Implemented the backend read route for the new `opportunities` table so Sonnet can display the 5 written opportunities and their typed links.
+
+Route:
+- `GET /api/projects/[projectId]/opportunities`
+- Optional `?limit=` query param, default 50, max 100.
+
+Returned shape:
+- `opportunities[]` with `id`, `title`, `description`, `how_might_we`, `status`, `confidence`, `source`, `review_state`, `agent_run_id`, timestamps, and accept fields.
+- `link_counts`: `{ problems, evidence, themes }`.
+- `problem_links[]`: rows from `problem_opportunities`, including `relationship`, `source`, `review_state`, `rationale`, `created_at`, and nested `problem`.
+- `evidence_links[]`: rows from `opportunity_evidence`, including `relationship`, `rationale`, `created_at`, and nested evidence with source + segment context (`source_title`, `source_type`, `segment_speaker`, `segment_index`, `segment_redacted_content`, `anchor_method`).
+- `theme_links[]`: rows from `opportunity_themes`, including `relationship`, `rationale`, `created_at`, and nested `theme`.
+
+Guardrails:
+- Read-only route. No schema changes. No review-action mutation here.
+- Authenticated via user-scoped `createClient()`.
+- `requireActiveAccess` gate is enforced before reads.
+- `getProjectForUser` verifies the user can access the project.
+- Every table read is explicitly scoped by `org_id` + `project_id`; `source_segments` is scoped by `org_id`, allowed source ids, and exact segment ids because that table is source-scoped.
+- Filters out archived/rejected opportunities and problem-opportunity links by default: only `suggested`, `accepted`, and `edited` review states are returned; only `suggested`, `accepted`, and `active` opportunities are returned.
+- Keeps `project_opportunities` untouched; this route reads only the new product-opportunity layer from 0030.
+- Evidence fallback work remains stopped/deprioritised; not touched.
+
+Verification:
+- `npm run type-check` passes.
+- `npm run build` passes (existing Supabase Node 18 deprecation warnings only).
+
+Holding uncommitted for Opus C5 review unless Jimmy wants this committed immediately.
+
+---
+
+## 2026-06-13 (review) — OPUS: P1.5 route committed · opportunities read route C5 APPROVED
+
+- **P1.5 reviewer route** committed (`991b95f`) — matches the C5-approved code (199 lines, route only). Good.
+- **Opportunities read route** (`/api/projects/[projectId]/opportunities`) — **C5 APPROVED.** Auth + active-access + project-membership gated; RLS `createClient`; all 9 reads scoped org+project (segments via org + project-scoped source_ids); RLS SELECT policies confirmed (0030 loop covers opportunities/problem_opportunities/opportunity_evidence/opportunity_themes); `limit` capped at 100; batched (no N+1); returns `redacted_content` for segments (privacy-preserving). No writes, no schema. **Codex: commit it.**
+
+**Next:**
+- **Codex** backend after committing: the opportunity layer is now complete (agent + read route), so the next backend is **#26 structure-driven compose** (the north-star: GTM docs that cite through problem/opportunity/theme/evidence to source).
+- **Sonnet:** P1.5 reviewer UI is in flight; **opportunities UI is next** (consume the new read route to display the 5 opportunities + their traceable links), then P2 themes browse.
+
+**Deploy cadence:** accumulate the P1.5 route + opportunities route + reviewer UI + opportunities UI into one "curation + opportunities" cut and deploy when the UIs are ready. The routes alone have no visible effect, so no need to deploy them piecemeal.
