@@ -3891,3 +3891,15 @@ Reviewed Sonnet's `896778b` + Codex's `46d5749`. **Approved.** This cut carries 
 `origin/main` (d8a426f) is a strict ancestor → **clean fast-forward, nothing rewound**; #25 timeout fix (3cd0784) is not on main so it is unaffected. **Cleared. Jimmy executes the merge; verify on prod with rollback ready; Opus confirms main moves.**
 
 Remaining loose end (separate): #25 timeout fix still needs merging (real merge after this) + Inngest Cloud rerun.
+
+---
+
+## 2026-06-13 (bug) — OPUS: P1 drawer regression on LEGACY problems — needs a fallback (Codex)
+
+P1 deployed. On prod, problems WITHOUT typed links (older problems, e.g. the procurement project) show "No evidence linked" / "No themes linked" in the drawer, even though their list cards show counts. Root cause confirmed in code: `getProblemDetail` reads ONLY `problem_evidence` / `problem_themes` and has **no legacy fallback**. The design assumed the 0030 backfill populated typed links for every problem; it did not cover these. Inspections problems (typed links present) render fine — so the grouping feature itself works, this is purely the legacy path.
+
+**→ CODEX: add a legacy fallback in `getProblemDetail` (`problems/page.tsx`).** When a problem has ZERO visible typed `problem_evidence` rows but `source_evidence_ids` is non-empty, resolve evidence from the legacy array and present each as the unassessed tier (`relationship='provenance'`) so Sonnet's "Linked, not yet individually assessed" group + §1.5 explainer render. Same for themes via `source_theme_ids` -> `relationship='provenance'`. Keep all reads RLS-scoped (org+project), same as the typed path. This restores parity with the old drawer for legacy problems while keeping typed support for P3 problems. Opus review.
+
+(Alternative considered: run a backfill to populate typed links for legacy problems. The runtime fallback is preferred — no DB risk, handles any future legacy/non-P3 problem. A backfill can follow later for data cleanliness if wanted.)
+
+Severity: not a rollback (app is not in team use yet), but **fix before onboarding the team** — otherwise reviewers see "No evidence" on real problems that have evidence.
