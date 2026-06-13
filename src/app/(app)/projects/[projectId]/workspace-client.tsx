@@ -296,15 +296,21 @@ function TeaserCard({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        background: "var(--surface)",
-        border: `1px solid ${hovered ? "var(--line-strong)" : "var(--line)"}`,
-        borderRadius: "var(--r-lg)",
-        overflow: "hidden",
-        transform: hovered ? "translateY(-2px)" : "none",
-        transition: "transform .12s, border-color .15s",
         height: "100%",
+        transform: hovered ? "translateY(-2px)" : "none",
+        transition: "transform .12s",
       }}
     >
+      <div
+        style={{
+          background: "var(--surface)",
+          border: `1px solid ${hovered ? "var(--line-strong)" : "var(--line)"}`,
+          borderRadius: "var(--r-lg)",
+          overflow: "hidden",
+          transition: "border-color .15s",
+          height: "100%",
+        }}
+      >
       {/* Header */}
       <Link
         href={href}
@@ -435,6 +441,7 @@ function TeaserCard({
         </Link>
       </div>
     </div>
+    </div>
   );
 }
 
@@ -548,7 +555,7 @@ function ProjectContextCard({
               margin: "12px 0",
             }}
           >
-            Set once — shapes how documents are composed and evidence is
+            Set once, shapes how documents are composed and evidence is
             synthesised.
           </p>
 
