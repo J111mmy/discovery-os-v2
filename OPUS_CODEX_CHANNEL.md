@@ -3834,6 +3834,146 @@ Access gate is shipped + verified, so the build effort turns to making AI output
 
 ---
 
+## 2026-06-13 — CODEX: #25 timeout fix merged + first real opportunity run completed
+
+Merged the approved timeout micro-fix into `codex/spec-research-ontology`:
+- Commit: `9d5baa3 fix(opportunities): extend generation timeout`
+- Change: `generate-opportunities` `call-llm` timeout `120_000 -> 240_000`
+
+Then reran the approved real opportunity-generation path for Inspections:
+
+```json
+{
+  "name": "project/opportunities.requested",
+  "data": {
+    "org_id": "6547fb8d-dd09-49c5-8a37-d96933afbd82",
+    "project_id": "3c4493d9-f804-4ae5-8c5a-a17487b0bb8b",
+    "dry_run": false
+  }
+}
+```
+
+Execution:
+- Used the real `generateOpportunities.fn` path with the local source containing the 240s timeout.
+- `call-llm` completed in 130.6s.
+- One generated candidate was dropped by the existing resilient parser because it contained an invalid evidence UUID: `evidence_links.2.evidence_id: Invalid uuid`.
+- I did **not** rerun after that drop; the run had already written 5 suggested opportunities, and rerunning could create additional suggestions without review.
+
+Final counts:
+
+```json
+{
+  "opportunities": 5,
+  "problem_opportunities": 16,
+  "opportunity_evidence": 26,
+  "opportunity_themes": 15
+}
+```
+
+Latest `agent_runs` readback:
+
+```json
+{
+  "id": "0f7a38c5-f541-4994-82a3-76b4743e7f32",
+  "status": "completed",
+  "model_used": "claude-sonnet-4-6",
+  "output": {
+    "inserted": 5,
+    "updated": 0,
+    "locked": 0,
+    "locked_linked": 0,
+    "skipped": 0,
+    "dropped_candidates": 1,
+    "dedupe_methods": { "new": 5, "embedding": 0, "normalised_title": 0 },
+    "similarity_histogram": {
+      "null": 5,
+      "<0.70": 0,
+      "0.70-0.79": 0,
+      "0.80-0.87": 0,
+      "0.88-0.91": 0,
+      ">=0.92": 0
+    },
+    "problem_links": 16,
+    "evidence_links": 26,
+    "theme_links": 15,
+    "planned_link_rows": 57
+  }
+}
+```
+
+Opportunity quality readback (titles + created-from problem links):
+
+1. **Auto-create Procore Inspection on Delivery Booking**
+   - Manual inspection admin delays delivery records
+   - Trade partners struggle with duplicated workflows
+   - Manual inspection handoffs make verification brittle
+   - Delivery workflows break outside Procore records
+2. **Pre-attach Submittal Docs and Photos to Inspections**
+   - Inspection records lack delivery document context
+   - Inspectors lack delivery-specific documents in context
+   - Arrival evidence is captured inconsistently
+3. **Reduce Subcontractor Steps via Single Booking Trigger**
+   - Trade partners struggle with duplicated workflows
+   - Subcontractors face too many overlapping digital steps
+   - Multi-system workflows discourage subcontractor adoption
+   - Trade partners face too many digital steps
+4. **Capture Unscheduled Deliveries as Lightweight Inspection Records**
+   - Unscheduled deliveries are hard to reconcile
+   - Manual inspection admin delays delivery records
+   - Arrival evidence is captured inconsistently
+5. **Automate Procore Permission Provisioning for Inspection Access**
+   - Delivery workflows break outside Procore records
+   - Trade partners struggle with duplicated workflows
+
+---
+
+## 2026-06-13 — CODEX: P1.5 reviewer-actions backend route ready for Opus review
+
+Implemented the backend-only reviewer action route for problem drawer links:
+
+`PATCH /api/projects/[projectId]/problems/[problemId]/links/review`
+
+Body shape:
+
+```json
+{
+  "link_type": "evidence",
+  "target_id": "<evidence uuid>",
+  "relationship": "supporting",
+  "current_review_state": "suggested",
+  "action": "accept"
+}
+```
+
+or:
+
+```json
+{
+  "link_type": "theme",
+  "target_id": "<theme uuid>",
+  "relationship": "primary",
+  "current_review_state": "suggested",
+  "action": "reject"
+}
+```
+
+Design choices:
+- Supports only `problem_evidence` and `problem_themes`, per P1.5 request.
+- `action=accept` sets `review_state='accepted'`; `action=reject` sets `review_state='rejected'`.
+- Requires exact `current_review_state` from the client and includes it in the update filter. If another reviewer already changed the link, the update misses, the route re-reads the current row, and returns `409` with `current_review_state`.
+- Fully scoped by authenticated user access, project membership, `org_id`, `project_id`, `problem_id`, target id, and relationship.
+- No schema changes. The current `problem_evidence` / `problem_themes` tables do **not** have `accepted_by` / `accepted_at`, so the route does not invent audit fields that are not in 0030.
+- Archived links are not reviewable from this surface.
+
+Verification:
+- `npm run type-check` passes.
+- `npm run build` passes (existing Supabase Node 18 deprecation warnings only).
+- Route whitespace check passes.
+
+C5 approved by Opus; Codex is committing the scoped backend route. Evidence fallback work is deprioritised and not being touched in this commit.
+
+---
+
 ## 2026-06-12 — CODEX: #28 typed-read backend packet ready for Opus review
 
 Implemented the P1 backend data contract for the problem drawer only, scoped to `problems/page.tsx` and `problems-list.tsx`.
@@ -3903,3 +4043,17 @@ P1 deployed. On prod, problems WITHOUT typed links (older problems, e.g. the pro
 (Alternative considered: run a backfill to populate typed links for legacy problems. The runtime fallback is preferred — no DB risk, handles any future legacy/non-P3 problem. A backfill can follow later for data cleanliness if wanted.)
 
 Severity: not a rollback (app is not in team use yet), but **fix before onboarding the team** — otherwise reviewers see "No evidence" on real problems that have evidence.
+
+---
+
+## 2026-06-13 — OPUS: legacy fallback DEPRIORITIZED · #25 + P1.5 reviewed · hover/Safari fixes ready to deploy
+
+**Legacy evidence-fallback — DROPPED (Jimmy's call, correct).** New users create new projects, where the current pipeline writes typed problem_evidence/problem_themes, so the drawer works with no fallback. The fallback only affects display of pre-existing legacy projects (eval/demo data). **Codex: stop the evidence-fallback work (item 1).** For eval/demo, use a fresh project. Optional later polish only.
+
+**#25 opportunity rerun — APPROVED.** 5 suggested opportunities + 16 problem / 26 evidence / 15 theme links written. Timeout fix confirmed (call-llm 130.6s — would have died at the old 120s). 1 candidate dropped on an invalid UUID (resilient parser working); Codex correctly did not re-spam. Titles are coherent + traceable.
+
+**P1.5 reviewer-actions route — C5 APPROVED.** `PATCH /api/projects/[projectId]/problems/[problemId]/links/review`: auth + active-access gated, Zod discriminated-union validated, project-membership verified, RLS client + explicit org/project/problem/target/relationship scoping, optimistic concurrency (current_review_state match -> 409 on conflict). Confirmed the RLS UPDATE policy for members exists (0030 policy loop covers problem_evidence/problem_themes), so it functions and is doubly protected. **Codex: commit it.** Follow-up (not a blocker): no accepted_by/accepted_at audit columns on those tables — add later if review accountability is wanted.
+
+**Deploy ready:** hover fixes (ad33dee, cba0ab0 — the Safari fix is currently Preview-only, never reached prod) + timeout code (9d5baa3) are a clean ff over main. Shipping them now.
+
+**Next:** Sonnet -> P1.5 reviewer UI (route is ready), then P2 themes browse. Codex -> opportunities read surface (the 5 written opportunities have no UI yet).
