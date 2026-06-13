@@ -1,4 +1,8 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export type EvidenceRelationship = "supporting" | "contradicting" | "example" | "edge_case" | "provenance";
 export type ThemeRelationship = "primary" | "contributing" | "provenance";
@@ -164,12 +168,114 @@ export function EvidenceLink({ projectId, evidence }: { projectId: string; evide
   );
 }
 
-export function EvidenceCard({ projectId, evidence }: { projectId: string; evidence: EvidenceItem }) {
+export type ReviewLinkType = "evidence" | "theme";
+
+export interface ReviewContext {
+  projectId: string;
+  problemId: string;
+}
+
+export function ReviewLinkButtons({
+  context,
+  linkType,
+  targetId,
+  relationship,
+  reviewState,
+}: {
+  context: ReviewContext;
+  linkType: ReviewLinkType;
+  targetId: string;
+  relationship: EvidenceRelationship | ThemeRelationship;
+  reviewState: ReviewState;
+}) {
+  const router = useRouter();
+  const [pending, setPending] = useState<"accept" | "reject" | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  if (reviewState !== "suggested" && reviewState !== "edited") return null;
+
+  async function review(action: "accept" | "reject") {
+    setPending(action);
+    setMessage(null);
+    try {
+      const response = await fetch(
+        `/api/projects/${context.projectId}/problems/${context.problemId}/links/review`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            link_type: linkType,
+            target_id: targetId,
+            relationship,
+            current_review_state: reviewState,
+            action,
+          }),
+        }
+      );
+
+      if (response.status === 409) {
+        setMessage("Someone already reviewed this. Refreshing…");
+        router.refresh();
+        return;
+      }
+      if (!response.ok) {
+        setMessage("Couldn't update this link. Try again.");
+        setPending(null);
+        return;
+      }
+      router.refresh();
+    } catch {
+      setMessage("Couldn't update this link. Try again.");
+      setPending(null);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        disabled={pending !== null}
+        onClick={() => review("accept")}
+        className="rounded-full border border-pos/25 bg-pos-bg px-2 py-0.5 text-xs font-medium text-pos transition-opacity hover:opacity-80 disabled:opacity-50"
+      >
+        {pending === "accept" ? "Accepting…" : "Accept"}
+      </button>
+      <button
+        type="button"
+        disabled={pending !== null}
+        onClick={() => review("reject")}
+        className="rounded-full border border-neg/25 bg-neg-bg px-2 py-0.5 text-xs font-medium text-neg transition-opacity hover:opacity-80 disabled:opacity-50"
+      >
+        {pending === "reject" ? "Rejecting…" : "Reject"}
+      </button>
+      {message && <span className="text-xs text-[var(--ink-2)]">{message}</span>}
+    </div>
+  );
+}
+
+export function EvidenceCard({
+  projectId,
+  evidence,
+  reviewContext,
+}: {
+  projectId: string;
+  evidence: EvidenceItem;
+  reviewContext?: ReviewContext;
+}) {
   return (
     <article className="rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3">
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <RelationshipBadge relationship={evidence.relationship} />
         <ReviewStateBadge reviewState={evidence.review_state} />
+        {reviewContext && (
+          <ReviewLinkButtons
+            context={reviewContext}
+            linkType="evidence"
+            targetId={evidence.id}
+            relationship={evidence.relationship}
+            reviewState={evidence.review_state}
+          />
+        )}
       </div>
       {evidence.rationale && (
         <p className="mb-2 text-xs italic leading-5 text-[var(--ink-2)]">Why linked: {evidence.rationale}</p>
@@ -214,12 +320,14 @@ export function RelationshipEvidenceList({
   projectId,
   emptyLabel = "No evidence linked yet.",
   contradictingCopy = "The agent also found evidence that complicates or pushes back on this problem, shown here for your review, not hidden.",
+  reviewContext,
 }: {
   evidence: EvidenceItem[];
   evidenceProvenanceState: ProvenanceState;
   projectId: string;
   emptyLabel?: string;
   contradictingCopy?: string;
+  reviewContext?: ReviewContext;
 }) {
   if (evidence.length === 0) {
     return <p className="text-sm text-[var(--ink-2)]">{emptyLabel}</p>;
@@ -247,7 +355,12 @@ export function RelationshipEvidenceList({
             )}
             <div className="grid gap-3">
               {rows.map((evidence) => (
-                <EvidenceCard key={`${evidence.id}:${evidence.relationship}`} projectId={projectId} evidence={evidence} />
+                <EvidenceCard
+                  key={`${evidence.id}:${evidence.relationship}`}
+                  projectId={projectId}
+                  evidence={evidence}
+                  reviewContext={reviewContext}
+                />
               ))}
             </div>
           </div>

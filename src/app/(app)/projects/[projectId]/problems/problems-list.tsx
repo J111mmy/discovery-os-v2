@@ -12,6 +12,8 @@ import {
   type ThemeRelationship,
   Chip,
   RelationshipEvidenceList,
+  ReviewLinkButtons,
+  ReviewStateBadge,
   evidenceCountSummary,
   legacyProvenanceExplainer,
   sourceTypeLabel,
@@ -479,6 +481,7 @@ function ProblemDetailDrawer({
                 evidenceProvenanceState={detail.evidence_provenance_state}
                 projectId={projectId}
                 emptyLabel="No evidence linked to this problem yet."
+                reviewContext={{ projectId, problemId: problem.id }}
               />
             </section>
 
@@ -492,25 +495,39 @@ function ProblemDetailDrawer({
                     <p className="text-xs leading-5 text-[var(--ink-2)]">{legacyProvenanceExplainer}</p>
                   )}
                   {detail.themes.map((theme) => (
-                    <Link
+                    <div
                       key={`${theme.id}:${theme.relationship}`}
-                      href={`/projects/${projectId}/evidence?theme_id=${theme.id}`}
-                      className="block rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3 transition-colors hover:border-[var(--accent)]/40"
+                      className="rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3"
                     >
-                      <div className="text-[11px] font-medium uppercase tracking-wide text-[var(--ink-faint)]">
-                        {themeRelationshipLabel[theme.relationship]}
+                      <Link
+                        href={`/projects/${projectId}/evidence?theme_id=${theme.id}`}
+                        className="block transition-colors hover:text-[var(--accent)]"
+                      >
+                        <div className="text-[11px] font-medium uppercase tracking-wide text-[var(--ink-faint)]">
+                          {themeRelationshipLabel[theme.relationship]}
+                        </div>
+                        <div className="mt-1 text-sm font-medium text-[var(--ink)]">{theme.label}</div>
+                        {theme.central_concept && (
+                          <p className="mt-1 text-xs leading-5 text-[var(--ink-2)]">{theme.central_concept}</p>
+                        )}
+                        {theme.interpretation && (
+                          <p className="mt-1 text-xs italic leading-5 text-[var(--ink-2)]">{theme.interpretation}</p>
+                        )}
+                        {theme.description && (
+                          <p className="mt-1 text-xs leading-5 text-[var(--ink-2)]">{theme.description}</p>
+                        )}
+                      </Link>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <ReviewStateBadge reviewState={theme.review_state} />
+                        <ReviewLinkButtons
+                          context={{ projectId, problemId: problem.id }}
+                          linkType="theme"
+                          targetId={theme.id}
+                          relationship={theme.relationship}
+                          reviewState={theme.review_state}
+                        />
                       </div>
-                      <div className="mt-1 text-sm font-medium text-[var(--ink)]">{theme.label}</div>
-                      {theme.central_concept && (
-                        <p className="mt-1 text-xs leading-5 text-[var(--ink-2)]">{theme.central_concept}</p>
-                      )}
-                      {theme.interpretation && (
-                        <p className="mt-1 text-xs italic leading-5 text-[var(--ink-2)]">{theme.interpretation}</p>
-                      )}
-                      {theme.description && (
-                        <p className="mt-1 text-xs leading-5 text-[var(--ink-2)]">{theme.description}</p>
-                      )}
-                    </Link>
+                    </div>
                   ))}
                 </div>
               )}
