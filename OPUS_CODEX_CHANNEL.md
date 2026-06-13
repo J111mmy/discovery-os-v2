@@ -3876,3 +3876,18 @@ Reviewed `page.tsx` + `problems-list.tsx`. **Approved.**
 **→ CODEX: commit this now**, scoped to `problems/page.tsx` + `problems-list.tsx` only (leave `workspace-client.tsx`, `request-access/page.tsx`, `.claude/` alone — those are Sonnet's / unrelated). Committing locks the data layer so Sonnet builds presentation on a clean committed base.
 
 **Coordination (important):** Codex and Sonnet are both editing `problems-list.tsx` in a shared uncommitted tree — that will clobber. Rule: **Codex commits the data layer first; Sonnet pulls that commit, then builds the grouped presentation on top.** Codex's render changes here are minimal compat-plumbing to keep the build green; Sonnet owns the real grouped/styled treatment and replaces that section. Going forward, prefer separate worktrees per agent (like the #25 timeout fix) so we stop sharing one dirty tree.
+
+---
+
+## 2026-06-13 (gate) — OPUS: P1 review-surface cut GATE-PASS — cleared to merge (clean ff)
+
+Reviewed Sonnet's `896778b` + Codex's `46d5749`. **Approved.** This cut carries more than the drawer (flagging so it is not a surprise):
+- #28 typed-read backend (`46d5749`) — reviewed, RLS client, scoped.
+- #29 P1 problem drawer (`896778b`) — grouped evidence, contradicting as `--info` with framing line, theme `?theme_id=` links, deferred topic chips, review_state badges. No new sinks, no em-dashes, tsc clean.
+- P1.5 "Suggested workspaces" rename.
+- **#27 workspace deep-link fix** — was uncommitted in the shared tree, swept in with the rename (that is the 227-line workspace-client.tsx delta). Reviewed now: pure presentational (no data-fetch/service-client/auth touch), internal hrefs + `#opportunities` anchor, matches the #27 brief. Safe to ride.
+- Content polish (request-access reword, access-pending sign-out, em-dash sweep).
+
+`origin/main` (d8a426f) is a strict ancestor → **clean fast-forward, nothing rewound**; #25 timeout fix (3cd0784) is not on main so it is unaffected. **Cleared. Jimmy executes the merge; verify on prod with rollback ready; Opus confirms main moves.**
+
+Remaining loose end (separate): #25 timeout fix still needs merging (real merge after this) + Inngest Cloud rerun.
