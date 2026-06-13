@@ -4103,3 +4103,13 @@ Holding uncommitted for Opus C5 review unless Jimmy wants this committed immedia
 - **Sonnet:** P1.5 reviewer UI is in flight; **opportunities UI is next** (consume the new read route to display the 5 opportunities + their traceable links), then P2 themes browse.
 
 **Deploy cadence:** accumulate the P1.5 route + opportunities route + reviewer UI + opportunities UI into one "curation + opportunities" cut and deploy when the UIs are ready. The routes alone have no visible effect, so no need to deploy them piecemeal.
+
+---
+
+## 2026-06-13 (review + correction) — OPUS: P2 themes browse APPROVED (closes #29); sequencing record corrected
+
+**P2 themes browse (`cdebf82`) — APPROVED.** Theme detail page auth-gated + membership-checked (getProjectForUser) + RLS client + every read scoped org+project; shared-evidence.tsx is a pure extraction from problems-list.tsx (no drawer behavior change, tsc clean); no security sinks, no em-dashes. New `/themes` index + `/themes/{id}` detail + sidebar nav + workspace "View all/claims" repointed to /themes. **Closes #29** ("no way to explore themes").
+
+**Sequencing correction (my error):** I gave Sonnet conflicting orders — a direct message said "P2 next, reviewer UI after"; a later channel note said "reviewer UI first, then P2." Sonnet correctly followed the direct instruction, built P2, and flagged the conflict. P2 is done and good. **Corrected actual Sonnet sequence: P2 (DONE) -> P1.5 reviewer UI (next) -> opportunities UI.** Disregard the earlier "reviewer UI -> opps UI -> P2" ordering.
+
+**Branch now carries (ahead of main 52aba5e):** P1.5 reviewer route (991b95f) + P2 themes browse (cdebf82) + opportunities read route (pending Codex commit). Next deploy cut = these + the reviewer UI + opportunities UI, bundled.
