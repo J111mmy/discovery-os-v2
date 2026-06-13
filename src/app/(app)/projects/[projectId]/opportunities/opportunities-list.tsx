@@ -2,11 +2,28 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { isConfidentAnchor } from "../shared-evidence";
+import { isConfidentAnchor, ReviewStateBadge, type ReviewState } from "../shared-evidence";
+import {
+  SeverityPill,
+  StatusPill as ProblemStatusPill,
+  type ProblemSeverity,
+  type ProblemStatus,
+} from "../problems/problems-list";
 
 type OpportunityStatus = "suggested" | "accepted" | "active" | "dismissed" | "archived";
 type OpportunityConfidence = "low" | "medium" | "high";
 type LinkRelationship = "source" | "supporting" | "created_from" | "cites" | "addresses";
+
+const problemSeverities = new Set<ProblemSeverity>(["high", "medium", "low"]);
+const problemStatuses = new Set<ProblemStatus>(["surfaced", "acknowledged", "active", "resolved", "dismissed"]);
+
+function isProblemSeverity(value: string | null): value is ProblemSeverity {
+  return value !== null && problemSeverities.has(value as ProblemSeverity);
+}
+
+function isProblemStatus(value: string | null): value is ProblemStatus {
+  return value !== null && problemStatuses.has(value as ProblemStatus);
+}
 
 type LinkedProblem = {
   id: string;
@@ -62,6 +79,7 @@ type OpportunityRow = {
   how_might_we: string | null;
   status: OpportunityStatus;
   confidence: OpportunityConfidence;
+  review_state: ReviewState;
   link_counts: { problems: number; evidence: number; themes: number };
   problem_links: ProblemLink[];
   evidence_links: EvidenceLink[];
@@ -161,6 +179,13 @@ function ProblemLinkRow({ projectId, link }: { projectId: string; link: ProblemL
       <div className="min-w-0">
         <RelationshipChip relationship={link.relationship} />
         <div className="mt-1 text-sm font-medium text-[var(--ink)]">{link.problem.title}</div>
+        {link.rationale && (
+          <p className="mt-1 text-xs italic leading-5 text-[var(--ink-2)]">Why linked: {link.rationale}</p>
+        )}
+      </div>
+      <div className="flex flex-shrink-0 items-center gap-2">
+        {isProblemStatus(link.problem.status) && <ProblemStatusPill status={link.problem.status} />}
+        {isProblemSeverity(link.problem.severity) && <SeverityPill severity={link.problem.severity} />}
       </div>
     </Link>
   );
@@ -216,14 +241,19 @@ function ThemeLinkRow({ projectId, link }: { projectId: string; link: ThemeLink 
 function OpportunityCard({ projectId, opportunity }: { projectId: string; opportunity: OpportunityRow }) {
   return (
     <article className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <h2 className="text-base font-semibold leading-6 text-[var(--ink)]">{opportunity.title}</h2>
+      <div className="mb-1 flex flex-wrap items-center gap-2">
         <StatusPill status={opportunity.status} />
         <ConfidencePill confidence={opportunity.confidence} />
+        <ReviewStateBadge reviewState={opportunity.review_state} />
       </div>
 
+      <h2 className="mb-1 text-base font-semibold leading-6 text-[var(--ink)]">
+        {opportunity.how_might_we || opportunity.title}
+      </h2>
       {opportunity.how_might_we && (
-        <p className="mb-2 text-sm font-medium leading-6 text-[var(--ink)]">{opportunity.how_might_we}</p>
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
+          {opportunity.title}
+        </p>
       )}
       {opportunity.description && (
         <p className="mb-4 text-sm leading-6 text-[var(--ink-2)]">{opportunity.description}</p>
