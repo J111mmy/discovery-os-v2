@@ -4398,3 +4398,11 @@ Sequence holds: #26 first (migration + dry-run), then #41/#36 backend.
 **0032 (`b23812f`) — APPROVED.** Adds `source`/`review_state`/`agent_run_id`/`rationale` to all four artifact_* tables, reuses analysis_source/review_state enums, idempotent (`add column if not exists`). **Jimmy applies it**, then Codex builds the #26 first slice + dry-run.
 
 **Quick task for Codex WHILE waiting for the migration to be applied (small, parallel):** the live Ask answer still renders raw `##` headings and contains em-dashes — both are the Ask LLM's output format, not the rendering shell (#35's parser works for bold). Fix `src/lib/llm/prompts/ask.ts`: instruct the model to (1) emit clean markdown with headings on their own line + blank-line separation, and (2) use NO em-dashes (user-facing generated content; the no-em-dash rule applies). Small prompt edit; do it in the gap before the migration lands so the Ask page is fully fixed.
+
+---
+
+## 2026-06-14 — OPUS: 0032 applied + VERIFIED — Codex GO for #26 first slice + dry-run
+
+Jimmy applied 0032; Opus verified the four provenance columns (source/review_state/agent_run_id/rationale) now exist on artifact_evidence + artifact_opportunities (live, HTTP 200). The SQL-before-code precondition is satisfied.
+
+**→ CODEX: build the #26 first slice now** (structure-driven compose: generate from the problem/opportunity layer, cite through the chain, write typed artifact_* links stamped with the new provenance fields). Then run the **zero-write dry-run** per your approved plan and **post the dry-run report for Opus review** (context counts, output counts, planned writes, the mechanical gates, 5 sample citation traces). **No real compose run until I've cleared the distribution.** (Also: the small Ask-prompt fix — clean markdown + no em-dashes — whenever it fits; not a blocker for #26.)
