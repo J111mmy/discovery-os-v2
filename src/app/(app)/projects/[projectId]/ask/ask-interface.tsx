@@ -28,6 +28,37 @@ type AnswerBlock =
   | { type: "paragraph"; text: string }
   | { type: "list"; ordered: boolean; items: string[] };
 
+// The model isn't always given (or doesn't always follow) strict markdown
+// formatting, so the raw answer can arrive with heading markers that aren't
+// on their own line — e.g. "...evidence shows this. ## Key pain points Several
+// users described..." all as one run of text. Normalize the raw string before
+// line-based parsing so "##"/"###" markers always start a line, and so a
+// heading doesn't swallow the body text that follows it on the same line.
+function normalizeAnswerMarkdown(answer: string): string {
+  let text = answer.replace(/\r\n?/g, "\n");
+
+  // Collapse literal backslash-n sequences (double-encoded newlines from the
+  // model/JSON layer) into real newlines so line-based parsing works.
+  text = text.replace(/\\n/g, "\n");
+
+  // Force a "##"/"###" marker onto its own line if it isn't already at the
+  // start of one (handles markers glued onto the end of a sentence). Single
+  // "#" is left alone here — it's ambiguous with things like "C#" or "#1"
+  // when not already at line-start, but "## "/"### " mid-sentence is
+  // unambiguously a heading marker the model meant to break out.
+  text = text.replace(/([^\n])(#{2,3}\s*[^\n#])/g, "$1\n$2");
+
+  // If heading text runs straight into body text on the same line (no
+  // trailing newline), split at the first sentence boundary so the heading
+  // doesn't absorb the following paragraph.
+  text = text.replace(
+    /^(#{1,3}\s*[^\n]{1,100}?[.!?:])\s+(?=[A-Z0-9"'\[])/gm,
+    "$1\n"
+  );
+
+  return text;
+}
+
 function parseAnswerBlocks(answer: string): AnswerBlock[] {
   const blocks: AnswerBlock[] = [];
   let paragraphLines: string[] = [];
@@ -48,7 +79,7 @@ function parseAnswerBlocks(answer: string): AnswerBlock[] {
     }
   }
 
-  for (const rawLine of answer.split("\n")) {
+  for (const rawLine of normalizeAnswerMarkdown(answer).split("\n")) {
     const line = rawLine.trim();
 
     if (line === "") {
@@ -57,8 +88,9 @@ function parseAnswerBlocks(answer: string): AnswerBlock[] {
       continue;
     }
 
-    const headingMatch = line.match(/^(#{1,3})\s+(.*)$/);
-    if (headingMatch) {
+    // Allow "##Heading" (no space after the marker) as well as "## Heading".
+    const headingMatch = line.match(/^(#{1,3})\s*(.*)$/);
+    if (headingMatch && headingMatch[2].trim() !== "") {
       flushParagraph();
       flushList();
       blocks.push({

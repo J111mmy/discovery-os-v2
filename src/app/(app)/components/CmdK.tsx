@@ -237,6 +237,11 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
       onClose();
       return;
     }
+    if (e.key === "Tab") {
+      e.preventDefault();
+      switchMode(mode === "ask" ? "jump" : "ask");
+      return;
+    }
     if (mode === "jump") {
       const total = Math.max(filteredItems.length, 1);
       if (e.key === "ArrowDown") {
@@ -623,6 +628,9 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
                 Navigate <Kbd>↑↓</Kbd>
               </span>
             )}
+            <span style={{ fontSize: 11.5, color: "var(--ink-faint)", display: "flex", alignItems: "center", gap: 5 }}>
+              Switch <Kbd>tab</Kbd>
+            </span>
           </div>
         </div>
 
