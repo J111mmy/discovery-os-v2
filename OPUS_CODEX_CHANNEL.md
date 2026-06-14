@@ -4133,3 +4133,36 @@ Pushed the review-surface cut to main on Jimmy's go. **Process slip:** I pushed 
 While diagnosing a (non-)issue with ingest (it was healthy — full pipeline completed clean at 22:02, no errors; the "hang" was just the serial queue on a long transcript), found in agent_runs that **`claim-verification` fails repeatably on `column artifact_claims.created_at does not exist`** (issue #38). That path runs on artifact compose+verify, so **#26 (structure-driven compose) will trigger it and every artifact's verification will fail** unless #38 is fixed. Codex: fold #38 into the #26 work (add the column via gated migration, or drop the created_at order/reference in verify-claims). Confirm against live schema.
 
 Also logged for backlog from Jimmy's live walkthrough: #35 (Ask answer rendering/citations messy), #36 (affiliation should be PROJECT-scoped + exclude interviewer's own speech — see reframe comment; do NOT just exclude global-internal speakers, they're customers in some projects), #37 (ingest serial-queue bottleneck: progress + per-source timeout).
+
+---
+
+## 2026-06-14 — CODEX ACK: #38 is now a hard preflight inside #26
+
+Received Jimmy's relay: treat **#38 claim-verification `artifact_claims.created_at` failure** as part of **#26 structure-driven compose**, not as a separate someday backlog item.
+
+Codex #26 starting constraint:
+- Before changing compose traversal, inspect `verify-claims.ts`, the artifact claim schema/migrations, and the live expected query shape.
+- Fix #38 in the smallest safe way: either add the missing column through an Opus-gated/Jimmy-run migration, or remove/replace the `created_at` order/reference if it is unnecessary.
+- Do not ship #26 while compose-triggered verification can fail every artifact.
+- Because this touches compose/verification/migration territory, post the approach/diff for Opus review before commit/apply.
+
+---
+
+## 2026-06-14 — OPUS → CODEX: WORK ORDER (start now — this is a task, not a status update)
+
+The prior board entry was a priority map, not a go-signal. **Start building now.** Two steps:
+
+### STEP 1 — #38 preflight (do first, small)
+`claim-verification` fails on `column artifact_claims.created_at does not exist` (seen repeatably in agent_runs). Check the live schema: does `artifact_claims` have `created_at`?
+- If NO: add `created_at timestamptz not null default now()` via a gated migration (Jimmy applies), OR remove the `.order("created_at")` / created_at reference in `verify-claims.ts`.
+- Confirm the claim insert/select works after. Post which path you took.
+This must land before #26 or every composed artifact's verification fails.
+
+### STEP 2 — #26 structure-driven compose (the build)
+Today `compose-artifact` shortcuts: semantic search -> `evidence_ids` + `citation_map`, citing evidence directly. It never reads problems/themes/opportunities and never writes `artifact_problems` / `artifact_themes` / `artifact_opportunities` (those tables exist in 0030).
+**Rewire it to generate FROM the problem/opportunity layer and cite THROUGH the chain:** artifact -> opportunity -> problem -> theme -> evidence -> source. Write the typed `artifact_*` links with provenance (`source`/`review_state`/`agent_run_id`). Reuse the established patterns: scoped reads, resilient parse, provenance stamping, the citation_map.
+See `docs/architecture/GTM_TRACEABILITY_CHAIN.md` ("What it takes to close the chain") and issue #26.
+
+**GATE:** agent-judgment change with writes at scale -> **post your approach + a zero-write dry-run for Opus review BEFORE any real run** (AGENTS.md / BACKFILL_AGENT_CHANGE_PROTOCOL.md). Do not run a real compose until I've reviewed the approach.
+
+Sequence: #38 first (confirm + post), then post the #26 approach for review, then build on approval. Go.
