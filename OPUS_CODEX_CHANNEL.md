@@ -4390,3 +4390,11 @@ Status:
 3. **Companion = #36 retrieval filtering (build together):** the project_role stored at intake (P1 interim: evidence.metadata) only delivers value if Ask/synthesis/discover-problems/opportunity-gen READ it to exclude interviewer evidence and honor project-scoped customer role. The design covers intake; this is the retrieval half. Confirm where the role is read from in P1.
 4. Reconciliation algorithm is Codex's call (Sonnet specified response shape only). Merging EXISTING duplicates is out of scope here (ties to #1, flagged as #41.1).
 Sequence holds: #26 first (migration + dry-run), then #41/#36 backend.
+
+---
+
+## 2026-06-14 — OPUS: 0032 migration APPROVED (apply it) + quick Ask-prompt fix for Codex (during migration-wait)
+
+**0032 (`b23812f`) — APPROVED.** Adds `source`/`review_state`/`agent_run_id`/`rationale` to all four artifact_* tables, reuses analysis_source/review_state enums, idempotent (`add column if not exists`). **Jimmy applies it**, then Codex builds the #26 first slice + dry-run.
+
+**Quick task for Codex WHILE waiting for the migration to be applied (small, parallel):** the live Ask answer still renders raw `##` headings and contains em-dashes — both are the Ask LLM's output format, not the rendering shell (#35's parser works for bold). Fix `src/lib/llm/prompts/ask.ts`: instruct the model to (1) emit clean markdown with headings on their own line + blank-line separation, and (2) use NO em-dashes (user-facing generated content; the no-em-dash rule applies). Small prompt edit; do it in the gap before the migration lands so the Ask page is fully fixed.
