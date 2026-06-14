@@ -4785,3 +4785,26 @@ Sample chain traces from saved artifact metadata:
 3. `[7]` evidence `03aae883-b821-4df0-8c5c-422b16e42cc3` -> opportunity `Capture Unscheduled Deliveries as Lightweight Inspection Records` -> problems `Unscheduled deliveries are hard to reconcile`, `Manual inspection admin delays delivery records`, `Arrival evidence is captured inconsistently` -> source `Veyor Catch Up - 2025_07_09 13_27 CDT - Notes by Gemini` -> segment `35be6cbf-dae2-45d6-93e2-539fca21a451`, index `29`, anchor `exact`.
 4. `[18]` evidence `72db594f-d696-4bee-a74c-3d581eac641d` -> opportunity `Pre-attach Submittal Docs and Photos to Inspections` -> problems `Inspection records lack delivery document context`, `Inspectors lack delivery-specific documents in context`, `Arrival evidence is captured inconsistently` -> source `Jimmy_Danielle_Jake Catch Up - 2025_10_01 10_00 CDT - Notes by Gemini` -> segment `45fd6c96-0686-43f6-a535-a80aeab326c1`, index `10`, anchor `fuzzy`.
 5. `[2]` evidence `248cbb22-a326-4eee-9538-630306e55035` -> opportunity `Automate Procore Permission Provisioning for Inspection Access` -> problems `Delivery workflows break outside Procore records`, `Trade partners struggle with duplicated workflows` -> source `Veyor_Skanska Procurement Logs - 2025_09_24 09_00 CDT - Notes by Gemini` -> segment `44dbddd1-4481-4156-8bcd-d7fcce289858`, index `24`, anchor `fuzzy`.
+
+---
+
+## 2026-06-14 — OPUS: Ask-surface work orders (1 URGENT attribution bug + 1 UX bug)
+
+Trigger: Jimmy ran "pull out the things Anil said..." in Ask; it wrote up his own and others' statements as Anil's requirements. Root-caused below. Both WOs are fully specced — act cold.
+
+### WO-1 (P0, URGENT) — Ask answers ignore speaker → misattribution
+The Ask pipeline has zero speaker grounding, so any "what did X say" question misattributes other people's evidence to X.
+- Retrieval `queryEvidence` (`src/lib/query/evidence.ts:37`) is a pure semantic `match_evidence` vector search filtered only by org + trust scope. NO speaker filter. It attaches `segment_speaker` to each record afterward (line ~104-118) but never uses it to filter.
+- Prompt renders `Speaker:` per item (`src/lib/llm/prompts/ask.ts:27`) but the system prompt (`ask.ts:43-58`) has NO attribution rule. So the model gets speaker-mixed evidence + a question framed as "Anil's requirements" and attributes all of it to Anil.
+
+Fix (two parts):
+1. **Speaker-aware retrieval:** when a question targets a named person, filter or strongly boost evidence whose `segment_speaker` matches. This is where the pending **#36** speaker-identity work pays off — coordinate so they share the speaker-resolution path.
+2. **Attribution guardrail** in the system prompt: "Only attribute a statement to a named person when that evidence's Speaker is that person. If asked what someone said and little or no retrieved evidence has them as the speaker, say so plainly. Never attribute another speaker's statement to the named person."
+
+Acceptance: re-running the Anil query cites only Anil's own segments (or states there is little/none). No cross-speaker attribution.
+
+### WO-2 (P1) — "Continue in Ask" drops all context (feels like a new session)
+`CmdK.tsx:524` — the "Continue in Ask" button does `router.push(\`/projects/${projectId}/ask\`)` with no query or state, so the typed question and inline preview results are lost; the Ask page loads cold.
+Fix: pass the active question (e.g. `?q=<encoded>`) on the push, and have `ask-interface.tsx` read it on mount and auto-run so the CmdK preview continues seamlessly into the full page. NB the Ask page is a real sidebar destination (`project-sidebar.tsx:16`), so this is a bridge fix, not an orphan page.
+
+(Safari rendering WO to follow once Jimmy confirms the current symptom — the earlier hover/Safari fix ad33dee/cba0ab0 was Preview-only per the 2026-06-13 note and never reached prod.)
