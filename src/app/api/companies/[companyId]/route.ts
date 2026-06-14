@@ -219,3 +219,65 @@ export async function PATCH(
 
   return NextResponse.json({ company: data });
 }
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { companyId: string } }
+) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const orgId = await getActiveOrgId(user.id);
+
+  if (!orgId) {
+    return NextResponse.json({ error: "Org not found" }, { status: 404 });
+  }
+
+  const { data: company, error: lookupError } = await supabase
+    .from("companies")
+    .select("id")
+    .eq("org_id", orgId)
+    .eq("id", params.companyId)
+    .maybeSingle();
+
+  if (lookupError) {
+    return NextResponse.json({ error: lookupError.message }, { status: 500 });
+  }
+
+  if (!company) {
+    return NextResponse.json({ error: "Company not found" }, { status: 404 });
+  }
+
+  // evidence_entities.entity_id/entity_type aren't covered by the companies FK
+  // (only the legacy company_id column is "on delete set null"), so clear the
+  // company-tagged rows explicitly to avoid leaving dangling entity references.
+  const { error: entityError } = await supabase
+    .from("evidence_entities")
+    .delete()
+    .eq("org_id", orgId)
+    .eq("entity_type", "company")
+    .eq("entity_id", params.companyId);
+
+  if (entityError) {
+    return NextResponse.json({ error: entityError.message }, { status: 500 });
+  }
+
+  const { error: deleteError } = await supabase
+    .from("companies")
+    .delete()
+    .eq("org_id", orgId)
+    .eq("id", params.companyId);
+
+  if (deleteError) {
+    return NextResponse.json({ error: deleteError.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

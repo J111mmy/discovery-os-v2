@@ -33,6 +33,9 @@ export function CompanyProfileEditor({ company }: { company: CompanyProfile }) {
   const [savingField, setSavingField] = useState<FieldName | null>(null);
   const [savedField, setSavedField] = useState<FieldName | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   async function saveField(field: FieldName) {
     const nextValue = values[field].trim();
@@ -72,6 +75,23 @@ export function CompanyProfileEditor({ company }: { company: CompanyProfile }) {
 
   function updateField(field: FieldName, value: string) {
     setValues((current) => ({ ...current, [field]: value }));
+  }
+
+  async function removeCompany() {
+    setRemoving(true);
+    setRemoveError(null);
+
+    const response = await fetch(`/api/companies/${company.id}`, { method: "DELETE" });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      setRemoveError(payload?.error ?? "Could not remove this company.");
+      setRemoving(false);
+      return;
+    }
+
+    router.push("/companies");
+    router.refresh();
   }
 
   return (
@@ -142,6 +162,50 @@ export function CompanyProfileEditor({ company }: { company: CompanyProfile }) {
             {error}
           </p>
         )}
+
+        <div className="mt-2 border-t border-[var(--line)] pt-4">
+          {!confirmingRemove ? (
+            <button
+              type="button"
+              onClick={() => setConfirmingRemove(true)}
+              className="text-sm font-medium text-red-300 transition-colors hover:text-red-200"
+            >
+              Remove this company
+            </button>
+          ) : (
+            <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4">
+              <p className="text-sm leading-6 text-[var(--ink)]">
+                Remove {values.name || "this company"}? This deletes the company record. People and
+                evidence already linked to it stay, but lose their link to this company. This can&apos;t
+                be undone.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={removeCompany}
+                  disabled={removing}
+                  className="rounded-lg border border-red-500/30 bg-red-500/15 px-3 py-1.5 text-sm font-medium text-red-300 transition-colors hover:bg-red-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {removing ? "Removing..." : "Yes, remove it"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmingRemove(false);
+                    setRemoveError(null);
+                  }}
+                  disabled={removing}
+                  className="rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-1.5 text-sm font-medium text-[var(--ink-2)] transition-colors hover:border-[var(--ink-2)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+              {removeError && (
+                <p className="mt-3 text-sm text-red-300">{removeError}</p>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );
