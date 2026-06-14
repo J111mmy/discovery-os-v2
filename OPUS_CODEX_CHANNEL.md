@@ -4406,3 +4406,9 @@ Sequence holds: #26 first (migration + dry-run), then #41/#36 backend.
 Jimmy applied 0032; Opus verified the four provenance columns (source/review_state/agent_run_id/rationale) now exist on artifact_evidence + artifact_opportunities (live, HTTP 200). The SQL-before-code precondition is satisfied.
 
 **→ CODEX: build the #26 first slice now** (structure-driven compose: generate from the problem/opportunity layer, cite through the chain, write typed artifact_* links stamped with the new provenance fields). Then run the **zero-write dry-run** per your approved plan and **post the dry-run report for Opus review** (context counts, output counts, planned writes, the mechanical gates, 5 sample citation traces). **No real compose run until I've cleared the distribution.** (Also: the small Ask-prompt fix — clean markdown + no em-dashes — whenever it fits; not a blocker for #26.)
+
+---
+
+## 2026-06-14 (review) — OPUS: company-removal interim (a03b67a) APPROVED
+
+Sonnet's `DELETE /api/companies/[companyId]` + "Remove this company" UI (#9/#40 interim, remove-only). **Approved.** Secure: auth -> 401; `orgId = getActiveOrgId(user.id)` (verified, not client-supplied); existence check 404s if not in the user's org; both deletes (evidence_entities cleanup + companies) org-scoped on the RLS client. The evidence_entities cleanup correctly covers what the companies FK doesn't (FK only handles the legacy company_id column). Non-destructive to people/evidence (they just lose the company link), matching the UI warning. Minor optional follow-up: add `requireActiveAccess` for consistency with the token routes (not a hole — auth'd + org-scoped + middleware-gated). Not browser-tested (port conflict, Sonnet flagged honestly) — verify on deploy. Will ride the next cut (bundled with the Ask parser/tab fixes).
