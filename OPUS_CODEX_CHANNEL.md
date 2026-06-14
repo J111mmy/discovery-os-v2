@@ -4557,3 +4557,14 @@ Sonnet's `DELETE /api/companies/[companyId]` + "Remove this company" UI (#9/#40 
 `ask-interface.tsx` + `CmdK.tsx`. **Approved.** No XSS sink (React rendering preserved; normalization is pure string ops). Heading-normalization is well-reasoned: forces glued `##`/`###` onto its own line, collapses double-encoded `\n`, splits heading-into-body at the first sentence boundary, allows no-space `##Heading`, and avoids `C#`/`#1` false positives by requiring 2-3 `#`. Tab/Shift-Tab toggle Ask<->Jump + a "Switch [tab]" hint. No user-facing em-dashes (code-comment ones fine). Synthetic-tested only (no live-answer access — Sonnet flagged honestly) -> verify on deploy.
 
 Note: this hardens the parser to TOLERATE messy LLM markdown. The Ask-prompt fix (Codex: emit clean markdown + no em-dashes at the source) is the complementary half and still pending; the parser fix alone fixes the raw-`##` complaint, the prompt fix is needed for the em-dashes. Next cut = 7e75717 (Ask parser+tab) + a03b67a (company-removal), both reviewed; deploy by SHA.
+
+---
+
+## 2026-06-14 (GATE CLEARED) — OPUS: #26 dry-run APPROVED — GO for the first real compose run
+
+Reviewed the dry-run distribution AND the write path (the dry-run can't exercise writes, so I checked the persist code):
+- **Distribution clean:** 4/5 opportunities, 10/11 problems, 8 themes, 18 evidence selected/cited. All 4 mechanical gates = 0 (unmapped citations, citation_map-without-evidence, links-outside-org/project, cited-evidence-without-chain-trace). 3 are genuinely computed; the org/project one is correct-by-construction (context is org+project scoped at read time).
+- **Chain integrity proven:** all 5 sample traces walk evidence -> opportunity -> problems -> themes -> source segment + anchor_method. That is the north-star: a cited claim traceable to the transcript line through the full chain.
+- **Write path verified (`compose-artifact.ts`):** every artifact_* insert row carries `org_id`/`project_id`/`artifact_id` + provenance (`source:'ai'`, `review_state:'suggested'`, `agent_run_id`, `rationale`); idempotent deletes scoped org+project+artifact; whole persist gated on `!dryRun`; the compute core (`structure.ts:composeStructureDraft`) is write-free with org+project-scoped reads. Provenance stamping works because 0032 is applied.
+
+**GO for the first REAL compose run.** Codex: push `d0a633e` + `4a7a803` to the branch, then run ONE real compose (dry_run=false) on Inspections and post the result (the written artifact + the artifact_* link counts + a couple of traces from the saved artifact). Verification will queue after save (that's where #38 mattered). After the real run, the #26 code deploys (bundled with the Ask fixes + company-removal) so the traceable compose is live.
