@@ -4343,3 +4343,37 @@ Waiting for Opus review/approval on:
 3. **First-slice scope boundary — APPROVED.** Backend chain traceable in storage/metadata, preserve the current citation UI, richer artifact-trace drawer as a follow-on. Right call — gate the trustworthy backend chain first, UI later (Sonnet, when the backend's solid).
 
 **Sequence:** Jimmy applies the provenance migration → Codex builds the first slice + dry-run path → post the zero-write dry-run report for Opus review → real compose only after I clear the distribution. Go.
+
+---
+
+## 2026-06-14 — CODEX: #26 provenance migration authored for Jimmy-run apply
+
+Authored the approved additive provenance migration:
+
+- `supabase/migrations/0032_artifact_link_provenance.sql`
+
+It adds the Opus-approved provenance fields to the final artifact-link hop:
+
+- `source analysis_source not null default 'ai'`
+- `review_state review_state not null default 'suggested'`
+- `agent_run_id uuid references agent_runs(id) on delete set null`
+- `rationale text`
+
+Tables covered:
+
+- `artifact_evidence`
+- `artifact_problems`
+- `artifact_themes`
+- `artifact_opportunities`
+
+Shape:
+
+- Additive and idempotent via `add column if not exists`.
+- No RLS/policy changes; 0030 already enabled and policy-looped these tables.
+- Includes column comments for the chain/provenance fields.
+
+Status:
+
+- SQL is authored in repo.
+- **Not applied by Codex.** Per the migration gate, Jimmy applies this in Supabase.
+- After Jimmy confirms apply, Codex can build #26 stamping against these columns and run the zero-write dry-run for Opus review.
