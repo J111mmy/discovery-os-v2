@@ -4568,3 +4568,220 @@ Reviewed the dry-run distribution AND the write path (the dry-run can't exercise
 - **Write path verified (`compose-artifact.ts`):** every artifact_* insert row carries `org_id`/`project_id`/`artifact_id` + provenance (`source:'ai'`, `review_state:'suggested'`, `agent_run_id`, `rationale`); idempotent deletes scoped org+project+artifact; whole persist gated on `!dryRun`; the compute core (`structure.ts:composeStructureDraft`) is write-free with org+project-scoped reads. Provenance stamping works because 0032 is applied.
 
 **GO for the first REAL compose run.** Codex: push `d0a633e` + `4a7a803` to the branch, then run ONE real compose (dry_run=false) on Inspections and post the result (the written artifact + the artifact_* link counts + a couple of traces from the saved artifact). Verification will queue after save (that's where #38 mattered). After the real run, the #26 code deploys (bundled with the Ask fixes + company-removal) so the traceable compose is live.
+
+---
+
+## 2026-06-14 — CODEX: #26 first real compose run written (Inspections)
+
+Done:
+- Pushed branch check: `origin/codex/spec-research-ontology` is already up to date with the #26 code + Ask prompt fix (`git push` returned `Everything up-to-date`).
+- Ran exactly **ONE** real structure-driven compose on project `Inspections` (`3c4493d9-f804-4ae5-8c5a-a17487b0bb8b`) with `dry_run=false`.
+- Wrote one GTM artifact and stamped typed artifact links with the 0032 provenance columns.
+- No second real compose run executed.
+
+Important caveat:
+- The artifact write succeeded, but the local runner did **not** queue the Inngest verification event. The runner read local `.env.local`, where `INNGEST_EVENT_KEY` is still the placeholder value, so `inngest.send()` could not be treated as delivered. The artifact remains `verification_status = unverified`. The production compose path is still wired to queue `artifact/claim.verification.requested`; this caveat is local-run infrastructure, not the #38 `artifact_claims.created_at` bug.
+
+Written artifact:
+- id: `af84a5bb-d87d-41bc-8c30-6ff12ae77611`
+- title: `Veyor Material Inspections — Exec Briefing`
+- type: `gtm`
+- word count: `1163`
+- model: `claude-sonnet-4-6`
+- task tier: `premium`
+- agent_run_id: `4e13ca25-b717-4b2f-b764-5563248c2c41`
+- created_at: `2026-06-14T14:42:54.262303+00:00`
+
+Typed link counts written:
+- `artifact_evidence`: `17`
+- `artifact_opportunities`: `4`
+- `artifact_problems`: `10`
+- `artifact_themes`: `8`
+
+Mechanical gates saved on artifact metadata:
+```json
+{
+  "unmapped_citation_markers": 0,
+  "citation_map_entries_without_selected_evidence": 0,
+  "planned_artifact_links_outside_org_project": 0,
+  "cited_evidence_without_opportunity_problem_theme_trace": 0
+}
+```
+
+Output counts:
+```json
+{
+  "section_count": 6,
+  "citation_marker_count": 36,
+  "citation_map_count": 17,
+  "cited_evidence_count": 17
+}
+```
+
+Written artifact body:
+```md
+# Veyor Material Inspections — Exec Briefing
+
+## Slide 1: What We're Solving
+
+**The core problem:** Delivery bookings and material inspections are two separate workflows today. The handoff between them is manual, fragile, and routinely skipped.
+
+Three problems carry the most evidence weight:
+
+- **QC teams aren't notified when materials arrive** — inspections that should happen at the point of delivery don't, because no one triggers them
+- **Context is split across Procore modules** — inspectors hunting for submittals, photos, and booking details across disconnected tools [18]
+- **The workflow depends on subcontractors doing extra steps** — after booking in Veyor, the expected next action is for a subcontractor to separately open Procore and create a matching inspection [17]. Evidence shows this doesn't happen reliably [14]
+
+**The product answer:** One checkbox on a Veyor booking auto-creates a Procore inspection — right template, submittal docs, arrival photos, booking details — pre-attached. No extra steps for subcontractors or site teams.
+
+---
+
+## Slide 2: What the Evidence Shows
+
+**Five sessions. Consistent signal across all of them.**
+
+**Subcontractor overload is real and getting worse.**
+Trade partners are already navigating safety software uploads, material bookings, and now potentially a second booking for access control. Adding a manual Procore inspection step on top means it gets skipped [6]. One participant confirmed directly: if subcontractors aren't using the booking workflow, the whole inspection chain fails [13].
+
+**Procore's module gap is a known, unresolved pain.**
+Procore does not link its Submittals and Inspections modules. Inspectors must manually locate supporting documents at the moment materials arrive — a gap that participants described as a major ongoing challenge [18].
+
+**Unscheduled deliveries are a significant blind spot.**
+Sites expect a high volume of deliveries that arrive without any prior booking [7]. When those deliveries go wrong — missing materials, disputed quantities — the evidence trail doesn't exist. Teams have resorted to searching daily journals to find records of individual deliveries [9][10]. Proving whether a trade partner delivered or lost material is, in some cases, described as impossible [8].
+
+**Permission misconfiguration silently breaks the workflow.**
+The integration already auto-provisions Veyor users into Procore [4], but inspection-creation rights require a separate, manual permission step that GCs must remember to complete [1][5]. If that step is missed, the workflow fails without any visible error.
+
+---
+
+## Slide 3: Prototype Signal
+
+**Prototype PRTO-001-V2 ran across three sessions. Verdict: promising-with-rollout-dependencies.**
+
+What landed well:
+- The concept of a single booking trigger eliminating the separate Procore inspection step resonated immediately
+- Pre-attaching submittal docs and arrival photos to the inspection record was seen as solving a real, daily frustration [18]
+
+What raised flags:
+- Participants flagged that the booking form would need to capture more information upfront — and getting subcontractors to complete that reliably is the implementation risk [15][16]
+- The workflow only works if trade partners are using Veyor to book deliveries in the first place [13]
+- Permission provisioning is a prerequisite that needs to be solved before any of this is reliable at scale [1][2][3]
+
+**Conclusion from prototype:** The core mechanic is validated. The dependencies — subcontractor adoption, permission setup, unscheduled delivery coverage — are the risks that determine whether it works in production.
+
+---
+
+## Slide 4: The Four Opportunities, Prioritised
+
+These are ordered by dependency and evidence confidence.
+
+**1. Auto-create Procore Inspection on Booking (HIGH confidence)**
+The primary feature. When a booking is confirmed in Veyor, the system creates the Procore inspection automatically — no subcontractor action required in Procore. Eliminates the single biggest failure point: the manual handoff that evidence shows is never completed [17][14]. This is the core product.
+
+**2. Pre-attach Submittal Docs and Arrival Photos (HIGH confidence)**
+Extends the auto-created inspection to include the documents inspectors actually need. Solves Procore's known module gap [18] and turns the inspection record from a shell into a usable QC tool. High-leverage differentiator because it addresses a gap Procore itself doesn't solve.
+
+**3. Automate Procore Permission Provisioning (MEDIUM confidence — prerequisite)**
+Veyor already pushes users to Procore [4]. Extending that to include inspection-creation permissions removes a hidden dependency that can silently block the entire workflow [1][5]. This is infrastructure, not a feature — but it must be in place before the feature works reliably. Needs to be scoped for beta.
+
+**4. Lightweight Record for Unscheduled Deliveries (MEDIUM confidence)**
+A fast-path to log an unscheduled arrival and create a minimal inspection record without requiring a full booking. Addresses a volume of deliveries that currently fall entirely outside the audit trail [7][10][11]. Lower priority than the core workflow, but important for sites where unscheduled arrivals are the norm rather than the exception.
+
+---
+
+## Slide 5: GTM Plan
+
+**Q2 2026 — Limited Beta (2–5 sites)**
+
+Goal: validate that the auto-create mechanic works end-to-end under real site conditions, with real subcontractors.
+
+Focus areas:
+- Select beta sites where GCs already have Procore Inspections active and subcontractor adoption of Veyor is reasonably established — this removes the two biggest confounding variables
+- Instrument permission provisioning before go-live; do not rely on manual GC configuration during beta [1][5]
+- Measure: inspection creation rate per booking, time from arrival to inspection record completion, subcontractor booking completion rate
+- Treat unscheduled delivery volume as a data-collection exercise — quantify the gap before committing to the lightweight record feature
+
+**Q3 2026 — Full GTM Push**
+
+Conditions for proceeding:
+- Beta demonstrates inspection creation rate meaningfully above baseline (assumption: baseline is close to zero given current manual workflow)
+- Permission provisioning is automated and requires no GC configuration step
+- Subcontractor booking completion rate at beta sites is stable
+
+Go-to-market angle: position as closing Procore's module gap — the integration that makes Procore Inspections actually work for material receiving. This is a message that resonates with QC leads and Procore-heavy GCs who already feel the pain [18].
+
+---
+
+## Slide 6: Open Questions
+
+These are the assumptions and evidence gaps that carry the most risk.
+
+**1. Subcontractor booking adoption rate**
+The entire workflow depends on trade partners booking deliveries in Veyor. We have qualitative signal that adoption is inconsistent [13][14], but no quantitative baseline. *What is the actual booking completion rate across current sites?*
+
+**2. Procore permission API access**
+Automating permission provisioning assumes the Procore API exposes the right endpoints to set permission templates programmatically. *Has this been technically confirmed?*
+
+**3. Submittal-to-booking linkage**
+Pre-attaching submittal docs requires that the right submittal can be identified and matched to a booking at creation time. *What is the matching logic, and how often will it be ambiguous or missing?*
+
+**4. Unscheduled delivery volume**
+We have qualitative signal that unscheduled deliveries are frequent [7][11], but no site-level data on proportion. *Before scoping the lightweight record feature, we need a count from at least one beta site.*
+
+**5. Beta site selection criteria**
+The prototype verdict of "promising-with-rollout-dependencies" means beta site selection is load-bearing. Picking sites with low subcontractor adoption or misconfigured Procore environments will produce false negatives. *Who owns beta site selection, and what are the qualifying criteria?*
+```
+
+Typed opportunity links:
+1. `ed52b840-5715-4f0e-87c1-9688c6a26835` — `Automate Procore Permission Provisioning for Inspection Access` (`medium`, `suggested`)
+2. `745571f9-28a2-46ce-8bc6-09497119417a` — `Reduce Subcontractor Steps via Single Booking Trigger` (`high`, `suggested`)
+3. `b1412996-8ed0-411a-9e7c-846ba98c1355` — `Capture Unscheduled Deliveries as Lightweight Inspection Records` (`medium`, `suggested`)
+4. `378b7a5b-7166-4435-9317-9e33c0a95b0a` — `Pre-attach Submittal Docs and Photos to Inspections` (`high`, `suggested`)
+
+Typed problem links:
+1. `01211ecb-914f-4077-8773-cf05f116d526` — `Delivery workflows break outside Procore records`
+2. `325fc3af-4ad6-4500-b8f6-ffd0a8f9318c` — `Trade partners struggle with duplicated workflows`
+3. `e82ee361-2781-4e6a-9c33-4e61e30be84b` — `Subcontractors face too many overlapping digital steps`
+4. `5ee521b7-7f50-48bd-b206-54aa76078db5` — `Multi-system workflows discourage subcontractor adoption`
+5. `e3b924ce-3c9e-4444-9eec-90c04c4dcb91` — `Trade partners face too many digital steps`
+6. `31812ff0-a1f1-43cf-a16c-3b387df77483` — `Unscheduled deliveries are hard to reconcile`
+7. `b1465a49-983e-406f-8cd0-82d0b011b9e7` — `Manual inspection admin delays delivery records`
+8. `d8945008-4520-4a2b-beeb-df4c9cedbfc9` — `Arrival evidence is captured inconsistently`
+9. `1346fed7-9c50-4064-9b09-7edf8591c070` — `Inspection records lack delivery document context`
+10. `126ab6f3-c6d5-469b-97c4-c3ed3e412da8` — `Inspectors lack delivery-specific documents in context`
+
+Typed theme links:
+1. `3823fdab-9044-4ea0-8950-f489479ef9f3` — `Procore workflow usability issues`
+2. `48fb414a-6781-4e94-a0d6-7b0ca4afae95` — `Manual admin creates brittleness`
+3. `2d322d4d-7f67-4f94-9a67-f3f1d84fc30f` — `Subcontractor workflow adoption issues`
+4. `94422781-38a8-4587-a92f-625d130af1e8` — `Subcontractor digital capability shift`
+5. `8feb25c1-967d-44d6-9e27-e89c20b64571` — `Unscheduled delivery exception tracking`
+6. `0346d74a-45ce-442b-af7d-0af5f0df1818` — `Photo evidence in inspections`
+7. `fcab4394-2f5d-4fcb-a4f3-f1f28471fdb3` — `Inspection document context gaps`
+8. `eb81dd8c-ca92-4796-a6f9-4dae01d82f8d` — `Booking-linked form workflow`
+
+Typed evidence links:
+1. `7b0369bb-b908-4761-b142-ac9709e6d2a1` — fuzzy — "If they don't get a permission template set, then they don't have access to create an inspection."
+2. `248cbb22-a326-4eee-9538-630306e55035` — fuzzy — "In order for this integration to work smoothly and efficiently, it's about making sure the right person has access."
+3. `16c2e4a4-08dd-4f87-90d9-4f812d566fcd` — fuzzy — "If people have rights within Veyor on your site to make a booking, they should also have the right to create an inspection."
+4. `57f227ce-c304-4ef1-b4c1-78dd0bcae454` — fuzzy — "Right now, the way you have your integration set up is if there's people that are in Veyor, it'll automatically push to Procore."
+5. `79e8000d-5076-4421-8386-0420136e6f55` — fuzzy — "They would have to, for inspections, because some GCs basically just need to make sure they have permission to create an inspection."
+6. `26d4290c-46ce-4f1d-81ec-2dcea988dfe1` — fuzzy — "The contractors are going to get overwhelmed..."
+7. `03aae883-b821-4df0-8c5c-422b16e42cc3` — exact — "There's probably going to be many, many unscheduled deliveries."
+8. `1f04d097-d188-4819-9a1b-2440c3e83206` — normalised — "The backup to say the carpenter lost it or never delivered it is impossible to find."
+9. `49e7ffd0-e98c-4bc9-8a53-908d0f2d3e1e` — fuzzy — "It's happened where someone's looking through their journal..."
+10. `cbad7291-93e0-4a19-b8c5-5a04c0f34bd0` — exact — "Unfortunately, it was one of those unscheduled deliveries."
+11. `97cc1623-5cc4-451d-94b8-bc3d93ca2922` — fuzzy — "We put all the unscheduled dates and the over-days in here as well."
+12. `979fa626-d06e-4b1a-8fb5-c3bfeed41399` — fallback_first_segment — "If they're not using it to book their delivery then it's not going to be helpful for us."
+13. `a3bb20de-6f8e-4971-916c-59f91938d058` — fuzzy — "They can't rely on the subcontractors to keep the stuff up to date..."
+14. `7296e9f3-4781-4418-94d8-33c6ed303e81` — fallback_first_segment — "When they book their delivery they need to include all this information..."
+15. `80612d01-1967-4b51-ab62-c7abe4cd4b57` — fallback_first_segment — "We need the trade partners to make sure that they include all the information that we need."
+16. `30ff21f9-b5ce-4d18-995d-ce8f4710e439` — fuzzy — "From a procedural point of view, the subcontractor's very next task should be jumping into Procore..."
+17. `72db594f-d696-4bee-a74c-3d581eac641d` — fuzzy — "Procore has no links between their modules—the submittal and the inspection..."
+
+Sample chain traces from saved artifact metadata:
+1. `[1]` evidence `7b0369bb-b908-4761-b142-ac9709e6d2a1` -> opportunity `Automate Procore Permission Provisioning for Inspection Access` -> problems `Delivery workflows break outside Procore records`, `Trade partners struggle with duplicated workflows` -> themes `Procore workflow usability issues`, `Manual admin creates brittleness`, `Subcontractor workflow adoption issues` -> source `Veyor_Skanska Procurement Logs - 2025_09_24 09_00 CDT - Notes by Gemini` -> segment `acfe1f4e-30ff-4d37-a057-96291a51ced4`, index `25`, anchor `fuzzy`.
+2. `[6]` evidence `26d4290c-46ce-4f1d-81ec-2dcea988dfe1` -> opportunities `Automate Procore Permission Provisioning for Inspection Access`, `Reduce Subcontractor Steps via Single Booking Trigger` -> four subcontractor/workflow problems -> source `Veyor Catch Up - 2025_07_09 13_27 CDT - Notes by Gemini` -> segment `bfbf7ada-c826-4182-91fa-8097a5ed82fa`, index `37`, anchor `fuzzy`.
+3. `[7]` evidence `03aae883-b821-4df0-8c5c-422b16e42cc3` -> opportunity `Capture Unscheduled Deliveries as Lightweight Inspection Records` -> problems `Unscheduled deliveries are hard to reconcile`, `Manual inspection admin delays delivery records`, `Arrival evidence is captured inconsistently` -> source `Veyor Catch Up - 2025_07_09 13_27 CDT - Notes by Gemini` -> segment `35be6cbf-dae2-45d6-93e2-539fca21a451`, index `29`, anchor `exact`.
+4. `[18]` evidence `72db594f-d696-4bee-a74c-3d581eac641d` -> opportunity `Pre-attach Submittal Docs and Photos to Inspections` -> problems `Inspection records lack delivery document context`, `Inspectors lack delivery-specific documents in context`, `Arrival evidence is captured inconsistently` -> source `Jimmy_Danielle_Jake Catch Up - 2025_10_01 10_00 CDT - Notes by Gemini` -> segment `45fd6c96-0686-43f6-a535-a80aeab326c1`, index `10`, anchor `fuzzy`.
+5. `[2]` evidence `248cbb22-a326-4eee-9538-630306e55035` -> opportunity `Automate Procore Permission Provisioning for Inspection Access` -> problems `Delivery workflows break outside Procore records`, `Trade partners struggle with duplicated workflows` -> source `Veyor_Skanska Procurement Logs - 2025_09_24 09_00 CDT - Notes by Gemini` -> segment `44dbddd1-4481-4156-8bcd-d7fcce289858`, index `24`, anchor `fuzzy`.
