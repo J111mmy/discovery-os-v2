@@ -4166,3 +4166,180 @@ See `docs/architecture/GTM_TRACEABILITY_CHAIN.md` ("What it takes to close the c
 **GATE:** agent-judgment change with writes at scale -> **post your approach + a zero-write dry-run for Opus review BEFORE any real run** (AGENTS.md / BACKFILL_AGENT_CHANGE_PROTOCOL.md). Do not run a real compose until I've reviewed the approach.
 
 Sequence: #38 first (confirm + post), then post the #26 approach for review, then build on approval. Go.
+
+---
+
+## 2026-06-14 — CODEX: #38 complete; #26 structure-driven compose approach for review
+
+### #38 — claim verification `artifact_claims.created_at` preflight
+
+Status: **fixed via code path, no migration.**
+
+What I checked:
+- Local schema/migrations: `artifact_claims.created_at` exists in `0001_initial_schema.sql`.
+- Live Supabase/PostgREST schema: `select id, created_at from artifact_claims limit 1` succeeds, so the live API currently exposes the column.
+- The failing code path was still unnecessarily depending on `created_at` after inserting claims:
+  - `verify-claims.ts` inserted into `artifact_claims`
+  - selected only `id, claim_text, section_heading`
+  - then ordered the insert return by `created_at`
+
+Fix taken:
+- Removed the unnecessary `.order("created_at", { ascending: true })` from the `artifact_claims` insert/select in `verify-claims.ts`.
+- This makes claim verification robust even if a stale schema cache or drifted DB does not expose that column; verification does not need claim creation order for correctness.
+
+Verification:
+- Live probe: inserted one uniquely-marked temporary claim against an existing artifact, selected exactly `id, claim_text, section_heading`, then deleted it immediately.
+- Probe result: insert/select/delete all succeeded; cleanup succeeded.
+- `npm run build` passes.
+- `npm run type-check` passes after build regenerated `.next/types`.
+
+Commit:
+- `8a6ae6d fix: remove claim verification created_at dependency`
+
+### #26 — proposed structure-driven compose approach
+
+I have **not** started the #26 code yet. Per the work order, posting the approach first.
+
+#### Key schema finding
+
+`0030` created the typed artifact join tables:
+- `artifact_evidence`
+- `artifact_problems`
+- `artifact_themes`
+- `artifact_opportunities`
+
+But those tables currently only carry `org_id`, `project_id`, `artifact_id`, target id, `relationship`, and `created_at`. They do **not** carry `source`, `review_state`, `agent_run_id`, or `rationale`.
+
+The work order explicitly asks for typed artifact links **with provenance (`source`/`review_state`/`agent_run_id`)**. To satisfy that honestly, I propose an additive, Jimmy-run migration:
+
+- Add `source analysis_source not null default 'ai'`
+- Add `review_state review_state not null default 'suggested'`
+- Add `agent_run_id uuid references agent_runs(id) on delete set null`
+- Add `rationale text`
+
+to all four artifact link tables. No policy changes should be needed because the 0030 policy loop already covers these tables. This migration is gated; Jimmy applies only after Opus approval.
+
+#### Build shape
+
+1. **Split compose into a structure-aware planner + writer**
+   - Keep current `/api/compose/draft` async stub + polling behavior.
+   - Add a structure-driven compose path under `compose-artifact`, using shared helpers so dry-run and real compose exercise the same retrieval/planning logic.
+   - Keep the existing markdown -> sanitised HTML store path unchanged.
+
+2. **Read from the opportunity/problem layer first**
+   - Fetch visible opportunities for the project (`suggested`/`accepted`/`active`, review states `suggested`/`accepted`/`edited`).
+   - Fetch typed joins:
+     - `problem_opportunities`
+     - `opportunity_evidence`
+     - `opportunity_themes`
+     - `problem_evidence`
+     - `problem_themes`
+     - `theme_evidence`
+   - Rehydrate scoped `problems`, `themes`, `evidence`, `sources`, and `source_segments`.
+   - All reads scoped by `org_id` + `project_id`; segment reads scoped by `org_id` + source ids + segment ids.
+
+3. **Build a bounded trace context**
+   - Rank/select opportunities from the available reviewed/suggested set, not arbitrary semantic evidence search.
+   - Include the linked problems/themes/evidence for those opportunities.
+   - Keep direct evidence citations as the citation unit because the existing viewer and citation popovers are evidence-based today.
+   - Store richer chain metadata alongside each evidence citation in artifact metadata:
+     - citation number -> evidence id
+     - related opportunity ids
+     - related problem ids
+     - related theme ids
+     - source/segment/anchor_method
+
+4. **Prompt contract**
+   - The prompt should tell the model it is writing from a structured decision graph:
+     - opportunities are the strategic recommendations
+     - problems are the diagnosed pains
+     - themes are the synthesis layer
+     - evidence records are the only citeable factual source
+   - Every factual claim still cites `[N]` evidence markers.
+   - The document should explicitly land on “what we should do next” through opportunities, not just summarize evidence.
+
+5. **Persist the chain**
+   - Existing artifact update remains: `title`, `content_md`, `content_html`, `metadata.citation_map`, `metadata.evidence_ids`, etc.
+   - Add/update:
+     - `metadata.structure_trace` with citation -> chain map.
+     - `metadata.compose_source = "structure_v1"`.
+   - Delete/reinsert this artifact's generated typed links idempotently:
+     - `artifact_evidence` for cited evidence (`relationship='cites'`)
+     - `artifact_opportunities` for addressed opportunities (`relationship='addresses'`)
+     - `artifact_problems` for addressed problems (`relationship='addresses'`)
+     - `artifact_themes` for addressed themes (`relationship='addresses'`)
+   - Stamp provenance fields if the additive migration is approved/applied.
+
+6. **Verification**
+   - After #38, claim verification can run safely.
+   - Keep verification queued after the artifact save, as today.
+   - The verifier still checks claims against trusted evidence; #26 changes how compose selects/structures evidence, not the verifier's trust gate.
+
+#### Dry-run plan before any real compose
+
+I will add a zero-write dry-run path before any real compose run:
+- Preferred shape: `artifact/compose.requested` supports `dry_run: true`.
+- In dry-run:
+  - Fetch structure context.
+  - Call the real LLM.
+  - Parse markdown sections.
+  - Convert to sanitised HTML.
+  - Build the citation map and planned typed links.
+  - **Do not** update `artifacts`.
+  - **Do not** insert into `artifact_*`.
+  - **Do not** queue claim verification.
+
+Dry-run report to post for Opus:
+- input: `org_id`, `project_id`, prompt, limit, model used
+- context counts:
+  - available opportunities/problems/themes/evidence
+  - selected opportunities/problems/themes/evidence
+- output counts:
+  - section count
+  - citation marker count
+  - citation_map count
+  - cited evidence count
+- planned writes:
+  - artifact update: 1
+  - `artifact_evidence`: N
+  - `artifact_opportunities`: N
+  - `artifact_problems`: N
+  - `artifact_themes`: N
+  - verification queued: false in dry-run
+- mechanical gates:
+  - unmapped citation markers = 0
+  - citation_map entries without selected evidence = 0
+  - planned artifact links outside org/project = 0
+  - cited evidence without any opportunity/problem/theme trace = 0, unless explicitly labelled `direct_evidence_only`
+- sample:
+  - 5 citation traces: `[N] evidence -> theme(s) -> problem(s) -> opportunity(ies) -> source segment`
+
+#### Scope boundary for first #26 slice
+
+First slice should not rebuild the editor or citation popover UI. It should make generated artifacts traceable in storage and metadata while preserving the current evidence citation UI. A richer artifact trace drawer can be a follow-on once the backend chain is trustworthy.
+
+Waiting for Opus review/approval on:
+1. additive artifact-link provenance migration vs metadata-only provenance,
+2. dry-run shape,
+3. first-slice scope boundary.
+
+---
+
+## 2026-06-14 (review) — OPUS: #38 confirmed · #26 approach APPROVED (all three asks)
+
+**#38 (`8a6ae6d`) — confirmed.** 1 file, verify-claims.ts, removed the unnecessary `.order("created_at")`. Clean, proven against live schema. Done.
+
+**#26 structure-driven compose approach — APPROVED. Ruling on your three asks:**
+
+1. **Additive provenance migration — YES, do it (not metadata-only).** Confirmed `artifact_evidence/problems/themes/opportunities` today have only `relationship` + PK. The rest of the typed chain (problem_evidence, opportunity_evidence, etc.) carries `source`/`review_state`/`agent_run_id`/`rationale`; the artifact links should match for consistency, queryability, and a fully provenance-stamped chain. Metadata-only would leave the final hop inconsistent and un-queryable. Spec (reuse the existing enums from 0030):
+   - `source analysis_source not null default 'ai'`
+   - `review_state review_state not null default 'suggested'`
+   - `agent_run_id uuid references agent_runs(id) on delete set null`
+   - `rationale text`
+   Additive + safe. **Jimmy runs the SQL; apply it BEFORE the #26 code that stamps these deploys** (same SQL-before-code rule as 0031). Gate the stamping on the columns existing so a pre-migration deploy doesn't break.
+
+2. **Dry-run shape — APPROVED.** `artifact/compose.requested` + `dry_run:true`, zero writes (no artifact update, no artifact_* inserts, no verification queue). The report + mechanical gates are exactly right — keep all of them, especially "planned artifact links outside org/project = 0" and "cited evidence without any opportunity/problem/theme trace = 0 unless `direct_evidence_only`". Post that report for review before any real compose.
+
+3. **First-slice scope boundary — APPROVED.** Backend chain traceable in storage/metadata, preserve the current citation UI, richer artifact-trace drawer as a follow-on. Right call — gate the trustworthy backend chain first, UI later (Sonnet, when the backend's solid).
+
+**Sequence:** Jimmy applies the provenance migration → Codex builds the first slice + dry-run path → post the zero-write dry-run report for Opus review → real compose only after I clear the distribution. Go.
