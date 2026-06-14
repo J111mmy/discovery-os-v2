@@ -17,33 +17,207 @@ interface AskApiResponse {
   record_count: number;
 }
 
-// ─── Citation rendering ───────────────────────────────────────────────────────
+// ─── Answer rendering ───────────────────────────────────────────────────────
 
-// Replace [N] markers in answer text with inline superscript chips.
-// Returns an array of React-renderable segments.
-function renderAnswerWithCitations(
-  answer: string,
-  onCitationClick: (n: number) => void
-): React.ReactNode[] {
-  const parts = answer.split(/(\[\d+\])/g);
-  return parts.map((part, i) => {
-    const match = part.match(/^\[(\d+)\]$/);
-    if (match) {
-      const n = parseInt(match[1], 10);
-      return (
-        <button
-          key={i}
-          onClick={() => onCitationClick(n)}
-          className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded bg-[var(--accent)]/15 px-1 text-[10px] font-semibold text-[var(--accent)] transition-colors hover:bg-[var(--accent)]/30 align-super"
-          title={`Jump to source ${n}`}
-        >
-          {n}
-        </button>
-      );
+// The answer arrives as lightly-formatted markdown (headings, bold, lists,
+// paragraphs) plus [N] citation markers. We render a narrow markdown subset
+// ourselves so citation markers can stay interactive inline chips.
+
+type AnswerBlock =
+  | { type: "heading"; level: 1 | 2 | 3; text: string }
+  | { type: "paragraph"; text: string }
+  | { type: "list"; ordered: boolean; items: string[] };
+
+function parseAnswerBlocks(answer: string): AnswerBlock[] {
+  const blocks: AnswerBlock[] = [];
+  let paragraphLines: string[] = [];
+  let listItems: string[] = [];
+  let listOrdered = false;
+
+  function flushParagraph() {
+    if (paragraphLines.length > 0) {
+      blocks.push({ type: "paragraph", text: paragraphLines.join(" ").trim() });
+      paragraphLines = [];
     }
-    // Preserve paragraph breaks
-    return <span key={i}>{part}</span>;
+  }
+
+  function flushList() {
+    if (listItems.length > 0) {
+      blocks.push({ type: "list", ordered: listOrdered, items: listItems });
+      listItems = [];
+    }
+  }
+
+  for (const rawLine of answer.split("\n")) {
+    const line = rawLine.trim();
+
+    if (line === "") {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    const headingMatch = line.match(/^(#{1,3})\s+(.*)$/);
+    if (headingMatch) {
+      flushParagraph();
+      flushList();
+      blocks.push({
+        type: "heading",
+        level: headingMatch[1].length as 1 | 2 | 3,
+        text: headingMatch[2].trim(),
+      });
+      continue;
+    }
+
+    const bulletMatch = line.match(/^[-*]\s+(.*)$/);
+    const numberedMatch = line.match(/^\d+[.)]\s+(.*)$/);
+    if (bulletMatch || numberedMatch) {
+      flushParagraph();
+      const ordered = Boolean(numberedMatch);
+      const item = (bulletMatch ?? numberedMatch)![1].trim();
+      if (listItems.length > 0 && listOrdered !== ordered) {
+        flushList();
+      }
+      listOrdered = ordered;
+      listItems.push(item);
+      continue;
+    }
+
+    flushList();
+    paragraphLines.push(line);
+  }
+
+  flushParagraph();
+  flushList();
+  return blocks;
+}
+
+// Mirrors parseCitedIndices() in src/lib/llm/prompts/ask.ts so the citation
+// number shown/linked here matches the position of the record in `sources`
+// (citedSources order), not the raw [N] index into the full retrieval set.
+function buildCitationIndexMap(answer: string, total: number): Map<number, number> {
+  const re = /\[(\d+)\]/g;
+  const indices = new Set<number>();
+  let match: RegExpExecArray | null;
+
+  while ((match = re.exec(answer)) !== null) {
+    const n = parseInt(match[1], 10);
+    if (n >= 1 && n <= total) indices.add(n);
+  }
+
+  const sorted = Array.from(indices).sort((a, b) => a - b);
+  const map = new Map<number, number>();
+  sorted.forEach((raw, i) => map.set(raw, i + 1));
+  return map;
+}
+
+// Render inline bold (**text**) and [N] citation markers within a text run.
+function renderInline(
+  text: string,
+  citationIndexMap: Map<number, number>,
+  onCitationClick: (displayNumber: number) => void
+): React.ReactNode[] {
+  const tokens = text.split(/(\*\*[^*]+\*\*|\[\d+\])/g).filter(Boolean);
+
+  return tokens.map((token, i) => {
+    const boldMatch = token.match(/^\*\*([^*]+)\*\*$/);
+    if (boldMatch) {
+      return <strong key={i}>{boldMatch[1]}</strong>;
+    }
+
+    const citationMatch = token.match(/^\[(\d+)\]$/);
+    if (citationMatch) {
+      const raw = parseInt(citationMatch[1], 10);
+      const displayNumber = citationIndexMap.get(raw);
+      if (displayNumber !== undefined) {
+        return (
+          <button
+            key={i}
+            type="button"
+            onClick={() => onCitationClick(displayNumber)}
+            className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded bg-[var(--accent)]/15 px-1 text-[10px] font-semibold text-[var(--accent)] transition-colors hover:bg-[var(--accent)]/30 align-super"
+            title={`Jump to source ${displayNumber}`}
+          >
+            {displayNumber}
+          </button>
+        );
+      }
+    }
+
+    return <span key={i}>{token}</span>;
   });
+}
+
+function AnswerBlockView({
+  block,
+  citationIndexMap,
+  onCitationClick,
+}: {
+  block: AnswerBlock;
+  citationIndexMap: Map<number, number>;
+  onCitationClick: (displayNumber: number) => void;
+}) {
+  if (block.type === "heading") {
+    const headingClasses =
+      block.level === 1
+        ? "text-base font-semibold text-[var(--ink)]"
+        : block.level === 2
+        ? "text-sm font-semibold text-[var(--ink)]"
+        : "text-sm font-semibold text-[var(--ink-2)]";
+    const Tag = block.level === 1 ? "h2" : block.level === 2 ? "h3" : "h4";
+    return (
+      <Tag className={headingClasses}>
+        {renderInline(block.text, citationIndexMap, onCitationClick)}
+      </Tag>
+    );
+  }
+
+  if (block.type === "list") {
+    const ListTag = block.ordered ? "ol" : "ul";
+    return (
+      <ListTag
+        className={`${
+          block.ordered ? "list-decimal" : "list-disc"
+        } space-y-1.5 pl-5 text-sm leading-6 text-[var(--ink)]`}
+      >
+        {block.items.map((item, i) => (
+          <li key={i}>{renderInline(item, citationIndexMap, onCitationClick)}</li>
+        ))}
+      </ListTag>
+    );
+  }
+
+  return (
+    <p className="text-sm leading-7 text-[var(--ink)]">
+      {renderInline(block.text, citationIndexMap, onCitationClick)}
+    </p>
+  );
+}
+
+function AnswerContent({
+  answer,
+  recordCount,
+  onCitationClick,
+}: {
+  answer: string;
+  recordCount: number;
+  onCitationClick: (displayNumber: number) => void;
+}) {
+  const blocks = parseAnswerBlocks(answer);
+  const citationIndexMap = buildCitationIndexMap(answer, recordCount);
+
+  return (
+    <div className="grid gap-3">
+      {blocks.map((block, i) => (
+        <AnswerBlockView
+          key={i}
+          block={block}
+          citationIndexMap={citationIndexMap}
+          onCitationClick={onCitationClick}
+        />
+      ))}
+    </div>
+  );
 }
 
 // ─── Evidence card ────────────────────────────────────────────────────────────
@@ -324,13 +498,11 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
             </p>
 
             {/* Narrative answer with citation chips */}
-            <div className="prose prose-sm max-w-none text-[var(--ink)] leading-7">
-              {response.answer.split("\n\n").map((para, i) => (
-                <p key={i} className={i > 0 ? "mt-4" : ""}>
-                  {renderAnswerWithCitations(para, scrollToSource)}
-                </p>
-              ))}
-            </div>
+            <AnswerContent
+              answer={response.answer}
+              recordCount={response.record_count}
+              onCitationClick={scrollToSource}
+            />
           </div>
         )}
       </section>
