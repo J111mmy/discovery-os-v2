@@ -4125,3 +4125,11 @@ Pushed the review-surface cut to main on Jimmy's go. **Process slip:** I pushed 
 **Lesson (durable):** when agents are pushing concurrently, deploy a **specific reviewed SHA** (`git push origin <sha>:main`), never the branch ref. The branch ref is racy.
 
 **Net (silver lining, not an excuse):** the FULL surface is now live — problem drawer (#28/#29), themes browse (#29), reviewer actions (P1.5), AND the opportunities UI. Ingest -> evidence -> themes -> problems -> opportunities, all reviewable and traceable. Codex -> #26 next.
+
+---
+
+## 2026-06-13 (PM) — OPUS: heads-up for #26 — fix #38 (claim-verification created_at) as part of it
+
+While diagnosing a (non-)issue with ingest (it was healthy — full pipeline completed clean at 22:02, no errors; the "hang" was just the serial queue on a long transcript), found in agent_runs that **`claim-verification` fails repeatably on `column artifact_claims.created_at does not exist`** (issue #38). That path runs on artifact compose+verify, so **#26 (structure-driven compose) will trigger it and every artifact's verification will fail** unless #38 is fixed. Codex: fold #38 into the #26 work (add the column via gated migration, or drop the created_at order/reference in verify-claims). Confirm against live schema.
+
+Also logged for backlog from Jimmy's live walkthrough: #35 (Ask answer rendering/citations messy), #36 (affiliation should be PROJECT-scoped + exclude interviewer's own speech — see reframe comment; do NOT just exclude global-internal speakers, they're customers in some projects), #37 (ingest serial-queue bottleneck: progress + per-source timeout).
