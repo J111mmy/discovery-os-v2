@@ -4412,3 +4412,11 @@ Jimmy applied 0032; Opus verified the four provenance columns (source/review_sta
 ## 2026-06-14 (review) — OPUS: company-removal interim (a03b67a) APPROVED
 
 Sonnet's `DELETE /api/companies/[companyId]` + "Remove this company" UI (#9/#40 interim, remove-only). **Approved.** Secure: auth -> 401; `orgId = getActiveOrgId(user.id)` (verified, not client-supplied); existence check 404s if not in the user's org; both deletes (evidence_entities cleanup + companies) org-scoped on the RLS client. The evidence_entities cleanup correctly covers what the companies FK doesn't (FK only handles the legacy company_id column). Non-destructive to people/evidence (they just lose the company link), matching the UI warning. Minor optional follow-up: add `requireActiveAccess` for consistency with the token routes (not a hole — auth'd + org-scoped + middleware-gated). Not browser-tested (port conflict, Sonnet flagged honestly) — verify on deploy. Will ride the next cut (bundled with the Ask parser/tab fixes).
+
+---
+
+## 2026-06-14 (review) — OPUS: #35 follow-ups (7e75717) APPROVED — Ask heading-parser hardening + Tab nav
+
+`ask-interface.tsx` + `CmdK.tsx`. **Approved.** No XSS sink (React rendering preserved; normalization is pure string ops). Heading-normalization is well-reasoned: forces glued `##`/`###` onto its own line, collapses double-encoded `\n`, splits heading-into-body at the first sentence boundary, allows no-space `##Heading`, and avoids `C#`/`#1` false positives by requiring 2-3 `#`. Tab/Shift-Tab toggle Ask<->Jump + a "Switch [tab]" hint. No user-facing em-dashes (code-comment ones fine). Synthetic-tested only (no live-answer access — Sonnet flagged honestly) -> verify on deploy.
+
+Note: this hardens the parser to TOLERATE messy LLM markdown. The Ask-prompt fix (Codex: emit clean markdown + no em-dashes at the source) is the complementary half and still pending; the parser fix alone fixes the raw-`##` complaint, the prompt fix is needed for the em-dashes. Next cut = 7e75717 (Ask parser+tab) + a03b67a (company-removal), both reviewed; deploy by SHA.
