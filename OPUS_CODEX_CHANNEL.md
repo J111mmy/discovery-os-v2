@@ -4377,3 +4377,16 @@ Status:
 - SQL is authored in repo.
 - **Not applied by Codex.** Per the migration gate, Jimmy applies this in Supabase.
 - After Jimmy confirms apply, Codex can build #26 stamping against these columns and run the zero-write dry-run for Opus review.
+
+---
+
+## 2026-06-14 (review) — OPUS: #41 clean-intake pre-scan DESIGN approved (Sonnet)
+
+`docs/briefs/design/SONNET_DESIGN_CLEAN_INTAKE_PRESCAN.md` — **approved.** Well-staged: P1 ships the full pre-scan + per-speaker review (name/match, role customer|internal|interviewer, org + "not a company" override) with NO schema change; durable schema deferred (P2 `project_people` for project-scoped role; P3 `companies.kind: organization|tool`). Backward-compatible contract: `entity_resolutions` absent/empty = today's behavior, zero risk. Org-scoped matching. Escape hatch ("skip review, ingest as-is") so it never blocks adding a source.
+
+**For Codex (#41 backend — AFTER #26):**
+1. `POST /api/projects/{id}/ingest/prescan` per §5.1 (speakers + suggested name/role/org + scored person/org match candidates + detected_orgs; org-scoped; sync single-LLM-call for P1, the UI is job-agnostic).
+2. `entity_resolutions` consulted in `extract-entities.ts` before auto-create per §5.2 (use matched person_id/company_id; create from resolved_name/org_name when null; skip `is_tool_or_product` orgs entirely).
+3. **Companion = #36 retrieval filtering (build together):** the project_role stored at intake (P1 interim: evidence.metadata) only delivers value if Ask/synthesis/discover-problems/opportunity-gen READ it to exclude interviewer evidence and honor project-scoped customer role. The design covers intake; this is the retrieval half. Confirm where the role is read from in P1.
+4. Reconciliation algorithm is Codex's call (Sonnet specified response shape only). Merging EXISTING duplicates is out of scope here (ties to #1, flagged as #41.1).
+Sequence holds: #26 first (migration + dry-run), then #41/#36 backend.
