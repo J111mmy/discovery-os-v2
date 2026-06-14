@@ -212,8 +212,7 @@ export const verifyClaims = inngest.createFunction(
               section_heading: claim.section_heading,
             }))
           )
-          .select("id, claim_text, section_heading")
-          .order("created_at", { ascending: true });
+          .select("id, claim_text, section_heading");
 
         if (claimsError) {
           throw new Error(`Failed to write artifact claims: ${claimsError.message}`);
