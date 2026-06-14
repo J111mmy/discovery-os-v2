@@ -4380,6 +4380,143 @@ Status:
 
 ---
 
+## 2026-06-14 — CODEX: #26 first slice built + zero-write dry-run posted for Opus review
+
+Jimmy confirmed `0032_artifact_link_provenance.sql` is applied and verified, so I built the first #26 slice.
+
+### Implementation
+
+Files changed:
+
+- `src/lib/compose/structure.ts`
+- `src/lib/compose/structure-dry-run.mjs`
+- `src/lib/inngest/functions/compose-artifact.ts`
+- `src/lib/inngest/client.ts`
+- `package.json`
+
+What changed:
+
+- `compose-artifact` now uses structure-driven compose instead of the old semantic evidence shortcut.
+- The planner reads visible opportunities first, then hydrates typed links through:
+  - `problem_opportunities`
+  - `opportunity_evidence`
+  - `opportunity_themes`
+  - `problem_evidence`
+  - `problem_themes`
+  - `theme_evidence`
+  - scoped `problems`, `themes`, `evidence`, `sources`, `source_segments`
+- Real compose writes:
+  - artifact content/HTML as before, still through the #14 sanitizer
+  - `metadata.compose_source = "structure_v1"`
+  - `metadata.citation_map`
+  - `metadata.structure_trace`
+  - `metadata.compose_report`
+  - typed links into `artifact_evidence`, `artifact_opportunities`, `artifact_problems`, `artifact_themes`
+  - provenance on every typed artifact link: `source='ai'`, `review_state='suggested'`, `agent_run_id`, `rationale`
+- Real compose now starts an `agent_runs` row (`agent_type='structure-compose'`) and stamps its id into the artifact links.
+- Real compose queues `artifact/claim.verification.requested` after save/link write.
+- Dry-run uses the same planner/generator, calls the real LLM, and performs zero artifact/artifact_* writes and no verification queue.
+- A schema guard checks that 0032 provenance columns exist before compose attempts to stamp links.
+
+Validation:
+
+- `npm run type-check` ✅
+- `npm run build` ✅ (existing Supabase Node 18 warnings only)
+
+### Zero-write dry-run
+
+Command:
+
+```bash
+/Users/jimmykeogh/.nvm/versions/node/v22.22.3/bin/node src/lib/compose/structure-dry-run.mjs --project-id 3c4493d9-f804-4ae5-8c5a-a17487b0bb8b --limit 18 --prompt "Create a 6 page slide deck for an exec meeting I am presenting at in 30 minutes. I want it to go through the evidence and land on what we should do next"
+```
+
+Report:
+
+```json
+{
+  "dry_run": true,
+  "input": {
+    "org_id": "6547fb8d-dd09-49c5-8a37-d96933afbd82",
+    "project_id": "3c4493d9-f804-4ae5-8c5a-a17487b0bb8b",
+    "prompt": "Create a 6 page slide deck for an exec meeting I am presenting at in 30 minutes. I want it to go through the evidence and land on what we should do next",
+    "limit": 18,
+    "model_used": "claude-sonnet-4-6"
+  },
+  "context_counts": {
+    "available_opportunities": 5,
+    "available_problems": 11,
+    "available_themes": 8,
+    "available_evidence": 77,
+    "selected_opportunities": 4,
+    "selected_problems": 10,
+    "selected_themes": 8,
+    "selected_evidence": 18
+  },
+  "output_counts": {
+    "section_count": 7,
+    "citation_marker_count": 41,
+    "citation_map_count": 18,
+    "cited_evidence_count": 18
+  },
+  "planned_writes": {
+    "artifact_update": 1,
+    "artifact_evidence": 18,
+    "artifact_opportunities": 4,
+    "artifact_problems": 10,
+    "artifact_themes": 8,
+    "verification_queued": false
+  },
+  "mechanical_gates": {
+    "unmapped_citation_markers": 0,
+    "citation_map_entries_without_selected_evidence": 0,
+    "planned_artifact_links_outside_org_project": 0,
+    "cited_evidence_without_opportunity_problem_theme_trace": 0
+  }
+}
+```
+
+Sample citation traces:
+
+1. `[1]` evidence `7b0369bb-b908-4761-b142-ac9709e6d2a1`
+   - opportunity: `Automate Procore Permission Provisioning for Inspection Access`
+   - problems: `Delivery workflows break outside Procore records`; `Trade partners struggle with duplicated workflows`
+   - themes: `Procore workflow usability issues`; `Manual admin creates brittleness`; `Subcontractor workflow adoption issues`
+   - source: `Veyor_Skanska Procurement Logs - 2025_09_24 09_00 CDT - Notes by Gemini`
+   - segment: `acfe1f4e-30ff-4d37-a057-96291a51ced4`, speaker `null`, index `25`, anchor `fuzzy`
+
+2. `[6]` evidence `26d4290c-46ce-4f1d-81ec-2dcea988dfe1`
+   - opportunities: `Automate Procore Permission Provisioning for Inspection Access`; `Reduce Subcontractor Steps via Single Booking Trigger`
+   - problems: `Trade partners struggle with duplicated workflows`; `Subcontractors face too many overlapping digital steps`; `Multi-system workflows discourage subcontractor adoption`; `Trade partners face too many digital steps`
+   - themes: `Procore workflow usability issues`; `Manual admin creates brittleness`; `Subcontractor workflow adoption issues`; `Subcontractor digital capability shift`
+   - source: `Veyor Catch Up - 2025_07_09 13_27 CDT - Notes by Gemini`
+   - segment: `bfbf7ada-c826-4182-91fa-8097a5ed82fa`, speaker `null`, index `37`, anchor `fuzzy`
+
+3. `[7]` evidence `03aae883-b821-4df0-8c5c-422b16e42cc3`
+   - opportunity: `Capture Unscheduled Deliveries as Lightweight Inspection Records`
+   - problems: `Unscheduled deliveries are hard to reconcile`; `Manual inspection admin delays delivery records`; `Arrival evidence is captured inconsistently`
+   - themes: `Unscheduled delivery exception tracking`; `Manual admin creates brittleness`; `Photo evidence in inspections`; `Procore workflow usability issues`
+   - source: `Veyor Catch Up - 2025_07_09 13_27 CDT - Notes by Gemini`
+   - segment: `35be6cbf-dae2-45d6-93e2-539fca21a451`, speaker `null`, index `29`, anchor `exact`
+
+4. `[18]` evidence `72db594f-d696-4bee-a74c-3d581eac641d`
+   - opportunity: `Pre-attach Submittal Docs and Photos to Inspections`
+   - problems: `Inspection records lack delivery document context`; `Inspectors lack delivery-specific documents in context`; `Arrival evidence is captured inconsistently`
+   - themes: `Inspection document context gaps`; `Photo evidence in inspections`; `Booking-linked form workflow`; `Manual admin creates brittleness`
+   - source: `Jimmy_Danielle_Jake Catch Up - 2025_10_01 10_00 CDT - Notes by Gemini`
+   - segment: `45fd6c96-0686-43f6-a535-a80aeab326c1`, speaker `null`, index `10`, anchor `fuzzy`
+
+5. `[2]` evidence `248cbb22-a326-4eee-9538-630306e55035`
+   - opportunity: `Automate Procore Permission Provisioning for Inspection Access`
+   - problems: `Delivery workflows break outside Procore records`; `Trade partners struggle with duplicated workflows`
+   - themes: `Procore workflow usability issues`; `Manual admin creates brittleness`; `Subcontractor workflow adoption issues`
+   - source: `Veyor_Skanska Procurement Logs - 2025_09_24 09_00 CDT - Notes by Gemini`
+   - segment: `44dbddd1-4481-4156-8bcd-d7fcce289858`, speaker `null`, index `24`, anchor `fuzzy`
+
+Holding here per gate: **no real compose run until Opus clears this distribution.**
+
+---
+
 ## 2026-06-14 (review) — OPUS: #41 clean-intake pre-scan DESIGN approved (Sonnet)
 
 `docs/briefs/design/SONNET_DESIGN_CLEAN_INTAKE_PRESCAN.md` — **approved.** Well-staged: P1 ships the full pre-scan + per-speaker review (name/match, role customer|internal|interviewer, org + "not a company" override) with NO schema change; durable schema deferred (P2 `project_people` for project-scoped role; P3 `companies.kind: organization|tool`). Backward-compatible contract: `entity_resolutions` absent/empty = today's behavior, zero risk. Org-scoped matching. Escape hatch ("skip review, ingest as-is") so it never blocks adding a source.

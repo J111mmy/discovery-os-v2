@@ -49,4 +49,15 @@ export type Events = {
       artifact_id: string;
     };
   };
+  "artifact/compose.requested": {
+    data: {
+      org_id: string;
+      project_id: string;
+      artifact_id?: string;
+      prompt: string;
+      limit?: number;
+      user_id?: string;
+      dry_run?: boolean;
+    };
+  };
 };
