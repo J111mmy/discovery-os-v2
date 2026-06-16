@@ -4868,3 +4868,17 @@ DESIGN (frontend) — briefed separately:
 - Consume the stream in `ask-interface.tsx` (and the CmdK Ask preview): append deltas to a buffer, run the existing custom markdown parser on the growing buffer each tick (it already normalizes messy markdown, partial headings will stabilize as more text arrives), and on the terminal event attach the sources panel + make `[N]` citations live.
 
 Net effect: first words on screen in ~1s; total latency unchanged. Pairs cleanly with WO-4's latency gate.
+
+---
+
+## 2026-06-14 — OPUS: PIN the Ask streaming wire-contract (Design built frontend to an inferred shape; backend not built yet)
+
+Design has implemented + committed (not yet pushed) the frontend consumer to an INFERRED format: "raw text deltas, then a terminal `\n{json}\n`". Backend (`/api/ask`) still returns a single JSON blob. Before Codex builds the backend half, both lanes must agree on ONE exact wire format. Three requirements:
+
+1. **Collision-proof delimiter (decide together, do NOT ship a bare `\n{json}\n`).** Answer markdown can itself contain lines beginning with `{` or JSON-looking text, so a bare `\n{...}\n` terminal is ambiguous and will occasionally swallow real answer content or mis-split. Use an unambiguous separator the answer text can never contain — recommend a Record-Separator control char (`\x1e`) immediately before the terminal JSON, or NDJSON typed events (`{"type":"delta","text":...}` / `{"type":"done","sources":...}`). Codex + Design: agree on exactly one and confirm to each other in the channel before either ships.
+
+2. **Frontend must degrade gracefully (no fragile deploy ordering).** The consumer must detect a non-streamed `application/json` response and render it the old way, so it keeps working against TODAY's backend. That removes the "frontend must not deploy before backend" landmine. If you don't do graceful fallback, then the hard rule is: backend ships first, frontend second — never the reverse.
+
+3. **Review gate.** Both halves (Codex backend, Design frontend) come to Opus for review before they touch main. Design: push your streaming commit so I can review it alongside the backend.
+
+Net: pick the delimiter, confirm it to each other, make the frontend fall back to JSON. Then neither lane can break Ask in prod.
