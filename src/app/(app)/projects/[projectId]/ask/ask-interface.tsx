@@ -10,11 +10,11 @@ interface AskInterfaceProps {
   projectName: string;
 }
 
-interface AskApiResponse {
-  answer: string;
+interface TerminalEvent {
   sources: EvidenceRecord[];
   all_retrieved: EvidenceRecord[];
   record_count: number;
+  prompt_version?: string;
 }
 
 // ─── Answer rendering ───────────────────────────────────────────────────────
@@ -252,6 +252,34 @@ function AnswerContent({
   );
 }
 
+// ─── Stream utilities ─────────────────────────────────────────────────────────
+
+// Detect and extract the terminal JSON event from the end of a streaming buffer.
+// The API sends raw answer text, then on a new line a single JSON object with
+// { sources, all_retrieved, record_count, prompt_version }. We look for the
+// last "\n{" boundary and try to parse everything after it as JSON.
+function extractTerminalEvent(
+  buffer: string
+): { answerText: string; terminal: TerminalEvent } | null {
+  const idx = buffer.lastIndexOf("\n{");
+  if (idx === -1) return null;
+
+  const candidate = buffer.slice(idx + 1).trim();
+  try {
+    const parsed = JSON.parse(candidate) as TerminalEvent;
+    if (
+      parsed &&
+      Array.isArray(parsed.sources) &&
+      typeof parsed.record_count === "number"
+    ) {
+      return { answerText: buffer.slice(0, idx).trimEnd(), terminal: parsed };
+    }
+  } catch {
+    // Incomplete JSON — keep accumulating
+  }
+  return null;
+}
+
 // ─── Evidence card ────────────────────────────────────────────────────────────
 
 function ClassificationBadge({
@@ -365,7 +393,12 @@ function SourceCard({
 export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
   const [query, setQuery] = useState("");
   const [lastQuery, setLastQuery] = useState("");
-  const [response, setResponse] = useState<AskApiResponse | null>(null);
+  // Streaming state: buffer holds the growing answer text; streaming is true
+  // from first byte until the terminal event arrives.
+  const [streamBuffer, setStreamBuffer] = useState("");
+  const [streaming, setStreaming] = useState(false);
+  const [sources, setSources] = useState<EvidenceRecord[]>([]);
+  const [recordCount, setRecordCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [trustScope, setTrustScope] = useState<TrustScopeFilter>("include_pending");
@@ -385,13 +418,18 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) {
       setError("Ask a question about the evidence first.");
-      setResponse(null);
+      setStreamBuffer("");
+      setSources([]);
       return;
     }
 
     setLoading(true);
     setError(null);
-    setResponse(null);
+    setStreamBuffer("");
+    setSources([]);
+    setRecordCount(0);
+    setStreaming(false);
+    setLastQuery(trimmedQuery);
 
     try {
       const res = await fetch("/api/ask", {
@@ -405,21 +443,77 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
         }),
       });
 
-      const payload = await res.json();
-
       if (!res.ok) {
-        const message =
-          typeof payload.error === "string" ? payload.error : "Could not get an answer.";
-        setError(message);
+        const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+        setError(payload?.error ?? "Could not get an answer.");
         return;
       }
 
-      setLastQuery(trimmedQuery);
-      setResponse(payload as AskApiResponse);
+      // Fallback: non-streaming JSON response (API not yet updated to stream)
+      const contentType = res.headers.get("content-type") ?? "";
+      if (contentType.includes("application/json")) {
+        const payload = (await res.json()) as {
+          answer: string;
+          sources: EvidenceRecord[];
+          record_count: number;
+        };
+        setStreamBuffer(payload.answer);
+        setSources(payload.sources);
+        setRecordCount(payload.record_count);
+        return;
+      }
+
+      if (!res.body) {
+        setError("No response body from server.");
+        return;
+      }
+
+      // Streaming path: first byte triggers transition from loading → streaming
+      setLoading(false);
+      setStreaming(true);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        accumulated += decoder.decode(value, { stream: true });
+
+        // Check for terminal event at each chunk boundary
+        const extracted = extractTerminalEvent(accumulated);
+        if (extracted) {
+          setStreamBuffer(extracted.answerText);
+          setSources(extracted.terminal.sources);
+          setRecordCount(extracted.terminal.record_count);
+          setStreaming(false);
+          return;
+        }
+
+        setStreamBuffer(accumulated);
+      }
+
+      // Flush any remaining decoder bytes and check one final time
+      const tail = decoder.decode();
+      if (tail) accumulated += tail;
+
+      const extracted = extractTerminalEvent(accumulated);
+      if (extracted) {
+        setStreamBuffer(extracted.answerText);
+        setSources(extracted.terminal.sources);
+        setRecordCount(extracted.terminal.record_count);
+      } else {
+        // Stream ended without terminal event — show whatever arrived
+        setStreamBuffer(accumulated);
+      }
     } catch {
       setError("Could not reach the server. Try again.");
+      setStreamBuffer("");
     } finally {
       setLoading(false);
+      setStreaming(false);
     }
   }
 
@@ -430,11 +524,16 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
 
   function handleTrustScopeChange(next: TrustScopeFilter) {
     setTrustScope(next);
-    if (response !== null) void runQuery(next);
+    if (streamBuffer.length > 0 && !streaming) void runQuery(next);
   }
 
-  const hasSources = response && response.sources.length > 0;
-  const hasAnswer = response && response.answer;
+  const busy = loading || streaming;
+  const hasAnswer = streamBuffer.length > 0;
+  const hasSources = sources.length > 0;
+
+  // During streaming, citations render as chips but target record_count isn't
+  // known yet — pass a large sentinel so all [N] markers up to 100 become chips.
+  const effectiveRecordCount = streaming ? 100 : recordCount;
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -459,14 +558,14 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
               onChange={(e) => setQuery(e.target.value)}
               className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
               placeholder="What problems did users mention most?"
-              disabled={loading}
+              disabled={busy}
             />
             <button
               type="submit"
-              disabled={loading || !query.trim()}
+              disabled={busy || !query.trim()}
               className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {loading ? "Thinking…" : "Ask"}
+              {busy ? "Thinking…" : "Ask"}
             </button>
           </form>
 
@@ -499,7 +598,7 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
           </div>
         </div>
 
-        {/* Loading state */}
+        {/* Loading state — waiting for first byte */}
         {loading && (
           <div className="flex items-center gap-3 px-5 py-8 text-sm text-[var(--ink-2)]">
             <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--line)] border-t-[var(--accent)]" />
@@ -508,45 +607,55 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
         )}
 
         {/* Error state */}
-        {error && !loading && (
+        {error && !busy && (
           <div className="m-5 rounded-lg border border-neg/20 bg-neg-bg px-3 py-2 text-sm text-neg">
             {error}
           </div>
         )}
 
         {/* Empty state */}
-        {!loading && !error && !response && (
+        {!busy && !error && !hasAnswer && (
           <div className="p-12 text-center text-sm text-[var(--ink-2)]">
             Ask about user problems, workflow gaps, buying signals, or anything in the evidence.
           </div>
         )}
 
-        {/* Answer */}
+        {/* Answer — visible while streaming and after */}
         {hasAnswer && !loading && (
           <div className="px-5 py-6">
             {/* Metadata line */}
             <p className="mb-4 text-xs text-[var(--ink-faint)]">
-              Answer for "{lastQuery}" · drawn from {response.record_count} evidence records
+              {streaming
+                ? `Answering "${lastQuery}"…`
+                : `Answer for "${lastQuery}" · drawn from ${recordCount} evidence records`}
             </p>
 
             {/* Narrative answer with citation chips */}
             <AnswerContent
-              answer={response.answer}
-              recordCount={response.record_count}
-              onCitationClick={scrollToSource}
+              answer={streamBuffer}
+              recordCount={effectiveRecordCount}
+              onCitationClick={streaming ? () => {} : scrollToSource}
             />
+
+            {/* Streaming indicator — subtle pulse below the growing answer */}
+            {streaming && (
+              <div className="mt-4 flex items-center gap-2 text-xs text-[var(--ink-faint)]">
+                <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--accent)]" />
+                Searching…
+              </div>
+            )}
           </div>
         )}
       </section>
 
-      {/* Sources */}
-      {hasSources && !loading && (
+      {/* Sources — shown only once the terminal event arrives */}
+      {hasSources && !loading && !streaming && (
         <div className="mt-8" ref={sourcesRef}>
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[var(--ink-faint)]">
-            Sources · {response.sources.length} cited
+            Sources · {sources.length} cited
           </h2>
           <div className="flex flex-col gap-2">
-            {response.sources.map((record, i) => (
+            {sources.map((record, i) => (
               <SourceCard
                 key={record.id}
                 record={record}
@@ -559,7 +668,7 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
       )}
 
       {/* Fallback: answer returned but nothing was cited */}
-      {hasAnswer && !hasSources && !loading && (
+      {hasAnswer && !hasSources && !loading && !streaming && (
         <p className="mt-4 text-center text-xs text-[var(--ink-faint)]">
           No specific records were cited — the answer is based on general patterns across the evidence.
         </p>

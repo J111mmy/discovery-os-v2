@@ -3,7 +3,7 @@
 /**
  * CmdK — Ask + Jump command palette (2C)
  *
- * Ask mode  → POST /api/ask with the active project_id
+ * Ask mode  → POST /api/ask with the active project_id (streaming)
  * Jump mode → client-side Next.js router.push to real routes
  *
  * Global ⌘K / Ctrl+K keybinding is registered in Rail.tsx (layout-level).
@@ -13,7 +13,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-// ── Response type (mirrors AskResponse from api/ask/route.ts) ──────
+// ── Citation / source shape (subset of EvidenceRecord) ────────────
 
 interface AskCitation {
   content: string;
@@ -21,10 +21,11 @@ interface AskCitation {
   segment_speaker?: string | null;
 }
 
-interface AskResult {
-  answer: string;
+// Terminal event sent at end of streaming response
+interface CmdKTerminalEvent {
   sources: AskCitation[];
   record_count: number;
+  prompt_version?: string;
 }
 
 // ── Jump item ──────────────────────────────────────────────────────
@@ -146,6 +147,32 @@ function Kbd({ children }: { children: React.ReactNode }) {
   );
 }
 
+// ── Stream utility ─────────────────────────────────────────────────
+
+// Detect the terminal JSON event at the end of the accumulated buffer.
+// The API sends raw answer text then \n{json} as the final line.
+function extractCmdKTerminalEvent(
+  buffer: string
+): { answerText: string; terminal: CmdKTerminalEvent } | null {
+  const idx = buffer.lastIndexOf("\n{");
+  if (idx === -1) return null;
+
+  const candidate = buffer.slice(idx + 1).trim();
+  try {
+    const parsed = JSON.parse(candidate) as CmdKTerminalEvent;
+    if (
+      parsed &&
+      Array.isArray(parsed.sources) &&
+      typeof parsed.record_count === "number"
+    ) {
+      return { answerText: buffer.slice(0, idx).trimEnd(), terminal: parsed };
+    }
+  } catch {
+    // Incomplete JSON yet
+  }
+  return null;
+}
+
 // ══════════════════════════════════════════════════════════════════
 // CmdK — main component
 // ══════════════════════════════════════════════════════════════════
@@ -156,8 +183,14 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
 
   const [q, setQ] = useState("");
   const [mode, setMode] = useState<"ask" | "jump">("ask");
+  // thinking = true while waiting for the first streaming byte
   const [thinking, setThinking] = useState(false);
-  const [answer, setAnswer] = useState<AskResult | null>(null);
+  // cmkBuffer = growing answer text during streaming; persists as final answer
+  const [cmkBuffer, setCmkBuffer] = useState("");
+  // cmkSources = populated once terminal event arrives
+  const [cmkSources, setCmkSources] = useState<AskCitation[]>([]);
+  // cmkStreaming = true from first byte until terminal event
+  const [cmkStreaming, setCmkStreaming] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
   const [jumpIdx, setJumpIdx] = useState(0);
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -175,7 +208,9 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
   useEffect(() => {
     if (!open) return;
     setQ("");
-    setAnswer(null);
+    setCmkBuffer("");
+    setCmkSources([]);
+    setCmkStreaming(false);
     setAskError(null);
     setMode("ask");
     setJumpIdx(0);
@@ -197,35 +232,97 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
   // ── Ask handler ──────────────────────────────────────────────────
 
   async function askQuestion(question: string) {
-    const q = question.trim();
-    if (!q) return;
+    const trimmed = question.trim();
+    if (!trimmed) return;
     if (!projectId) {
       setAskError("Open a project first to ask questions about your evidence.");
       return;
     }
+
     setThinking(true);
-    setAnswer(null);
+    setCmkBuffer("");
+    setCmkSources([]);
+    setCmkStreaming(false);
     setAskError(null);
+
     try {
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_id: projectId, question: q }),
+        body: JSON.stringify({ project_id: projectId, question: trimmed }),
       });
-      const data: unknown = await res.json();
+
       if (!res.ok) {
+        const data: unknown = await res.json().catch(() => null);
         const msg =
-          typeof data === "object" && data !== null && "error" in data && typeof (data as { error: unknown }).error === "string"
+          typeof data === "object" &&
+          data !== null &&
+          "error" in data &&
+          typeof (data as { error: unknown }).error === "string"
             ? (data as { error: string }).error
             : "Something went wrong.";
         setAskError(msg);
+        return;
+      }
+
+      // Fallback: non-streaming JSON response
+      const contentType = res.headers.get("content-type") ?? "";
+      if (contentType.includes("application/json")) {
+        const data = (await res.json()) as {
+          answer: string;
+          sources: AskCitation[];
+        };
+        setCmkBuffer(data.answer);
+        setCmkSources(data.sources);
+        return;
+      }
+
+      if (!res.body) {
+        setAskError("No response body from server.");
+        return;
+      }
+
+      // Streaming path — first byte ends the "thinking" state
+      setThinking(false);
+      setCmkStreaming(true);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        accumulated += decoder.decode(value, { stream: true });
+
+        const extracted = extractCmdKTerminalEvent(accumulated);
+        if (extracted) {
+          setCmkBuffer(extracted.answerText);
+          setCmkSources(extracted.terminal.sources);
+          setCmkStreaming(false);
+          return;
+        }
+
+        setCmkBuffer(accumulated);
+      }
+
+      // Flush remaining decoder bytes
+      const tail = decoder.decode();
+      if (tail) accumulated += tail;
+
+      const extracted = extractCmdKTerminalEvent(accumulated);
+      if (extracted) {
+        setCmkBuffer(extracted.answerText);
+        setCmkSources(extracted.terminal.sources);
       } else {
-        setAnswer(data as AskResult);
+        setCmkBuffer(accumulated);
       }
     } catch {
       setAskError("Network error — please try again.");
     } finally {
       setThinking(false);
+      setCmkStreaming(false);
     }
   }
 
@@ -262,7 +359,7 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
     }
     if (mode === "ask" && e.key === "Enter" && !e.shiftKey && q.trim()) {
       e.preventDefault();
-      askQuestion(q);
+      void askQuestion(q);
     }
   }
 
@@ -270,7 +367,9 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
 
   function switchMode(next: "ask" | "jump") {
     setMode(next);
-    setAnswer(null);
+    setCmkBuffer("");
+    setCmkSources([]);
+    setCmkStreaming(false);
     setAskError(null);
     setQ("");
     setJumpIdx(0);
@@ -278,6 +377,8 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
   }
 
   if (!open) return null;
+
+  const hasAnswer = cmkBuffer.length > 0;
 
   // Animation — skip when reduced-motion is requested
   const backdropStyle: React.CSSProperties = {
@@ -345,7 +446,12 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
           <input
             ref={inputRef}
             value={q}
-            onChange={(e) => { setQ(e.target.value); setAnswer(null); setAskError(null); }}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setCmkBuffer("");
+              setCmkSources([]);
+              setAskError(null);
+            }}
             onKeyDown={handleKey}
             placeholder={
               mode === "ask" ? "Ask your evidence anything…" : "Jump to a screen…"
@@ -394,7 +500,7 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
         <div style={{ maxHeight: "54vh", overflowY: "auto" }}>
 
           {/* ASK — suggestion list */}
-          {mode === "ask" && !answer && !thinking && !askError && (
+          {mode === "ask" && !hasAnswer && !thinking && !askError && (
             <div style={{ padding: "14px 18px 18px" }}>
               <div
                 style={{
@@ -407,7 +513,7 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
               {SUGGESTIONS.map((s, i) => (
                 <button
                   key={i}
-                  onClick={() => { setQ(s); askQuestion(s); }}
+                  onClick={() => { setQ(s); void askQuestion(s); }}
                   style={{
                     display: "flex", alignItems: "center", gap: 11, width: "100%",
                     textAlign: "left", padding: "10px 10px", borderRadius: 10,
@@ -429,7 +535,7 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
             </div>
           )}
 
-          {/* ASK — thinking */}
+          {/* ASK — thinking (waiting for first byte) */}
           {mode === "ask" && thinking && (
             <div
               style={{
@@ -457,8 +563,8 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
             </div>
           )}
 
-          {/* ASK — answer */}
-          {mode === "ask" && answer && !thinking && (
+          {/* ASK — streaming / answer */}
+          {mode === "ask" && hasAnswer && !thinking && (
             <div style={{ padding: "18px 20px 22px" }}>
               <div
                 style={{
@@ -474,10 +580,28 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
                   lineHeight: 1.62, color: "var(--ink-2)", margin: "0 0 18px",
                 }}
               >
-                <AnswerText text={answer.answer} />
+                <AnswerText text={cmkBuffer} />
+                {/* Streaming pulse after the last word */}
+                {cmkStreaming && (
+                  <span
+                    aria-hidden
+                    style={{
+                      display: "inline-block",
+                      width: 2,
+                      height: "0.85em",
+                      background: "var(--accent)",
+                      marginLeft: 3,
+                      verticalAlign: "text-bottom",
+                      borderRadius: 1,
+                      opacity: 0.8,
+                      animation: "pulse 1s ease-in-out infinite",
+                    }}
+                  />
+                )}
               </p>
 
-              {answer.sources.length > 0 && (
+              {/* Sources — shown only after terminal event */}
+              {cmkSources.length > 0 && !cmkStreaming && (
                 <>
                   <div
                     style={{
@@ -487,7 +611,7 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
                   >
                     Grounded in
                   </div>
-                  {answer.sources.slice(0, 4).map((s, i) => (
+                  {cmkSources.slice(0, 4).map((s, i) => (
                     <div
                       key={i}
                       style={{
@@ -519,7 +643,8 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
                 </>
               )}
 
-              {projectId && (
+              {/* Continue in Ask — shown only after streaming completes */}
+              {projectId && !cmkStreaming && (
                 <button
                   onClick={() => { router.push(`/projects/${projectId}/ask`); onClose(); }}
                   style={{
