@@ -15,6 +15,10 @@ import {
   buildAskUserMessage,
   parseCitedIndices,
 } from "@/lib/llm/prompts/ask";
+import {
+  resolveSpeakerTargetsForQuestion,
+  speakerResolutionLabel,
+} from "@/lib/speakers/resolve";
 import { z } from "zod";
 import type { EvidenceRecord } from "@/types/database";
 
@@ -83,7 +87,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
-  // Retrieve semantically relevant evidence
+  const speakerResolution = await resolveSpeakerTargetsForQuestion({
+    supabase,
+    org_id: project.org_id,
+    project_id,
+    question,
+  });
+
+  // Retrieve semantically relevant evidence, narrowed to the named speaker
+  // when the question asks what a person said, wanted, felt, or required.
   let retrieved: EvidenceRecord[];
   try {
     const result = await queryEvidence({
@@ -92,6 +104,7 @@ export async function POST(req: NextRequest) {
       q: question,
       limit,
       trust_scope,
+      speaker_resolution: speakerResolution,
     });
     retrieved = result.records;
   } catch (err) {
@@ -104,6 +117,17 @@ export async function POST(req: NextRequest) {
 
   // If no evidence, return a graceful "nothing found" answer
   if (retrieved.length === 0) {
+    const speakerFocus = speakerResolutionLabel(speakerResolution);
+    if (speakerFocus) {
+      return NextResponse.json({
+        answer: `I couldn't find enough evidence where ${speakerFocus} is the speaker to answer that safely. There may be related evidence in the project, but I won't attribute another speaker's words to ${speakerFocus}.`,
+        sources: [],
+        all_retrieved: [],
+        prompt_version: ASK_PROMPT_VERSION,
+        record_count: 0,
+      } satisfies AskResponse);
+    }
+
     return NextResponse.json({
       answer:
         "There isn't enough evidence in this project yet to answer that question. Try uploading more transcripts or broadening the trust filter.",
@@ -140,6 +164,7 @@ export async function POST(req: NextRequest) {
             projectFrame: project.frame,
             researchGoals,
             evidenceRecords: retrieved,
+            speakerResolution,
           }),
         },
       ],

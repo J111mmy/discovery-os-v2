@@ -4,8 +4,12 @@
 
 import type { EvidenceRecord } from "@/types/database";
 import { neutralizeUntrustedSourceContentFence } from "./untrusted-content";
+import {
+  speakerResolutionLabel,
+  type SpeakerResolution,
+} from "@/lib/speakers/resolve";
 
-export const ASK_PROMPT_VERSION = "ask-v3";
+export const ASK_PROMPT_VERSION = "ask-v4";
 
 export interface AskContext {
   question: string;
@@ -13,6 +17,7 @@ export interface AskContext {
   projectFrame: string | null;
   researchGoals: string | null;
   evidenceRecords: EvidenceRecord[];
+  speakerResolution?: SpeakerResolution | null;
 }
 
 export interface AskResult {
@@ -55,6 +60,7 @@ Rules:
 - Use [N] inline citations throughout. Every substantive claim must be cited.
 - If multiple records support the same point, cite all of them: [1][3].
 - If the evidence doesn't answer the question, say so clearly and explain what the evidence does show.
+- Speaker attribution is strict. Only attribute a statement to a named person when that evidence record's Speaker matches that person. If a question asks what a named person said and the provided records contain little or no evidence from that speaker, say so plainly. Never attribute another speaker's statement to the named person.
 - Do not invent facts. Only draw from the provided evidence.
 - Do not mention agents, pipelines, models, embeddings, or any system internals.
 - Write as if briefing a busy product manager: confident, grounded, no filler.`;
@@ -73,6 +79,14 @@ export function buildAskUserMessage(ctx: AskContext): string {
   }
 
   lines.push(`\nQuestion: ${ctx.question}`);
+
+  const speakerFocus = speakerResolutionLabel(ctx.speakerResolution);
+  if (speakerFocus) {
+    lines.push(
+      `Speaker focus: ${speakerFocus}. Use only evidence whose Speaker matches this person for claims about what they said, wanted, felt, or required.`
+    );
+  }
+
   lines.push(`\nEvidence (${ctx.evidenceRecords.length} records):\n`);
 
   ctx.evidenceRecords.forEach((record, i) => {

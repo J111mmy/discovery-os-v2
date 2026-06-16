@@ -2,6 +2,11 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { embed } from "@/lib/llm/client";
 import type { TrustScope, EvidenceRecord } from "@/types/database";
+import {
+  recordMatchesSpeakerTargets,
+  speakerMatchesTargets,
+  type SpeakerResolution,
+} from "@/lib/speakers/resolve";
 
 export interface EvidenceQueryOptions {
   org_id: string;
@@ -9,6 +14,7 @@ export interface EvidenceQueryOptions {
   q: string;
   limit?: number;
   trust_scope?: TrustScope | "include_pending" | "all";
+  speaker_resolution?: SpeakerResolution | null;
 }
 
 export interface EvidenceQueryResult {
@@ -19,11 +25,20 @@ export interface EvidenceQueryResult {
 export async function queryEvidence(
   opts: EvidenceQueryOptions
 ): Promise<EvidenceQueryResult> {
-  const { org_id, project_id, q, limit = 18, trust_scope = "trusted" } = opts;
+  const {
+    org_id,
+    project_id,
+    q,
+    limit = 18,
+    trust_scope = "trusted",
+    speaker_resolution = null,
+  } = opts;
 
   const supabase = createServiceClient();
   const embedding = await embed(q);
   const embeddingStr = `[${embedding.join(",")}]`;
+  const speakerTargeted = Boolean(speaker_resolution?.targeted);
+  const retrievalLimit = speakerTargeted ? Math.max(limit * 4, 60) : limit;
 
   // Build trust filter
   const trustFilter =
@@ -39,12 +54,51 @@ export async function queryEvidence(
     p_project_id: project_id,
     p_embedding: embeddingStr,
     p_trust_scopes: trustFilter,
-    p_limit: limit,
+    p_limit: retrievalLimit,
   });
 
   if (error) throw new Error(`Evidence query failed: ${error.message}`);
 
-  const records = (data ?? []) as EvidenceRecord[];
+  let records = (data ?? []) as EvidenceRecord[];
+  await hydrateEvidenceRecords({ supabase, org_id, project_id, records });
+
+  if (speakerTargeted) {
+    const semanticSpeakerRecords = records.filter((record) =>
+      recordMatchesSpeakerTargets(record, speaker_resolution)
+    );
+    const directSpeakerRecords =
+      semanticSpeakerRecords.length < limit
+        ? await queryEvidenceBySpeaker({
+            supabase,
+            org_id,
+            project_id,
+            trustFilter,
+            speaker_resolution,
+            limit: Math.max(limit * 3, 40),
+            excludeIds: new Set(semanticSpeakerRecords.map((record) => record.id)),
+          })
+        : [];
+
+    const seen = new Set<string>();
+    records = [...semanticSpeakerRecords, ...directSpeakerRecords]
+      .filter((record) => {
+        if (!record.id || seen.has(record.id)) return false;
+        seen.add(record.id);
+        return true;
+      })
+      .slice(0, limit);
+  }
+
+  return { records, query: q };
+}
+
+async function hydrateEvidenceRecords(input: {
+  supabase: ReturnType<typeof createServiceClient>;
+  org_id: string;
+  project_id: string;
+  records: EvidenceRecord[];
+}) {
+  const { supabase, org_id, project_id, records } = input;
   const recordIds = records.map((record) => record.id).filter(Boolean);
   const sourceIds = Array.from(new Set(records.map((record) => record.source_id).filter(Boolean)));
   const segmentIds = Array.from(
@@ -120,8 +174,66 @@ export async function queryEvidence(
       }
     });
   }
+}
 
-  return { records, query: q };
+async function queryEvidenceBySpeaker(input: {
+  supabase: ReturnType<typeof createServiceClient>;
+  org_id: string;
+  project_id: string;
+  trustFilter: string[];
+  speaker_resolution: SpeakerResolution | null;
+  limit: number;
+  excludeIds: Set<string>;
+}) {
+  const { supabase, org_id, project_id, trustFilter, speaker_resolution, limit, excludeIds } = input;
+  if (!speaker_resolution?.targeted) return [];
+
+  const { data: sources, error: sourcesError } = await supabase
+    .from("sources")
+    .select("id")
+    .eq("org_id", org_id)
+    .eq("project_id", project_id);
+
+  if (sourcesError) throw new Error(`Speaker evidence source lookup failed: ${sourcesError.message}`);
+
+  const sourceIds = ((sources ?? []) as Array<{ id: string }>).map((source) => source.id);
+  if (sourceIds.length === 0) return [];
+
+  const { data: segments, error: segmentsError } = await supabase
+    .from("source_segments")
+    .select("id, speaker")
+    .eq("org_id", org_id)
+    .in("source_id", sourceIds)
+    .not("speaker", "is", null);
+
+  if (segmentsError) throw new Error(`Speaker evidence segment lookup failed: ${segmentsError.message}`);
+
+  const segmentIds = ((segments ?? []) as Array<{ id: string; speaker: string | null }>)
+    .filter((segment) => speakerMatchesTargets(segment.speaker, speaker_resolution))
+    .map((segment) => segment.id);
+
+  if (segmentIds.length === 0) return [];
+
+  const { data: evidence, error: evidenceError } = await supabase
+    .from("evidence")
+    .select(
+      "id, org_id, project_id, source_id, segment_id, content, trust_scope, trust_scope_source, summary, classification, sentiment, themes, metadata, ai_trust_grade, ai_trust_reason, ai_graded_at, created_at"
+    )
+    .eq("org_id", org_id)
+    .eq("project_id", project_id)
+    .in("trust_scope", trustFilter)
+    .in("segment_id", segmentIds)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (evidenceError) throw new Error(`Speaker evidence lookup failed: ${evidenceError.message}`);
+
+  const records = ((evidence ?? []) as EvidenceRecord[]).filter(
+    (record) => !excludeIds.has(record.id)
+  );
+  await hydrateEvidenceRecords({ supabase, org_id, project_id, records });
+
+  return records.filter((record) => recordMatchesSpeakerTargets(record, speaker_resolution));
 }
 
 // Dual-query: semantic on the prompt + broad recall on project name
