@@ -4,19 +4,22 @@
 import { z } from "zod";
 import { inngest } from "../client";
 import { createServiceClient } from "@/lib/supabase/server";
-import { callLLM, embedBatch } from "@/lib/llm/client";
+import { callLLM, embedBatch, type LLMCallResult, type LLMTextBlock } from "@/lib/llm/client";
 import { matchEvidenceToSegment } from "@/lib/evidence/anchor.mjs";
 import { PROCESSED_MARKER_ERROR, looksLikeProcessedMarker } from "@/lib/ingest/quality";
 import { redactPII } from "@/lib/llm/pii";
 import {
-  buildIngestExtractionPrompt,
+  buildIngestExtractionBatchContent,
+  buildIngestExtractionStaticPrompt,
   INGEST_EXTRACTION_PROMPT_VERSION,
 } from "@/lib/llm/prompts/ingest";
+import { isTaskTier } from "@/lib/llm/models";
 import type {
   Affiliation,
   EvidenceClassification,
   EvidenceSentiment,
   SourceType,
+  TaskTier,
 } from "@/types/database";
 
 type RawSegment = {
@@ -88,8 +91,17 @@ type SourceSpeaker = {
 
 const MAX_TURN_TOKENS = 800;
 const DEFAULT_MAX_CLAIMS_PER_SOURCE = 200;
+const DEFAULT_EXTRACTION_BATCH_SIZE = 8;
+const DEFAULT_EXTRACTION_PARALLELISM = 4;
+const DEFAULT_EXTRACTION_TIMEOUT_MS = 180_000;
+const DEFAULT_EXTRACTION_MAX_OUTPUT_TOKENS = 8_192;
+const MAX_THEMES_FOR_EXTRACTION_CONTEXT = 40;
+const MAX_PROBLEMS_FOR_EXTRACTION_CONTEXT = 20;
+const MAX_OTHER_PROJECTS_FOR_EXTRACTION_CONTEXT = 10;
+const MAX_INTERNAL_SPEAKERS_FOR_EXTRACTION_CONTEXT = 50;
 
 const ExtractedClaimSchema = z.object({
+  unit_id: z.string().trim().min(1).optional(),
   content: z.string().trim().min(1),
   summary: z.string().trim().nullable().optional(),
   classification: z.enum(["insight", "verbatim", "data_point", "signal"]),
@@ -109,6 +121,49 @@ type AnchoredClaim = ExtractedClaim & {
   anchor_char_start: number | null;
   anchor_char_end: number | null;
   anchor_score: number | null;
+};
+
+type ExtractionBatchTelemetry = {
+  batch_index: number;
+  unit_count: number;
+  llm_calls: number;
+  claim_count: number;
+  error_count: number;
+  dropped_claim_count: number;
+  duration_ms: number;
+  model_used: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  estimated_cost_usd: number;
+  fallback_reason: string | null;
+};
+
+type ExtractionBatchResult = {
+  claims: AnchoredClaim[];
+  errors: string[];
+  telemetry: ExtractionBatchTelemetry;
+};
+
+type ExtractionSummary = {
+  prompt_version: string;
+  task_tier: TaskTier;
+  batch_size: number;
+  parallelism: number;
+  units_total: number;
+  batches_total: number;
+  claims_extracted: number;
+  errors_count: number;
+  dropped_claim_count: number;
+  llm_calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  estimated_cost_usd: number;
+  models_used: string[];
+  batches: ExtractionBatchTelemetry[];
 };
 
 function normalizedText(text: string) {
@@ -153,6 +208,61 @@ function maxClaimsPerSource() {
   return Number.isInteger(configured) && configured > 0
     ? configured
     : DEFAULT_MAX_CLAIMS_PER_SOURCE;
+}
+
+function configuredInteger(name: string, fallback: number, min: number, max: number) {
+  const configured = Number(process.env[name]);
+  if (!Number.isInteger(configured)) return fallback;
+  return Math.max(min, Math.min(max, configured));
+}
+
+function ingestExtractionBatchSize() {
+  return configuredInteger(
+    "INGEST_EXTRACTION_BATCH_SIZE",
+    DEFAULT_EXTRACTION_BATCH_SIZE,
+    6,
+    12
+  );
+}
+
+function ingestExtractionParallelism() {
+  return configuredInteger(
+    "INGEST_EXTRACTION_PARALLELISM",
+    DEFAULT_EXTRACTION_PARALLELISM,
+    1,
+    6
+  );
+}
+
+function ingestExtractionTimeoutMs() {
+  return configuredInteger(
+    "INGEST_EXTRACTION_TIMEOUT_MS",
+    DEFAULT_EXTRACTION_TIMEOUT_MS,
+    30_000,
+    300_000
+  );
+}
+
+function ingestExtractionMaxTokens() {
+  return configuredInteger(
+    "INGEST_EXTRACTION_MAX_OUTPUT_TOKENS",
+    DEFAULT_EXTRACTION_MAX_OUTPUT_TOKENS,
+    2_048,
+    16_000
+  );
+}
+
+function ingestExtractionTier(): TaskTier {
+  const configured = process.env.INGEST_EXTRACTION_TIER;
+  return isTaskTier(configured) ? configured : "standard";
+}
+
+function chunk<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
 }
 
 function isTimestamp(value: string) {
@@ -727,6 +837,319 @@ function normalizeClaim(value: unknown): ExtractedClaim | null {
   return parsed.data;
 }
 
+function emptyBatchTelemetry(input: {
+  batchIndex: number;
+  unitCount: number;
+  fallbackReason?: string | null;
+}): ExtractionBatchTelemetry {
+  return {
+    batch_index: input.batchIndex,
+    unit_count: input.unitCount,
+    llm_calls: 0,
+    claim_count: 0,
+    error_count: 0,
+    dropped_claim_count: 0,
+    duration_ms: 0,
+    model_used: null,
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+    estimated_cost_usd: 0,
+    fallback_reason: input.fallbackReason ?? null,
+  };
+}
+
+function telemetryFromLLM(input: {
+  batchIndex: number;
+  unitCount: number;
+  result: LLMCallResult;
+  durationMs: number;
+  fallbackReason?: string | null;
+}): ExtractionBatchTelemetry {
+  return {
+    batch_index: input.batchIndex,
+    unit_count: input.unitCount,
+    llm_calls: 1,
+    claim_count: 0,
+    error_count: 0,
+    dropped_claim_count: 0,
+    duration_ms: input.durationMs,
+    model_used: input.result.model,
+    input_tokens: input.result.inputTokens,
+    output_tokens: input.result.outputTokens,
+    cache_creation_input_tokens: input.result.cacheCreationInputTokens ?? 0,
+    cache_read_input_tokens: input.result.cacheReadInputTokens ?? 0,
+    estimated_cost_usd: input.result.estimatedCostUsd ?? 0,
+    fallback_reason: input.fallbackReason ?? null,
+  };
+}
+
+function combineTelemetry(
+  batchIndex: number,
+  unitCount: number,
+  telemetry: ExtractionBatchTelemetry[],
+  fallbackReason: string | null
+): ExtractionBatchTelemetry {
+  const modelNames = Array.from(
+    new Set(telemetry.map((item) => item.model_used).filter(Boolean) as string[])
+  );
+  return {
+    batch_index: batchIndex,
+    unit_count: unitCount,
+    llm_calls: telemetry.reduce((sum, item) => sum + item.llm_calls, 0),
+    claim_count: telemetry.reduce((sum, item) => sum + item.claim_count, 0),
+    error_count: telemetry.reduce((sum, item) => sum + item.error_count, 0),
+    dropped_claim_count: telemetry.reduce((sum, item) => sum + item.dropped_claim_count, 0),
+    duration_ms: telemetry.reduce((sum, item) => sum + item.duration_ms, 0),
+    model_used: modelNames.join(", ") || null,
+    input_tokens: telemetry.reduce((sum, item) => sum + item.input_tokens, 0),
+    output_tokens: telemetry.reduce((sum, item) => sum + item.output_tokens, 0),
+    cache_creation_input_tokens: telemetry.reduce(
+      (sum, item) => sum + item.cache_creation_input_tokens,
+      0
+    ),
+    cache_read_input_tokens: telemetry.reduce((sum, item) => sum + item.cache_read_input_tokens, 0),
+    estimated_cost_usd: Number(
+      telemetry.reduce((sum, item) => sum + item.estimated_cost_usd, 0).toFixed(6)
+    ),
+    fallback_reason: fallbackReason,
+  };
+}
+
+function parseClaimsForUnits(
+  parsed: unknown,
+  units: ConversationUnit[],
+  batchIndex: number
+) {
+  const array = Array.isArray(parsed) ? parsed : [];
+  const unitsById = new Map(units.map((unit) => [unit.id, unit]));
+  const claims: AnchoredClaim[] = [];
+  const errors: string[] = [];
+  let droppedClaimCount = 0;
+
+  for (const item of array) {
+    const claim = normalizeClaim(item);
+    if (!claim) {
+      droppedClaimCount += 1;
+      continue;
+    }
+
+    const unitId = claim.unit_id ?? (units.length === 1 ? units[0]?.id : null);
+    const unit = unitId ? unitsById.get(unitId) : null;
+    if (!unit) {
+      droppedClaimCount += 1;
+      errors.push(
+        `batch-${batchIndex}: dropped claim with unknown unit_id ${unitId ?? "missing"}`
+      );
+      continue;
+    }
+
+    if (unit.segments.length === 0) {
+      droppedClaimCount += 1;
+      continue;
+    }
+
+    const anchor = matchEvidenceToSegment({
+      content: claim.content,
+      speaker: claim.speaker ?? null,
+      segments: unit.segments,
+    });
+    if (!anchor) {
+      droppedClaimCount += 1;
+      continue;
+    }
+
+    claims.push({
+      ...claim,
+      unit_id: unit.id,
+      segment_id: anchor.segment_id,
+      anchor_method: anchor.anchor_method as AnchoredClaim["anchor_method"],
+      anchor_char_start: anchor.anchor_char_start,
+      anchor_char_end: anchor.anchor_char_end,
+      anchor_score: anchor.anchor_score,
+    });
+  }
+
+  return { claims, errors, droppedClaimCount };
+}
+
+async function callIngestExtractionLLM(input: {
+  staticPrompt: string;
+  units: ConversationUnit[];
+  tier: TaskTier;
+}) {
+  const contentBlocks: LLMTextBlock[] = [
+    {
+      type: "text",
+      text: input.staticPrompt,
+      cache_control: { type: "ephemeral" },
+    },
+    {
+      type: "text",
+      text: [
+        "CONVERSATION UNITS:",
+        buildIngestExtractionBatchContent({
+          units: input.units.map((unit) => ({ id: unit.id, content: unit.content })),
+        }),
+      ].join("\n\n"),
+    },
+  ];
+
+  const startedAt = Date.now();
+  const result = await callLLM({
+    tier: input.tier,
+    system: "You extract structured customer evidence. Return strict JSON only.",
+    messages: [{ role: "user", content: contentBlocks }],
+    timeoutMs: ingestExtractionTimeoutMs(),
+    maxTokens: ingestExtractionMaxTokens(),
+  });
+
+  return { result, durationMs: Date.now() - startedAt };
+}
+
+async function extractClaimsForUnitBatch(input: {
+  batchIndex: number;
+  units: ConversationUnit[];
+  staticPrompt: string;
+  tier: TaskTier;
+  allowFallback: boolean;
+}): Promise<ExtractionBatchResult> {
+  if (input.units.length === 0) {
+    return {
+      claims: [],
+      errors: [],
+      telemetry: emptyBatchTelemetry({ batchIndex: input.batchIndex, unitCount: 0 }),
+    };
+  }
+
+  const { result, durationMs } = await callIngestExtractionLLM({
+    staticPrompt: input.staticPrompt,
+    units: input.units,
+    tier: input.tier,
+  });
+  const telemetry = telemetryFromLLM({
+    batchIndex: input.batchIndex,
+    unitCount: input.units.length,
+    result,
+    durationMs,
+  });
+
+  let parsed: unknown;
+  try {
+    parsed = extractJsonArray(result.content);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown JSON parse error";
+    const batchError = `batch-${input.batchIndex}: ${message}`;
+
+    if (!input.allowFallback || input.units.length === 1) {
+      return {
+        claims: [],
+        errors: [batchError],
+        telemetry: {
+          ...telemetry,
+          error_count: 1,
+          fallback_reason: "parse_error",
+        },
+      };
+    }
+
+    const fallbackResults = await Promise.all(
+      input.units.map((unit, offset) =>
+        extractClaimsForUnitBatch({
+          batchIndex: input.batchIndex * 1000 + offset + 1,
+          units: [unit],
+          staticPrompt: input.staticPrompt,
+          tier: input.tier,
+          allowFallback: false,
+        })
+      )
+    );
+
+    const childTelemetry = fallbackResults.map((item) => item.telemetry);
+    const combinedTelemetry = combineTelemetry(
+      input.batchIndex,
+      input.units.length,
+      [telemetry, ...childTelemetry],
+      "batch_parse_error_unit_fallback"
+    );
+    const claims = fallbackResults.flatMap((item) => item.claims);
+    const errors = [batchError, ...fallbackResults.flatMap((item) => item.errors)];
+
+    return {
+      claims,
+      errors,
+      telemetry: {
+        ...combinedTelemetry,
+        claim_count: claims.length,
+        error_count: errors.length,
+      },
+    };
+  }
+
+  const parsedClaims = parseClaimsForUnits(parsed, input.units, input.batchIndex);
+  return {
+    claims: parsedClaims.claims,
+    errors: parsedClaims.errors,
+    telemetry: {
+      ...telemetry,
+      claim_count: parsedClaims.claims.length,
+      error_count: parsedClaims.errors.length,
+      dropped_claim_count: parsedClaims.droppedClaimCount,
+    },
+  };
+}
+
+function buildExtractionSummary(input: {
+  tier: TaskTier;
+  batchSize: number;
+  parallelism: number;
+  unitsTotal: number;
+  batches: ExtractionBatchResult[];
+}): ExtractionSummary {
+  const models = Array.from(
+    new Set(
+      input.batches
+        .map((batch) => batch.telemetry.model_used)
+        .filter(Boolean)
+        .flatMap((model) => String(model).split(",").map((item) => item.trim()).filter(Boolean))
+    )
+  );
+
+  return {
+    prompt_version: INGEST_EXTRACTION_PROMPT_VERSION,
+    task_tier: input.tier,
+    batch_size: input.batchSize,
+    parallelism: input.parallelism,
+    units_total: input.unitsTotal,
+    batches_total: input.batches.length,
+    claims_extracted: input.batches.reduce((sum, batch) => sum + batch.claims.length, 0),
+    errors_count: input.batches.reduce((sum, batch) => sum + batch.errors.length, 0),
+    dropped_claim_count: input.batches.reduce(
+      (sum, batch) => sum + batch.telemetry.dropped_claim_count,
+      0
+    ),
+    llm_calls: input.batches.reduce((sum, batch) => sum + batch.telemetry.llm_calls, 0),
+    input_tokens: input.batches.reduce((sum, batch) => sum + batch.telemetry.input_tokens, 0),
+    output_tokens: input.batches.reduce((sum, batch) => sum + batch.telemetry.output_tokens, 0),
+    cache_creation_input_tokens: input.batches.reduce(
+      (sum, batch) => sum + batch.telemetry.cache_creation_input_tokens,
+      0
+    ),
+    cache_read_input_tokens: input.batches.reduce(
+      (sum, batch) => sum + batch.telemetry.cache_read_input_tokens,
+      0
+    ),
+    estimated_cost_usd: Number(
+      input.batches
+        .reduce((sum, batch) => sum + batch.telemetry.estimated_cost_usd, 0)
+        .toFixed(6)
+    ),
+    models_used: models,
+    batches: input.batches.map((batch) => batch.telemetry),
+  };
+}
+
 function resolveAdjacentProject(
   hint: string | null | undefined,
   otherProjects: Array<{ id: string; name: string; frame: string | null }>
@@ -784,6 +1207,9 @@ export const ingestSource = inngest.createFunction(
   async ({ event, step }) => {
     const { org_id, project_id, source_id, job_id } = event.data;
     const supabase = createServiceClient();
+    let extractionAgentRunId: string | null = null;
+    let extractionAgentRunCompleted = false;
+    let extractionSummary: ExtractionSummary | null = null;
 
     try {
       await step.run("mark-processing", async () => {
@@ -819,7 +1245,8 @@ export const ingestSource = inngest.createFunction(
             .select("label, description")
             .eq("org_id", org_id)
             .eq("project_id", project_id)
-            .order("label", { ascending: true }),
+            .order("label", { ascending: true })
+            .limit(MAX_THEMES_FOR_EXTRACTION_CONTEXT),
           // Known problems — agent checks if evidence supports or contradicts these
           supabase
             .from("problems")
@@ -827,7 +1254,7 @@ export const ingestSource = inngest.createFunction(
             .eq("org_id", org_id)
             .eq("project_id", project_id)
             .in("status", ["surfaced", "acknowledged", "active"])
-            .limit(20),
+            .limit(MAX_PROBLEMS_FOR_EXTRACTION_CONTEXT),
           // Other active projects — for adjacent signal detection
           supabase
             .from("projects")
@@ -835,14 +1262,15 @@ export const ingestSource = inngest.createFunction(
             .eq("org_id", org_id)
             .neq("id", project_id)
             .eq("archived", false)
-            .limit(10),
+            .limit(MAX_OTHER_PROJECTS_FOR_EXTRACTION_CONTEXT),
           // Internal speakers — their turns are context, not customer evidence
           supabase
             .from("people")
             .select("name, role")
             .eq("org_id", org_id)
             .eq("affiliation", "internal")
-            .order("name", { ascending: true }),
+            .order("name", { ascending: true })
+            .limit(MAX_INTERNAL_SPEAKERS_FOR_EXTRACTION_CONTEXT),
         ]);
 
         if (projectResult.error || !projectResult.data) {
@@ -924,85 +1352,120 @@ export const ingestSource = inngest.createFunction(
         buildConversationUnits(segments).filter((unit) => unit.content.trim())
       );
 
-      const extractedClaims: AnchoredClaim[] = [];
-      const extractionErrors: string[] = [];
+      const extractionTier = ingestExtractionTier();
+      const extractionBatchSize = ingestExtractionBatchSize();
+      const extractionParallelism = ingestExtractionParallelism();
+      const extractionStaticPrompt = buildIngestExtractionStaticPrompt({
+        frame: formatFrame(project),
+        themes: formatThemes(themes),
+        problems: problems.length > 0
+          ? problems.map((p) => `- ${p.title}`).join("\n")
+          : "No problems identified yet.",
+        otherProjects: otherProjects.length > 0
+          ? otherProjects.map((p) => `- ${p.name}${p.frame ? `: ${p.frame.slice(0, 120)}` : ""}`).join("\n")
+          : "No other active projects.",
+        internalSpeakers: formatInternalSpeakers(sourceInternalSpeakers),
+      });
 
-      for (let unitIndex = 0; unitIndex < units.length; unitIndex++) {
-        const unit = units[unitIndex];
-        if (!unit) continue;
+      extractionAgentRunId = await step.run("start-ingest-extraction-run", async () => {
+        const { data, error } = await supabase
+          .from("agent_runs")
+          .insert({
+            org_id,
+            project_id,
+            agent_type: "ingest-extraction",
+            input: {
+              source_id,
+              job_id,
+              prompt_version: INGEST_EXTRACTION_PROMPT_VERSION,
+              task_tier: extractionTier,
+              unit_count: units.length,
+              batch_size: extractionBatchSize,
+              parallelism: extractionParallelism,
+              max_output_tokens: ingestExtractionMaxTokens(),
+              timeout_ms: ingestExtractionTimeoutMs(),
+              context_limits: {
+                themes: MAX_THEMES_FOR_EXTRACTION_CONTEXT,
+                problems: MAX_PROBLEMS_FOR_EXTRACTION_CONTEXT,
+                other_projects: MAX_OTHER_PROJECTS_FOR_EXTRACTION_CONTEXT,
+                internal_speakers: MAX_INTERNAL_SPEAKERS_FOR_EXTRACTION_CONTEXT,
+              },
+            },
+          })
+          .select("id")
+          .single();
 
-        const unitResult = await step.run(
-          `extract-evidence-${String(unitIndex + 1).padStart(4, "0")}`,
-          async () => {
-            const prompt = buildIngestExtractionPrompt({
-              content: unit.content,
-              frame: formatFrame(project),
-              themes: formatThemes(themes),
-              problems: problems.length > 0
-                ? problems.map((p) => `- ${p.title}`).join("\n")
-                : "No problems identified yet.",
-              otherProjects: otherProjects.length > 0
-                ? otherProjects.map((p) => `- ${p.name}${p.frame ? `: ${p.frame.slice(0, 120)}` : ""}`).join("\n")
-                : "No other active projects.",
-              internalSpeakers: formatInternalSpeakers(sourceInternalSpeakers),
-            });
+        if (error || !data) {
+          throw new Error(`Failed to start ingest extraction run: ${error?.message}`);
+        }
+        return data.id as string;
+      });
 
-            const result = await callLLM({
-              tier: "standard",
-              system:
-                "You extract structured customer evidence. Return strict JSON only.",
-              messages: [{ role: "user", content: prompt }],
-              timeoutMs: 120_000,
-            });
+      const unitBatches = chunk(units, extractionBatchSize);
+      const batchResults: ExtractionBatchResult[] = [];
 
-            let parsed: unknown;
-            try {
-              parsed = extractJsonArray(result.content);
-            } catch (error) {
-              const message =
-                error instanceof Error ? error.message : "Unknown JSON parse error";
-              console.warn("Skipping malformed ingest extraction response", {
-                source_id,
-                unit_id: unit.id,
-                message,
-              });
-              return { claims: [], error: `${unit.id}: ${message}` };
-            }
-
-            const array = Array.isArray(parsed) ? parsed : [];
-            if (unit.segments.length === 0) return { claims: [], error: null };
-
-            const claims: AnchoredClaim[] = [];
-            for (const item of array) {
-              const claim = normalizeClaim(item);
-              if (!claim) continue;
-              const anchor = matchEvidenceToSegment({
-                content: claim.content,
-                speaker: claim.speaker ?? null,
-                segments: unit.segments,
-              });
-              if (!anchor) continue;
-
-              claims.push({
-                ...claim,
-                segment_id: anchor.segment_id,
-                unit_id: unit.id,
-                anchor_method: anchor.anchor_method as AnchoredClaim["anchor_method"],
-                anchor_char_start: anchor.anchor_char_start,
-                anchor_char_end: anchor.anchor_char_end,
-                anchor_score: anchor.anchor_score,
-              });
-            }
-
-            return { claims, error: null };
-          }
+      for (let start = 0; start < unitBatches.length; start += extractionParallelism) {
+        const windowBatches = unitBatches.slice(start, start + extractionParallelism);
+        const settled = await Promise.allSettled(
+          windowBatches.map((batch, offset) => {
+            const batchIndex = start + offset + 1;
+            return step.run(
+              `extract-evidence-batch-${String(batchIndex).padStart(4, "0")}`,
+              async () =>
+                extractClaimsForUnitBatch({
+                  batchIndex,
+                  units: batch,
+                  staticPrompt: extractionStaticPrompt,
+                  tier: extractionTier,
+                  allowFallback: true,
+                })
+            );
+          })
         );
 
-        extractedClaims.push(
-          ...(unitResult.claims.filter(Boolean) as AnchoredClaim[])
+        const rejected = settled.filter(
+          (result): result is PromiseRejectedResult => result.status === "rejected"
         );
-        if (unitResult.error) extractionErrors.push(unitResult.error);
+        if (rejected.length > 0) {
+          const message =
+            rejected[0]?.reason instanceof Error
+              ? rejected[0].reason.message
+              : "Unknown batch extraction failure";
+          throw new Error(`Ingest extraction batch failed: ${message}`);
+        }
+
+        batchResults.push(
+          ...settled
+            .filter((result): result is PromiseFulfilledResult<ExtractionBatchResult> =>
+              result.status === "fulfilled"
+            )
+            .map((result) => result.value)
+        );
       }
+
+      const extractedClaims = batchResults.flatMap((result) => result.claims);
+      const extractionErrors = batchResults.flatMap((result) => result.errors);
+      extractionSummary = buildExtractionSummary({
+        tier: extractionTier,
+        batchSize: extractionBatchSize,
+        parallelism: extractionParallelism,
+        unitsTotal: units.length,
+        batches: batchResults,
+      });
+
+      await step.run("complete-ingest-extraction-run", async () => {
+        await supabase
+          .from("agent_runs")
+          .update({
+            status: "completed",
+            output: extractionSummary,
+            model_used: extractionSummary?.models_used.join(", ") || null,
+            completed_at: new Date().toISOString(),
+          })
+          .eq("org_id", org_id)
+          .eq("id", extractionAgentRunId);
+      });
+      extractionAgentRunCompleted = true;
 
       if (extractedClaims.length === 0 && extractionErrors.length > 0) {
         throw new Error(
@@ -1257,6 +1720,7 @@ export const ingestSource = inngest.createFunction(
               result: {
                 segments_created: segments.length,
                 evidence_created: 0,
+                extraction: extractionSummary,
               },
             })
             .eq("org_id", org_id)
@@ -1272,6 +1736,7 @@ export const ingestSource = inngest.createFunction(
             result: {
               segments_created: segments.length,
               evidence_created: evidenceRecords.length,
+              extraction: extractionSummary,
             },
           })
           .eq("org_id", org_id)
@@ -1290,6 +1755,7 @@ export const ingestSource = inngest.createFunction(
           source_id,
           segments_created: segments.length,
           evidence_created: 0,
+          extraction: extractionSummary,
         };
       }
 
@@ -1364,9 +1830,22 @@ export const ingestSource = inngest.createFunction(
         source_id,
         segments_created: segments.length,
         evidence_created: evidenceRecords.length,
+        extraction: extractionSummary,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown ingest error";
+      if (extractionAgentRunId && !extractionAgentRunCompleted) {
+        await supabase
+          .from("agent_runs")
+          .update({
+            status: "failed",
+            error: message,
+            output: extractionSummary,
+            completed_at: new Date().toISOString(),
+          })
+          .eq("org_id", org_id)
+          .eq("id", extractionAgentRunId);
+      }
       await supabase
         .from("ingest_jobs")
         .update({

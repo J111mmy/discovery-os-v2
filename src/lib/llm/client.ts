@@ -32,10 +32,18 @@ function supportsOpenAITemperature(model: string) {
   );
 }
 
+export type LLMTextBlock = {
+  type: "text";
+  text: string;
+  cache_control?: { type: "ephemeral" };
+};
+
+type LLMMessageContent = string | LLMTextBlock[];
+
 export interface LLMCallOptions {
   tier: TaskTier;
   system: string;
-  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  messages: Array<{ role: "user" | "assistant"; content: LLMMessageContent }>;
   timeoutMs?: number;
   // Per-call temperature override. Falls back to the tier default when unset.
   // NOTE: inert on gpt-5*/o-series models — those reject `temperature`, so it is
@@ -53,34 +61,133 @@ export interface LLMCallResult {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
+  estimatedCostUsd?: number;
+}
+
+function contentToText(content: LLMMessageContent) {
+  if (typeof content === "string") return content;
+  return content.map((block) => block.text).join("\n\n");
+}
+
+function hasCacheControl(messages: LLMCallOptions["messages"]) {
+  return messages.some(
+    (message) =>
+      Array.isArray(message.content) &&
+      message.content.some((block) => Boolean(block.cache_control))
+  );
+}
+
+function modelPricingPerMillion(model: string) {
+  const normalized = model.toLowerCase();
+
+  if (normalized.includes("haiku")) {
+    return { input: 0.8, output: 4, cacheWrite: 1, cacheRead: 0.08 };
+  }
+
+  if (normalized.includes("opus")) {
+    return { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 };
+  }
+
+  if (normalized.includes("sonnet") || normalized.includes("claude")) {
+    return { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 };
+  }
+
+  if (normalized.includes("mini")) {
+    return { input: 0.15, output: 0.6, cacheWrite: 0.15, cacheRead: 0.075 };
+  }
+
+  if (normalized.includes("gpt-4o")) {
+    return { input: 2.5, output: 10, cacheWrite: 2.5, cacheRead: 1.25 };
+  }
+
+  if (normalized.includes("gpt-5")) {
+    return { input: 1.25, output: 10, cacheWrite: 1.25, cacheRead: 0.125 };
+  }
+
+  return { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 };
+}
+
+export function estimateLLMCostUsd(input: {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens?: number | null;
+  cacheReadInputTokens?: number | null;
+}) {
+  const pricing = modelPricingPerMillion(input.model);
+  const cacheCreation = input.cacheCreationInputTokens ?? 0;
+  const cacheRead = input.cacheReadInputTokens ?? 0;
+  const total =
+    (input.inputTokens / 1_000_000) * pricing.input +
+    (input.outputTokens / 1_000_000) * pricing.output +
+    (cacheCreation / 1_000_000) * pricing.cacheWrite +
+    (cacheRead / 1_000_000) * pricing.cacheRead;
+
+  return Number(total.toFixed(6));
 }
 
 export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
   const config = await getAIModelConfig(opts.tier);
 
   if (config.provider === "anthropic") {
+    const request = {
+      model: config.model,
+      max_tokens: opts.maxTokens ?? config.maxTokens,
+      temperature: opts.temperature ?? config.temperature,
+      system: opts.system,
+      messages: opts.messages,
+    };
+
     // SECURITY INVARIANT A1: callLLM is text-in/text-out only.
     // Adding tools/tool_choice/function_call changes the prompt-injection threat model
     // and requires security review; see docs/security/SECURITY_POSTURE.md.
-    const response = await getAnthropic().messages.create(
-      {
-        model: config.model,
-        max_tokens: opts.maxTokens ?? config.maxTokens,
-        temperature: opts.temperature ?? config.temperature,
-        system: opts.system,
-        messages: opts.messages,
-      },
-      { timeout: opts.timeoutMs ?? 120_000 }
-    );
+    const response = (hasCacheControl(opts.messages)
+      ? await getAnthropic().beta.promptCaching.messages.create(
+          request as Parameters<
+            ReturnType<typeof getAnthropic>["beta"]["promptCaching"]["messages"]["create"]
+          >[0],
+          { timeout: opts.timeoutMs ?? 120_000 }
+        )
+      : await getAnthropic().messages.create(
+          request as Parameters<ReturnType<typeof getAnthropic>["messages"]["create"]>[0],
+          { timeout: opts.timeoutMs ?? 120_000 }
+        )) as {
+      content: Array<{ type: string; text?: string }>;
+      usage: {
+        input_tokens: number;
+        output_tokens: number;
+        cache_creation_input_tokens?: number | null;
+        cache_read_input_tokens?: number | null;
+      };
+    };
 
     const content =
-      response.content[0]?.type === "text" ? response.content[0].text : "";
+      response.content[0]?.type === "text" ? response.content[0].text ?? "" : "";
+    const cacheCreationInputTokens =
+      "cache_creation_input_tokens" in response.usage
+        ? response.usage.cache_creation_input_tokens ?? 0
+        : 0;
+    const cacheReadInputTokens =
+      "cache_read_input_tokens" in response.usage
+        ? response.usage.cache_read_input_tokens ?? 0
+        : 0;
 
     return {
       content,
       model: config.model,
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
+      cacheCreationInputTokens,
+      cacheReadInputTokens,
+      estimatedCostUsd: estimateLLMCostUsd({
+        model: config.model,
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheCreationInputTokens,
+        cacheReadInputTokens,
+      }),
     };
   }
 
@@ -89,7 +196,7 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
       { role: "system" as const, content: opts.system },
       ...opts.messages.map((message) => ({
         role: message.role,
-        content: message.content,
+        content: contentToText(message.content),
       })),
     ];
 
@@ -116,6 +223,13 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
       model: config.model,
       inputTokens: response.usage?.prompt_tokens ?? 0,
       outputTokens: response.usage?.completion_tokens ?? 0,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+      estimatedCostUsd: estimateLLMCostUsd({
+        model: config.model,
+        inputTokens: response.usage?.prompt_tokens ?? 0,
+        outputTokens: response.usage?.completion_tokens ?? 0,
+      }),
     };
   }
 
