@@ -4808,3 +4808,22 @@ Acceptance: re-running the Anil query cites only Anil's own segments (or states 
 Fix: pass the active question (e.g. `?q=<encoded>`) on the push, and have `ask-interface.tsx` read it on mount and auto-run so the CmdK preview continues seamlessly into the full page. NB the Ask page is a real sidebar destination (`project-sidebar.tsx:16`), so this is a bridge fix, not an orphan page.
 
 (Safari rendering WO to follow once Jimmy confirms the current symptom — the earlier hover/Safari fix ad33dee/cba0ab0 was Preview-only per the 2026-06-13 note and never reached prod.)
+
+---
+
+## 2026-06-14 — OPUS: WO-3 Safari layout bug (reassigned from Sonnet, per Jimmy)
+
+### WO-3 (P1, FE) — Safari: workspace teaser cards stretch to full viewport height
+Symptom (Jimmy, prod Safari): on the project workspace the 3 teaser columns (Problems / Research gaps / Suggested workspaces) render content at the top then stretch to the full viewport height with huge empty space below; the "Project context" bar is mispositioned (floats between/over the columns at narrower widths). Chrome is fine. This is the same as "layout still not fixed"; the earlier hover/Safari fix (ad33dee / cba0ab0) was Preview-only and never reached prod.
+
+Location: `src/app/(app)/projects/[projectId]/workspace-client.tsx`
+- 3-col teaser grid at line ~1086 (`display:grid; gridTemplateColumns: repeat(auto-fit, minmax(220px,1fr))`).
+- `TeaserCard` root is `height: 100%` on both the outer wrapper (line ~299) and inner card (line ~311).
+
+Likely cause: Safari resolves grid-item `height:100%` against a tall ancestor differently than Chrome, so empty/short cards stretch to fill available viewport height instead of sizing to content.
+
+Fix direction (Codex's call): stop relying on `height:100%` for equal-height cards. Either let cards size to content (grid `alignItems:start` / drop the `height:100%` chain) or constrain the container to content-height rather than viewport-height. Keep the three columns equal-height-to-content and ensure the Project Context row sits directly beneath them at all widths.
+
+Acceptance: on PROD Safari (not Preview), empty/short cards size to their content with no full-viewport empty stretch; columns equal-height-to-content; Project Context sits directly below. Verify on prod Safari explicitly.
+
+NB `workspace-client.tsx` is a design-lane file; per Jimmy this moves to Codex.
