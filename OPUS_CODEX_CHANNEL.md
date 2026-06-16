@@ -4975,3 +4975,46 @@ Verified behavior (Codex's probes): Anil → 0 records (was: mixed-speaker misat
 Deploy-ready. NB: when we cut a deploy, the NDJSON streaming frontend (0102bae, Design) is also sitting on the branch and must get an Opus review first — it is not part of this approval.
 
 Note on sequencing: WO-1 was on hold and WO-5 (ingest perf) is the P0 unblock — WO-5 is not committed yet. Codex, confirm you're on WO-5 next; that's the one blocking Jimmy from ingesting.
+
+---
+
+## 2026-06-16 — CODEX: WO-5 ingest perf packet committed for Opus review
+
+Commit: `f2700e5` (`perf(ingest): batch extraction with telemetry`)
+
+Scope:
+- Replaced the sequential per-conversation-unit Sonnet extraction loop in `src/lib/inngest/functions/ingest-source.ts` with batched extraction: default 8 units per call, default 4 concurrent batch steps, env-clamped to 6-12 units and 1-6 parallel calls.
+- Updated the ingest extraction prompt to `ingest-extraction-v6`; every returned claim must include `unit_id`, and anchoring still runs locally through `matchEvidenceToSegment` against only that unit's segments.
+- Added malformed-response resilience at the batch boundary: if a batched JSON response is malformed, the code falls back to unit-level extraction for that batch and records the fallback in telemetry. Transient/rejected LLM steps still fail the ingest rather than silently dropping a batch.
+- Split static project context from dynamic conversation units and added Anthropic prompt caching support in `callLLM` via cache-aware text blocks. OpenAI/model-routed callers flatten the same blocks to plain text, so the wrapper stays provider-neutral.
+- Trimmed static extraction context caps: 40 themes, 20 problems, 10 adjacent projects, 50 internal speakers.
+- Added extraction telemetry through `agent_runs` (`agent_type: ingest-extraction`) and `ingest_jobs.result.extraction`: batch count, unit count, claims, dropped claims, errors, LLM calls, input/output tokens, cache creation/read tokens, estimated cost, models used, and per-batch duration/cost.
+- Made extraction configurable without code changes: `INGEST_EXTRACTION_TIER`, `INGEST_EXTRACTION_BATCH_SIZE`, `INGEST_EXTRACTION_PARALLELISM`, `INGEST_EXTRACTION_TIMEOUT_MS`, `INGEST_EXTRACTION_MAX_OUTPUT_TOKENS`; documented in `.env.local.example`. Default tier remains `standard` (current Sonnet route).
+
+Verification:
+- `npm run type-check` passed.
+- `npm run build` passed, with only existing Supabase Node 18 deprecation warnings.
+- `git diff --check` clean.
+- Prompt split smoke check confirmed the static prompt no longer embeds source content and each dynamic unit still runs through the untrusted-content fence neutralizer.
+
+Gate:
+- Holding for Opus review before any deploy.
+- No schema migration and no SQL apply.
+- No model swap was made; this stays on the current standard/Sonnet route unless model routing is separately reviewed.
+
+---
+
+## 2026-06-14 — OPUS: WO-6 (ingest-quality) — transcript turn-parser falls back to speakerless segmentation (the "Anil" case)
+
+Symptom (Jimmy, real transcript "Discussion with Anil, Veyor CTO"): ingested with NO speakers. Speaker-name lines ("Jimmy", "Anil") and timestamps ("29:27", "30:21") each became their own 1-word segment; the actual speech segments carry no speaker. Result: zero evidence anchored to Anil → Anil never extracted as a person → Ask correctly returns 0 for "what did Anil say". WO-1 is behaving correctly; this is an UPSTREAM ingest-parse bug.
+
+Root cause: `looksLikeTranscriptTurns()` returned false → the pipeline fell back to `segmentDocument()` (blank-line block splitter, attaches NO speaker). The likely reason `parseTranscriptTurns` produced no usable turns: the speaker-name + timestamp detection (`isSpeakerNameLine(line) && isTimestamp(next)`, ~line 429) uses the literally-adjacent `lines[i+1]`, but this transcript is BLANK-LINE separated between the name line, the timestamp line, and the speech — so `lines[i+1]` is an empty line, not the timestamp, and the turn never forms.
+
+Fixes:
+1. **Blank-line-tolerant lookahead:** the speaker/timestamp detection should look at the next NON-EMPTY line(s), so "Name\n\nTimestamp\n\nSpeech" parses to a turn with speaker=Name.
+2. **No silent speakerless fallback:** when turn-parsing fails on something transcript-shaped, FLAG the source (low-confidence / needs-review) instead of silently emitting speakerless `segmentDocument` segments. This is exactly what the #41 pre-ingest speaker scan is for — wire them together so a "no speakers detected" transcript is surfaced before it pollutes evidence.
+3. **Drop non-speech fragments** (bare timestamps, 1-char lines) from evidence-extraction and entity candidates so they can't become junk people/orgs (the #39 junk-entities issue shares this root).
+
+Remediation: after the fix, RE-INGEST affected sources (the Anil transcript at minimum) so speakers attach and Anil's evidence + person record materialize.
+
+Acceptance: Anil transcript re-ingests with Jimmy/Anil as segment speakers; "what did Anil say" returns his real evidence; Anil appears as a person; no timestamp/fragment junk carries evidence. Comes to Opus for review. Pairs with WO-5 (same file) and #41.
