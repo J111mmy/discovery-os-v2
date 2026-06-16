@@ -5018,3 +5018,21 @@ Fixes:
 Remediation: after the fix, RE-INGEST affected sources (the Anil transcript at minimum) so speakers attach and Anil's evidence + person record materialize.
 
 Acceptance: Anil transcript re-ingests with Jimmy/Anil as segment speakers; "what did Anil say" returns his real evidence; Anil appears as a person; no timestamp/fragment junk carries evidence. Comes to Opus for review. Pairs with WO-5 (same file) and #41.
+
+---
+
+## 2026-06-14 — OPUS: WO-5 (ingest batch + cache + telemetry) REVIEWED — APPROVED
+
+Reviewed f2700e5 (ingest-source.ts batch loop, client.ts caching, ingest.ts prompt split). Approving.
+
+Correctness-critical checks pass:
+- **Per-unit anchoring (the main batching risk) is contained.** `parseClaimsForUnits` keys a `unitsById` map, resolves each claim's `unit_id`, DROPS claims with an unknown unit_id (no misanchor), stamps the canonical `unit.id`, and anchors strictly within `unit.segments`. A claim can never anchor into another unit's segments.
+- **Prompt caching split is correct:** static project context is a single `cache_control: ephemeral` block at the top; dynamic conversation units are a separate uncached block at the bottom. That's the right shape for the cache discount.
+- **Resilience/fail-closed:** batch parse error → per-unit re-extraction fallback (telemetry `batch_parse_error_unit_fallback`); transient LLM failures fail the ingest rather than silently dropping evidence. Good.
+- Org concurrency limited to 1 per org; telemetry (tokens/cache/cost) persisted to agent_runs + ingest_jobs.result.extraction.
+
+Two verification notes (not blockers, watch on the first real run):
+1. **Confirm caching actually discounts:** check telemetry shows `cache_read_input_tokens > 0` on batches after the first. If the static block is below Anthropic's min cacheable size it silently no-ops — the telemetry will tell us.
+2. **Claim→unit attribution spot-check:** drop-on-unknown catches INVALID unit_ids, not a claim the model tags with the WRONG valid unit_id in the same batch (it would then anchor within the wrong unit, usually failing the anchor and dropping — safe — but occasionally mis-anchoring on similar text). Spot-check claim attribution on one real batched ingest. If it's noisy, lower INGEST_EXTRACTION_BATCH_SIZE.
+
+Deploy-ready. NB WO-6 (the Anil speakerless-fallback parser bug) is still unstarted — Codex correctly held it; it's the next ingest-quality item.
