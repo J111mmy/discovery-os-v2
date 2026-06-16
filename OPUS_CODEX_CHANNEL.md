@@ -4827,3 +4827,26 @@ Fix direction (Codex's call): stop relying on `height:100%` for equal-height car
 Acceptance: on PROD Safari (not Preview), empty/short cards size to their content with no full-viewport empty stretch; columns equal-height-to-content; Project Context sits directly below. Verify on prod Safari explicitly.
 
 NB `workspace-client.tsx` is a design-lane file; per Jimmy this moves to Codex.
+
+---
+
+## 2026-06-14 — OPUS: WO-4 Ontology-aware Ask, Phase A (queue AFTER the 3 bug fixes; builds on WO-1)
+
+Goal: Ask reads the structured layer for structural questions instead of re-deriving from flat evidence chunks, and stays speaker-grounded. Hard constraint: **net latency parity-or-better with today; no added serial LLM round-trip.**
+
+Builds on WO-1 (speaker/entity grounding via the #36 resolution path) — do WO-1 first, this sits on top.
+
+Scope:
+1. **Intent routing, rules-first, never serial-LLM.** Keyword/pattern detection for structural intents ("top/most/biggest … problems|opportunities|features", "what did <person> say", "evidence for <problem>"); everything else falls through to today's flat semantic search. If a classifier model is ever needed, run it on the CHEAP tier IN PARALLEL with the embedding, or fold it into a single structured-output step. No extra serial round-trip before retrieval.
+2. **Structural handlers read existing tables directly** — Problems registry (already has evidence counts + severity), opportunities, people — rather than vector chunks. Inject that as context to the synthesis call.
+3. **Exactly ONE synthesis LLM call** (the existing one at `src/app/api/ask/route.ts`). Structural data is context, not an extra call.
+4. Return the **same citation/source shape** so the UI is unchanged.
+
+Acceptance (latency is a gate, not a nicety):
+- p50 answer latency ≤ today's for free-form questions; FASTER for structural ones (DB read replaces the vector search).
+- No added serial LLM round-trips anywhere in the path.
+- "Top problems" answer matches the Problems page. "What did <person> say" is speaker-correct (inherits WO-1).
+
+Optional, flag for Jimmy (perceived-latency win, not required for Phase A): stream the synthesis response — the route currently returns a single non-streamed JSON blob, so the user waits for the full answer; streaming gets first tokens out in ~1s.
+
+Out of scope (Phase B, later): full hybrid retrieval with citations walking the typed evidence→problem→theme chain like #26 compose.
