@@ -21,12 +21,10 @@ interface AskCitation {
   segment_speaker?: string | null;
 }
 
-// Terminal event sent at end of streaming response
-interface CmdKTerminalEvent {
-  sources: AskCitation[];
-  record_count: number;
-  prompt_version?: string;
-}
+// NDJSON event shapes — same wire format as ask-interface.tsx.
+type CmdKNdjsonEvent =
+  | { type: "delta"; text: string }
+  | { type: "done"; sources: AskCitation[]; record_count: number; prompt_version?: string };
 
 // ── Jump item ──────────────────────────────────────────────────────
 
@@ -147,31 +145,6 @@ function Kbd({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ── Stream utility ─────────────────────────────────────────────────
-
-// Detect the terminal JSON event at the end of the accumulated buffer.
-// The API sends raw answer text then \n{json} as the final line.
-function extractCmdKTerminalEvent(
-  buffer: string
-): { answerText: string; terminal: CmdKTerminalEvent } | null {
-  const idx = buffer.lastIndexOf("\n{");
-  if (idx === -1) return null;
-
-  const candidate = buffer.slice(idx + 1).trim();
-  try {
-    const parsed = JSON.parse(candidate) as CmdKTerminalEvent;
-    if (
-      parsed &&
-      Array.isArray(parsed.sources) &&
-      typeof parsed.record_count === "number"
-    ) {
-      return { answerText: buffer.slice(0, idx).trimEnd(), terminal: parsed };
-    }
-  } catch {
-    // Incomplete JSON yet
-  }
-  return null;
-}
 
 // ══════════════════════════════════════════════════════════════════
 // CmdK — main component
@@ -282,41 +255,55 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
         return;
       }
 
-      // Streaming path — first byte ends the "thinking" state
+      // NDJSON streaming path — first byte ends the "thinking" state.
       setThinking(false);
       setCmkStreaming(true);
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let accumulated = "";
+      let answerText = "";
+      let lineBuffer = "";
 
-      while (true) {
+      stream: while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        accumulated += decoder.decode(value, { stream: true });
+        lineBuffer += decoder.decode(value, { stream: true });
 
-        const extracted = extractCmdKTerminalEvent(accumulated);
-        if (extracted) {
-          setCmkBuffer(extracted.answerText);
-          setCmkSources(extracted.terminal.sources);
-          setCmkStreaming(false);
-          return;
+        const lines = lineBuffer.split("\n");
+        lineBuffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const event = JSON.parse(line) as CmdKNdjsonEvent;
+            if (event.type === "delta") {
+              answerText += event.text;
+              setCmkBuffer(answerText);
+            } else if (event.type === "done") {
+              setCmkBuffer(answerText);
+              setCmkSources(event.sources);
+              setCmkStreaming(false);
+              break stream;
+            }
+          } catch {
+            // malformed line — skip
+          }
         }
-
-        setCmkBuffer(accumulated);
       }
 
-      // Flush remaining decoder bytes
-      const tail = decoder.decode();
-      if (tail) accumulated += tail;
-
-      const extracted = extractCmdKTerminalEvent(accumulated);
-      if (extracted) {
-        setCmkBuffer(extracted.answerText);
-        setCmkSources(extracted.terminal.sources);
-      } else {
-        setCmkBuffer(accumulated);
+      // Flush decoder and handle any trailing partial done event.
+      lineBuffer += decoder.decode();
+      if (lineBuffer.trim()) {
+        try {
+          const event = JSON.parse(lineBuffer) as CmdKNdjsonEvent;
+          if (event.type === "done") {
+            setCmkBuffer(answerText);
+            setCmkSources(event.sources);
+          }
+        } catch {
+          // partial tail — show whatever answer arrived
+        }
       }
     } catch {
       setAskError("Network error — please try again.");

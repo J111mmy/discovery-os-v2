@@ -10,12 +10,14 @@ interface AskInterfaceProps {
   projectName: string;
 }
 
-interface TerminalEvent {
-  sources: EvidenceRecord[];
-  all_retrieved: EvidenceRecord[];
-  record_count: number;
-  prompt_version?: string;
-}
+// NDJSON event shapes emitted by the streaming /api/ask route.
+// Wire format: one JSON object per line.
+//   delta: {"type":"delta","text":"..."}
+//   done:  {"type":"done","sources":[...],"all_retrieved":[...],"record_count":N,"prompt_version":"..."}
+// Fallback: non-streamed application/json response uses the existing shape unchanged.
+type NdjsonEvent =
+  | { type: "delta"; text: string }
+  | { type: "done"; sources: EvidenceRecord[]; all_retrieved: EvidenceRecord[]; record_count: number; prompt_version?: string };
 
 // ─── Answer rendering ───────────────────────────────────────────────────────
 
@@ -252,33 +254,6 @@ function AnswerContent({
   );
 }
 
-// ─── Stream utilities ─────────────────────────────────────────────────────────
-
-// Detect and extract the terminal JSON event from the end of a streaming buffer.
-// The API sends raw answer text, then on a new line a single JSON object with
-// { sources, all_retrieved, record_count, prompt_version }. We look for the
-// last "\n{" boundary and try to parse everything after it as JSON.
-function extractTerminalEvent(
-  buffer: string
-): { answerText: string; terminal: TerminalEvent } | null {
-  const idx = buffer.lastIndexOf("\n{");
-  if (idx === -1) return null;
-
-  const candidate = buffer.slice(idx + 1).trim();
-  try {
-    const parsed = JSON.parse(candidate) as TerminalEvent;
-    if (
-      parsed &&
-      Array.isArray(parsed.sources) &&
-      typeof parsed.record_count === "number"
-    ) {
-      return { answerText: buffer.slice(0, idx).trimEnd(), terminal: parsed };
-    }
-  } catch {
-    // Incomplete JSON — keep accumulating
-  }
-  return null;
-}
 
 // ─── Evidence card ────────────────────────────────────────────────────────────
 
@@ -468,45 +443,59 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
         return;
       }
 
-      // Streaming path: first byte triggers transition from loading → streaming
+      // NDJSON streaming path: each line is a JSON event.
+      // delta lines update the live answer; the done line carries sources.
       setLoading(false);
       setStreaming(true);
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let accumulated = "";
+      let answerText = "";
+      let lineBuffer = ""; // accumulates bytes until a \n boundary
 
-      while (true) {
+      stream: while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        accumulated += decoder.decode(value, { stream: true });
+        lineBuffer += decoder.decode(value, { stream: true });
 
-        // Check for terminal event at each chunk boundary
-        const extracted = extractTerminalEvent(accumulated);
-        if (extracted) {
-          setStreamBuffer(extracted.answerText);
-          setSources(extracted.terminal.sources);
-          setRecordCount(extracted.terminal.record_count);
-          setStreaming(false);
-          return;
+        // Split on newlines; keep the trailing partial line in lineBuffer.
+        const lines = lineBuffer.split("\n");
+        lineBuffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const event = JSON.parse(line) as NdjsonEvent;
+            if (event.type === "delta") {
+              answerText += event.text;
+              setStreamBuffer(answerText);
+            } else if (event.type === "done") {
+              setStreamBuffer(answerText);
+              setSources(event.sources);
+              setRecordCount(event.record_count);
+              setStreaming(false);
+              break stream;
+            }
+          } catch {
+            // malformed line — skip and keep reading
+          }
         }
-
-        setStreamBuffer(accumulated);
       }
 
-      // Flush any remaining decoder bytes and check one final time
-      const tail = decoder.decode();
-      if (tail) accumulated += tail;
-
-      const extracted = extractTerminalEvent(accumulated);
-      if (extracted) {
-        setStreamBuffer(extracted.answerText);
-        setSources(extracted.terminal.sources);
-        setRecordCount(extracted.terminal.record_count);
-      } else {
-        // Stream ended without terminal event — show whatever arrived
-        setStreamBuffer(accumulated);
+      // Flush decoder and check any trailing partial line for the done event.
+      lineBuffer += decoder.decode();
+      if (lineBuffer.trim()) {
+        try {
+          const event = JSON.parse(lineBuffer) as NdjsonEvent;
+          if (event.type === "done") {
+            setStreamBuffer(answerText);
+            setSources(event.sources);
+            setRecordCount(event.record_count);
+          }
+        } catch {
+          // partial or non-JSON tail — show whatever answer arrived
+        }
       }
     } catch {
       setError("Could not reach the server. Try again.");
