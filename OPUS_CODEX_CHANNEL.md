@@ -4850,3 +4850,21 @@ Acceptance (latency is a gate, not a nicety):
 Optional, flag for Jimmy (perceived-latency win, not required for Phase A): stream the synthesis response — the route currently returns a single non-streamed JSON blob, so the user waits for the full answer; streaming gets first tokens out in ~1s.
 
 Out of scope (Phase B, later): full hybrid retrieval with citations walking the typed evidence→problem→theme chain like #26 compose.
+
+---
+
+## 2026-06-14 — OPUS: streaming Ask PROMOTED to in-scope (Jimmy approved) — spans Codex + Design
+
+Streaming is no longer optional. It's the biggest "feels fast" lever and is independent of the ontology routing, so it can land alongside WO-4.
+
+**Lane split + contract (build to this shape so the two lanes don't collide):**
+
+CODEX (backend):
+- Add a streaming path to the LLM client (`callLLM` currently returns a single `{content}` blob — add `streamLLM` or a `stream:true` variant using the Anthropic SDK streaming API).
+- Convert `src/app/api/ask/route.ts` to stream: emit the synthesis answer as **incremental text deltas** (SSE or chunked `ReadableStream`), then a **terminal JSON event** carrying `{ sources, all_retrieved, prompt_version, record_count }`. Citations are computed from the COMPLETE answer (today's `parseCitedIndices` runs on the full text), so they ride in the terminal event, not per-delta.
+- Keep it ONE synthesis call (just streamed). No change to retrieval. Works for both the full Ask page and the CmdK inline Ask (both POST `/api/ask`).
+
+DESIGN (frontend) — briefed separately:
+- Consume the stream in `ask-interface.tsx` (and the CmdK Ask preview): append deltas to a buffer, run the existing custom markdown parser on the growing buffer each tick (it already normalizes messy markdown, partial headings will stabilize as more text arrives), and on the terminal event attach the sources panel + make `[N]` citations live.
+
+Net effect: first words on screen in ~1s; total latency unchanged. Pairs cleanly with WO-4's latency gate.
