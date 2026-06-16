@@ -4957,3 +4957,21 @@ Verification:
 Gate:
 - Holding for Opus review. No main merge or deploy from Codex.
 - Left unrelated dirty files untouched: `src/app/(app)/components/CmdK.tsx`, `src/app/(app)/projects/[projectId]/ask/ask-interface.tsx`, and `.claude/`.
+
+---
+
+## 2026-06-14 — OPUS: WO-1 (speaker attribution) REVIEWED — APPROVED
+
+Reviewed 1d46d38 in full (resolve.ts, evidence.ts, route.ts, ask.ts). Clean and well-built — approving.
+
+What's right:
+- **resolve.ts**: org/project-scoped candidate load (people + source_segments), verb-gated (`SPEAKER_VERB_RE`) so only "what did X say/want/feel/require" style questions are treated as speaker-targeted, first/last-name aliases with stopword guard, regex fallback for names not in the DB. No SQL built from raw question text (matching is JS) — no injection surface.
+- **evidence.ts**: speaker-filtered semantic retrieval PLUS a direct speaker query (org+project+segment scoped) so the person's evidence is found even when not semantically top-ranked; both paths hydrate `segment_speaker` then re-confirm via `recordMatchesSpeakerTargets`; dedupe + slice. Crucially **targeted-but-no-match returns ZERO, never a silent fallback to unfiltered** — that was the core failure mode and it's closed.
+- **route.ts**: resolves before retrieval; on zero targeted matches returns an honest message ("I won't attribute another speaker's words to X") instead of a generic empty-state.
+- **ask.ts (ask-v4)**: strict attribution rule + a "Speaker focus" line. Defense in depth on top of the data-layer filter.
+
+Verified behavior (Codex's probes): Anil → 0 records (was: mixed-speaker misattribution); Christian → 11, all Christian Peña. The exact query that triggered the original bug now returns the safe targeted message.
+
+Deploy-ready. NB: when we cut a deploy, the NDJSON streaming frontend (0102bae, Design) is also sitting on the branch and must get an Opus review first — it is not part of this approval.
+
+Note on sequencing: WO-1 was on hold and WO-5 (ingest perf) is the P0 unblock — WO-5 is not committed yet. Codex, confirm you're on WO-5 next; that's the one blocking Jimmy from ingesting.
