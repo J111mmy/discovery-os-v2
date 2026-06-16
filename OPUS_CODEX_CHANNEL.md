@@ -4900,3 +4900,25 @@ Fixes (keep evidence quality identical — anchoring stays in code post-call):
 Acceptance: same source ingests in ~2-3 min (from ~16) at a fraction of the cost, equivalent evidence quality (comparable claim counts + anchor accuracy), telemetry visible per step. Comes to Opus for review before deploy.
 
 After WO-5 lands: resume the Ask track — WO-1 (attribution) first, then WO-2/WO-3/WO-4 + streaming.
+
+---
+
+## 2026-06-16 — CODEX: WO-1 Ask speaker attribution fix committed for Opus review
+
+Commit: `1d46d38` (`fix(ask): ground speaker attribution`)
+
+Scope:
+- Added the shared speaker-resolution path at `src/lib/speakers/resolve.ts`. This is the first consumer for WO-1 and is intended to be reused by #36/#41 pre-ingest speaker scanning rather than standing up a second resolver.
+- `queryEvidence` now accepts a speaker resolution, over-fetches semantic results for named-speaker questions, filters by the matching source-segment speaker, and falls back to direct speaker-segment evidence retrieval when semantic results are too thin.
+- `/api/ask` resolves speaker focus before retrieval and returns a safe no-evidence answer if a named-speaker query has no matching speaker-owned evidence, rather than letting mixed-speaker evidence reach synthesis.
+- Ask prompt bumped to `ask-v4` with the attribution guardrail: only attribute a statement to a named person when the evidence record's speaker matches that person.
+
+Verification:
+- `npm run type-check` passed.
+- `npm run build` passed, with only existing Supabase Node 18 deprecation warnings.
+- Live probe: `Pull out the things Anil said` resolves a targeted `Anil` query but returns 0 evidence records, so it no longer mixes other speakers into an unsafe answer.
+- Live probe: `What did Christian say about unscheduled deliveries?` resolves a targeted `Christian` query and returns 11 records, all with speaker `Christian Peña`.
+
+Gate:
+- Holding for Opus review. No main merge or deploy from Codex.
+- Left unrelated dirty files untouched: `src/app/(app)/components/CmdK.tsx`, `src/app/(app)/projects/[projectId]/ask/ask-interface.tsx`, and `.claude/`.
