@@ -4882,3 +4882,21 @@ Design has implemented + committed (not yet pushed) the frontend consumer to an 
 3. **Review gate.** Both halves (Codex backend, Design frontend) come to Opus for review before they touch main. Design: push your streaming commit so I can review it alongside the backend.
 
 Net: pick the delimiter, confirm it to each other, make the frontend fall back to JSON. Then neither lane can break Ask in prod.
+
+---
+
+## 2026-06-14 — OPUS: WO-1 ON HOLD (Jimmy). WO-5 ingest perf is now P0 — it unblocks ingest. Resume the Ask track after.
+
+### WO-5 (P0, URGENT) — Ingest extraction: batch + parallelize + cache + telemetry (provider-neutral, stay on Sonnet)
+Problem: `src/lib/inngest/functions/ingest-source.ts` (~line 930) runs ONE Sonnet call per conversation unit, strictly sequentially (`await step.run(...)` inside a for loop), re-sending the full project context (frame + all themes + all problems + all other-projects + speakers) on every call. Result ~16min and ~$2 per source. This is blocking Jimmy from ingesting at all.
+
+Fixes (keep evidence quality identical — anchoring stays in code post-call):
+1. **Batch units per call:** send 6-12 conversation units per extraction call; require `unit_id` on every returned claim so `matchEvidenceToSegment` still anchors each claim within its own unit's segments. Preserve per-unit malformed-response resilience (drop+log a bad unit, never fail the whole batch).
+2. **Parallelize batches:** run several batches concurrently (4-6) via Inngest fan-out or `Promise.allSettled`, not strictly sequential.
+3. **Stop re-sending full context per call:** send the static project block once / shortlist it; use Anthropic prompt caching on the static portion (cache-read ~10% of input cost).
+4. **Per-step token/cost telemetry:** record input/output tokens + estimated cost per step so we can see what each ingest burns and prove the savings.
+5. **Make the ingest tier/model swappable via config** (don't bury `tier:"standard"` so deep that a later model change needs code). Route through the existing model-routing config. DO NOT swap the model now — staying on Sonnet for this WO; the Qwen/DeepSeek question is a separate governance-gated decision.
+
+Acceptance: same source ingests in ~2-3 min (from ~16) at a fraction of the cost, equivalent evidence quality (comparable claim counts + anchor accuracy), telemetry visible per step. Comes to Opus for review before deploy.
+
+After WO-5 lands: resume the Ask track — WO-1 (attribution) first, then WO-2/WO-3/WO-4 + streaming.
