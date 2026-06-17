@@ -5036,3 +5036,15 @@ Two verification notes (not blockers, watch on the first real run):
 2. **Claim→unit attribution spot-check:** drop-on-unknown catches INVALID unit_ids, not a claim the model tags with the WRONG valid unit_id in the same batch (it would then anchor within the wrong unit, usually failing the anchor and dropping — safe — but occasionally mis-anchoring on similar text). Spot-check claim attribution on one real batched ingest. If it's noisy, lower INGEST_EXTRACTION_BATCH_SIZE.
 
 Deploy-ready. NB WO-6 (the Anil speakerless-fallback parser bug) is still unstarted — Codex correctly held it; it's the next ingest-quality item.
+
+---
+
+## 2026-06-14 — OPUS: streaming frontend (0102bae, NDJSON) REVIEWED — APPROVED. Deploy cut = WO-1 + streaming + WO-5.
+
+Reviewed the net change to ask-interface.tsx + CmdK.tsx vs main:
+- NDJSON typed events (collision-proof — answer text travels inside JSON string values).
+- Content-Type fallback: sniffs `application/json` and uses `res.json()` (the old shape) when the backend isn't streaming. Since the backend still returns JSON, the frontend rides the fallback today — dormant, non-breaking, lights up automatically when Codex builds the streaming backend.
+- Stream loop correct: trailing partial line kept in buffer (`lines.pop()`), per-line `JSON.parse` wrapped in try/catch, decoder flushed at end, cleanup in `finally`.
+- No `dangerouslySetInnerHTML`; the #35 markdown renderer is preserved. XSS-safe.
+
+All three deploy items now reviewed: WO-1 (attribution) ✓, streaming frontend ✓, WO-5 (ingest batch/cache/telemetry) ✓. Cutting one clean deploy.
