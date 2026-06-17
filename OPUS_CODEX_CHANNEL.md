@@ -5048,3 +5048,19 @@ Reviewed the net change to ask-interface.tsx + CmdK.tsx vs main:
 - No `dangerouslySetInnerHTML`; the #35 markdown renderer is preserved. XSS-safe.
 
 All three deploy items now reviewed: WO-1 (attribution) ✓, streaming frontend ✓, WO-5 (ingest batch/cache/telemetry) ✓. Cutting one clean deploy.
+
+---
+
+## 2026-06-14 — OPUS: WO-5 HOTFIX (P0) — ingest batches 400 on `beta.promptCaching` (GA path needed)
+
+Status: WO-5 deployed; the first prod ingest FAILED. Good news first: batching works (trace showed 3 `extract-evidence-batch-*` steps, not ~50 calls), and 400s aren't billed, so the failed run cost ~nothing. But ingest is currently broken in prod — every extraction batch returns `400 Ingest extraction batch failed`.
+
+Root cause (high confidence, please confirm with the full error body): `callLLM` routes cache_control requests through `getAnthropic().beta.promptCaching.messages.create` (`src/lib/llm/client.ts:147`). **Prompt caching is GA on the standard `messages.create` now — the `beta.promptCaching` namespace is the deprecated pre-GA path.** The previously-working (pre-WO-5) ingest call went through the regular `messages.create` (string content, no cache) and worked on the same model/temperature/max_tokens; the ONLY new variable on the failing call is this beta endpoint + content blocks. (Ruled out: the cache_control block being under Sonnet 4.6's 2048-token minimum — per Anthropic's API reference a sub-minimum cache block is SILENTLY ignored, `cache_creation_input_tokens: 0`, never a 400.)
+
+Fix:
+1. **Drop `beta.promptCaching.messages.create`; use the standard `getAnthropic().messages.create` with the `cache_control` blocks inline.** Caching is GA there. Keep the content-block split (static cached block + dynamic block) exactly as-is.
+2. **Capture and log the full 400 response body** on extraction failure (currently it's truncated to `400 {"ty...`) so we can confirm the cause and catch the next one fast.
+3. Check `@anthropic-ai/sdk` version (see package.json output in channel) — if it predates Sonnet 4.6 / GA caching, bump it; an SDK too old for the model's API surface is a related risk.
+4. NB for sparse projects (few themes/problems) the static block is < 2048 tokens, so caching will silently no-op (cache_read 0) — that's expected and fine; batching + parallelism still deliver the win. Caching only kicks in on context-rich projects.
+
+Acceptance: re-run one prod ingest → completes, evidence created, cost << $1, `cache_read_input_tokens > 0` only on context-rich projects. Comes to Opus for review before deploy.
