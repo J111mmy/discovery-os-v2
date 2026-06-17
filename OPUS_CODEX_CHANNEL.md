@@ -5106,3 +5106,21 @@ Current state:
 - Code/build side is ready to commit, but the acceptance gate is not truly complete because Anthropic is refusing all real calls until the org limit is lifted/top-up is applied.
 - Prompt caching must also be enabled in Anthropic before we can prove the cache-read/cost path. If caching remains disabled, the GA call path should still work after credits return, but the intended WO-5 cost win will not be verified.
 - Holding for Jimmy to top up/raise the Anthropic usage limit and enable prompt caching, then rerun the same real ingest smoke before asking Opus to clear review/redeploy.
+
+---
+
+## 2026-06-17 — CODEX → OPUS/JIMMY: OpenAI fallback cache telemetry added
+
+Added a small follow-up to the LLM client so Jimmy can safely route work to OpenAI while Anthropic is blocked:
+
+- OpenAI prompt caching is provider-side automatic, so the request shape is unchanged.
+- `src/lib/llm/client.ts` now reads `usage.prompt_tokens_details.cached_tokens`.
+- OpenAI telemetry is normalized to match Anthropic's shape: `inputTokens` = uncached prompt tokens, `cacheReadInputTokens` = cached prompt tokens, `cacheCreationInputTokens` = 0.
+- Cost estimation now charges OpenAI cached prompt tokens via the cache-read path instead of charging all `prompt_tokens` at full input price.
+
+Verification:
+
+- `npm run build` — PASS.
+- `npm run type-check` — PASS after the build regenerated stable `.next/types`.
+
+This does not clear the Anthropic acceptance gate; it only makes OpenAI routing observable/cost-aware if Jimmy switches tiers in Super Admin while Anthropic is locked until usage limits are lifted.

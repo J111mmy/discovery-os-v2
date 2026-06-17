@@ -132,6 +132,14 @@ type ProviderErrorDetails = {
   provider_body?: unknown;
 };
 
+type OpenAIUsageWithCache = NonNullable<
+  OpenAI.Chat.Completions.ChatCompletion["usage"]
+> & {
+  prompt_tokens_details?: {
+    cached_tokens?: number | null;
+  } | null;
+};
+
 function parseProviderBodyFromMessage(message: unknown) {
   if (typeof message !== "string") return null;
 
@@ -293,17 +301,27 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
       throw new Error(message);
     }
 
+    const usage = response.usage as OpenAIUsageWithCache | undefined;
+    const promptTokens = usage?.prompt_tokens ?? 0;
+    const outputTokens = usage?.completion_tokens ?? 0;
+    const cacheReadInputTokens =
+      usage?.prompt_tokens_details?.cached_tokens ?? 0;
+    // OpenAI's prompt_tokens includes cached tokens. Normalize to the same
+    // shape Anthropic reports: inputTokens are uncached prompt tokens.
+    const inputTokens = Math.max(promptTokens - cacheReadInputTokens, 0);
+
     return {
       content: response.choices[0]?.message?.content ?? "",
       model: config.model,
-      inputTokens: response.usage?.prompt_tokens ?? 0,
-      outputTokens: response.usage?.completion_tokens ?? 0,
+      inputTokens,
+      outputTokens,
       cacheCreationInputTokens: 0,
-      cacheReadInputTokens: 0,
+      cacheReadInputTokens,
       estimatedCostUsd: estimateLLMCostUsd({
         model: config.model,
-        inputTokens: response.usage?.prompt_tokens ?? 0,
-        outputTokens: response.usage?.completion_tokens ?? 0,
+        inputTokens,
+        outputTokens,
+        cacheReadInputTokens,
       }),
     };
   }
