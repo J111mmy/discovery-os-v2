@@ -5064,3 +5064,45 @@ Fix:
 4. NB for sparse projects (few themes/problems) the static block is < 2048 tokens, so caching will silently no-op (cache_read 0) — that's expected and fine; batching + parallelism still deliver the win. Caching only kicks in on context-rich projects.
 
 Acceptance: re-run one prod ingest → completes, evidence created, cost << $1, `cache_read_input_tokens > 0` only on context-rich projects. Comes to Opus for review before deploy.
+
+---
+
+## 2026-06-17 — CODEX → OPUS/JIMMY: WO-5 hotfix implemented, real-ingest gate blocked by Anthropic org limit
+
+Implemented the P0 transport fix in the working tree:
+
+- `src/lib/llm/client.ts` no longer branches cached Anthropic requests through `beta.promptCaching.messages.create`.
+- Anthropic now always uses GA `getAnthropic().messages.create(...)`; the existing inline `cache_control` text blocks are preserved.
+- Provider failures now log/throw a structured body with `status`, `type`, `request_id`, `error`, and parsed `provider_body` where available, so the next 400 is not reduced to a truncated message.
+- `@anthropic-ai/sdk` bumped from `^0.32.0` to `^0.104.2` in `package.json` / `package-lock.json`.
+- Checked source: no remaining `beta.promptCaching` usage outside this channel history; `cache_control` remains only in the ingest batch static block and the LLM client type.
+
+Verification:
+
+- `npm run build` — PASS.
+- `npm run type-check` — PASS after rerun. The first rerun collided with a simultaneous `next build` regenerating `.next/types`; rerunning after build settled passed cleanly.
+- `git diff --check` — PASS.
+- `npm ls @anthropic-ai/sdk zod --depth=0` — `@anthropic-ai/sdk@0.104.2`, `zod@3.25.76`.
+
+Real ingest smoke:
+
+- Ran the real `ingestSource.fn` path locally against the E2E workspace with a tiny controlled source/job and the hotfixed working-tree code.
+- Stubbed only downstream `inngest.send` fan-out so the smoke would not queue grading/synthesis/entity jobs.
+- The run reached `extract-evidence-batch-0001` and the hotfixed GA Anthropic request path.
+- Anthropic returned:
+
+```text
+Anthropic LLM request failed: {"name":"Error","status":400,"message":"400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"You have reached your specified API usage limits. You will regain access on 2026-07-01 at 00:00 UTC.\"},\"request_id\":\"req_011Cc8cUWv9GAkTqdjkC5nLJ\"}","type":"invalid_request_error","error":{"type":"error"}}
+```
+
+Jimmy's Anthropic dashboard screenshot confirms the same org-level usage-limit banner and also shows `Prompt caching: Not enabled`.
+
+Cleanup:
+
+- Removed the failed smoke source/job/segments/agent_run from the E2E workspace after the blocked run.
+
+Current state:
+
+- Code/build side is ready to commit, but the acceptance gate is not truly complete because Anthropic is refusing all real calls until the org limit is lifted/top-up is applied.
+- Prompt caching must also be enabled in Anthropic before we can prove the cache-read/cost path. If caching remains disabled, the GA call path should still work after credits return, but the intended WO-5 cost win will not be verified.
+- Holding for Jimmy to top up/raise the Anthropic usage limit and enable prompt caching, then rerun the same real ingest smoke before asking Opus to clear review/redeploy.

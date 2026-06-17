@@ -71,14 +71,6 @@ function contentToText(content: LLMMessageContent) {
   return content.map((block) => block.text).join("\n\n");
 }
 
-function hasCacheControl(messages: LLMCallOptions["messages"]) {
-  return messages.some(
-    (message) =>
-      Array.isArray(message.content) &&
-      message.content.some((block) => Boolean(block.cache_control))
-  );
-}
-
 function modelPricingPerMillion(model: string) {
   const normalized = model.toLowerCase();
 
@@ -128,6 +120,80 @@ export function estimateLLMCostUsd(input: {
   return Number(total.toFixed(6));
 }
 
+type ProviderErrorDetails = {
+  name?: unknown;
+  status?: unknown;
+  message?: unknown;
+  type?: unknown;
+  code?: unknown;
+  param?: unknown;
+  request_id?: unknown;
+  error?: unknown;
+  provider_body?: unknown;
+};
+
+function parseProviderBodyFromMessage(message: unknown) {
+  if (typeof message !== "string") return null;
+
+  const jsonStart = message.indexOf("{");
+  if (jsonStart === -1) return null;
+
+  try {
+    return JSON.parse(message.slice(jsonStart));
+  } catch {
+    return null;
+  }
+}
+
+function providerErrorDetails(error: unknown): ProviderErrorDetails {
+  if (!error || typeof error !== "object") {
+    return { message: String(error) };
+  }
+
+  const value = error as Record<string, unknown>;
+  const providerBody = value.error;
+  const providerBodyFromMessage = parseProviderBodyFromMessage(value.message);
+  const details: ProviderErrorDetails = {
+    name: value.name,
+    status: value.status,
+    message: value.message,
+    type: value.type,
+    code: value.code,
+    param: value.param,
+    request_id:
+      value.request_id ??
+      value.requestId ??
+      value["_request_id"] ??
+      (providerBodyFromMessage &&
+      typeof providerBodyFromMessage === "object" &&
+      "request_id" in providerBodyFromMessage
+        ? (providerBodyFromMessage as { request_id?: unknown }).request_id
+        : undefined),
+  };
+
+  if (providerBody && typeof providerBody === "object") {
+    const body = providerBody as Record<string, unknown>;
+    details.error = {
+      type: body.type,
+      message: body.message,
+      code: body.code,
+      param: body.param,
+    };
+  } else if (providerBody) {
+    details.error = providerBody;
+  }
+
+  if (providerBodyFromMessage) {
+    details.provider_body = providerBodyFromMessage;
+  }
+
+  return details;
+}
+
+function providerErrorMessage(provider: string, error: unknown) {
+  return `${provider} LLM request failed: ${JSON.stringify(providerErrorDetails(error))}`;
+}
+
 export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
   const config = await getAIModelConfig(opts.tier);
 
@@ -143,17 +209,7 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
     // SECURITY INVARIANT A1: callLLM is text-in/text-out only.
     // Adding tools/tool_choice/function_call changes the prompt-injection threat model
     // and requires security review; see docs/security/SECURITY_POSTURE.md.
-    const response = (hasCacheControl(opts.messages)
-      ? await getAnthropic().beta.promptCaching.messages.create(
-          request as Parameters<
-            ReturnType<typeof getAnthropic>["beta"]["promptCaching"]["messages"]["create"]
-          >[0],
-          { timeout: opts.timeoutMs ?? 120_000 }
-        )
-      : await getAnthropic().messages.create(
-          request as Parameters<ReturnType<typeof getAnthropic>["messages"]["create"]>[0],
-          { timeout: opts.timeoutMs ?? 120_000 }
-        )) as {
+    let response: {
       content: Array<{ type: string; text?: string }>;
       usage: {
         input_tokens: number;
@@ -162,6 +218,17 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
         cache_read_input_tokens?: number | null;
       };
     };
+
+    try {
+      response = (await getAnthropic().messages.create(
+        request as Parameters<ReturnType<typeof getAnthropic>["messages"]["create"]>[0],
+        { timeout: opts.timeoutMs ?? 120_000 }
+      )) as typeof response;
+    } catch (error) {
+      const message = providerErrorMessage("Anthropic", error);
+      console.error(message);
+      throw new Error(message);
+    }
 
     const content =
       response.content[0]?.type === "text" ? response.content[0].text ?? "" : "";
@@ -213,10 +280,18 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
       request.temperature = opts.temperature ?? config.temperature;
     }
 
-    const response = await getOpenAI().chat.completions.create(
-      request,
-      { timeout: opts.timeoutMs ?? 120_000 }
-    );
+    let response: OpenAI.Chat.Completions.ChatCompletion;
+
+    try {
+      response = await getOpenAI().chat.completions.create(
+        request,
+        { timeout: opts.timeoutMs ?? 120_000 }
+      );
+    } catch (error) {
+      const message = providerErrorMessage("OpenAI", error);
+      console.error(message);
+      throw new Error(message);
+    }
 
     return {
       content: response.choices[0]?.message?.content ?? "",
