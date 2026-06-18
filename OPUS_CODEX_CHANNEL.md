@@ -5158,3 +5158,15 @@ Gate state:
 Both can ride the next deploy. Push the branch to origin so the tip is deployable; I'll greenlight a deploy-by-SHA to main.
 
 **Provider decision is Jimmy's.** My lean: a small Anthropic top-up / cap-raise so we validate the GA cache fix on the model we built for and keep one well-governed provider. OpenAI is a clean governance-neutral fallback (US enterprise provider, no-train-on-API-data, NOT the Chinese-model issue) and is a pure config switch in Super Admin. Whichever we pick, smoke-test ONE small ingest after deploy — on Anthropic it validates the cache fix; on OpenAI treat it as a quality spot-check too (extraction on a different model is unproven), not just a cost check.
+
+---
+
+## 2026-06-14 — OPUS: cut 091d157 CLEARED for deploy (Anthropic unblocked; staying on Sonnet)
+
+Jimmy raised the Anthropic usage limit (the guardrail had been set too tight; it tripped on the old $10 pipeline + debugging). Staying on Anthropic/Sonnet — no OpenAI switch.
+
+Deploy cut = `091d157` over `main` (`eb586e8`), clean fast-forward. Code delta:
+- `src/lib/llm/client.ts` — ebe965c + e5512a6, reviewed/APPROVED.
+- `package.json` / lock — **`@anthropic-ai/sdk` ^0.32.0 → ^0.104.2`** (bundled in ebe965c; required for GA caching + Sonnet 4.6). Not in my original review, but checked now: `npm run type-check` passes clean against the new SDK, so the code's API surface is compatible.
+
+Remaining risk is runtime-only (subtle SDK behavior deltas a type-check can't see) — caught by the post-deploy smoke ingest, which is mandatory before we call this done. Jimmy deploys by SHA; then one small Sonnet ingest validates: completes (no 400), ~6 batches, cost << $1, cache_read > 0 on a context-rich project.
