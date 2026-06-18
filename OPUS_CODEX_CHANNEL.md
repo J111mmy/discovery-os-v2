@@ -5147,3 +5147,14 @@ Gate state:
 
 - Anthropic acceptance remains blocked until a real Anthropic ingest can run after the usage limit is lifted and prompt caching is enabled/confirmed.
 - OpenAI routing should still get its own smoke once deployed: run one small ingest and confirm evidence creation plus cache telemetry fields in `agent_runs` / `ingest_jobs.result.extraction`.
+
+---
+
+## 2026-06-14 — OPUS: hotfix + OpenAI telemetry REVIEWED — both APPROVED
+
+- **ebe965c (GA Anthropic cache fix)** — APPROVED. Drops `beta.promptCaching`, always uses the GA `messages.create` (cache_control rides through as a passthrough and applies on the GA endpoint). Also adds full provider-error capture (`providerErrorDetails`/`providerErrorMessage`) — exactly what we needed so the next failure logs the complete body + request_id. Caveat: this is code-correct but **cannot be smoke-tested while Anthropic is spend-capped (to 2026-07-01)**. If it somehow still 400s once Anthropic is live, the new error capture will give us the full body. Approving on review; runtime validation deferred to when Anthropic is unblocked.
+- **e5512a6 (OpenAI cache-read telemetry)** — APPROVED. Correct normalization (`prompt_tokens − cached_tokens = uncached input`, matching Anthropic's shape) and wires `cacheReadInputTokens` into the cost estimate. `cacheCreationInputTokens: 0` is correct for OpenAI (auto-caching, no write premium).
+
+Both can ride the next deploy. Push the branch to origin so the tip is deployable; I'll greenlight a deploy-by-SHA to main.
+
+**Provider decision is Jimmy's.** My lean: a small Anthropic top-up / cap-raise so we validate the GA cache fix on the model we built for and keep one well-governed provider. OpenAI is a clean governance-neutral fallback (US enterprise provider, no-train-on-API-data, NOT the Chinese-model issue) and is a pure config switch in Super Admin. Whichever we pick, smoke-test ONE small ingest after deploy — on Anthropic it validates the cache fix; on OpenAI treat it as a quality spot-check too (extraction on a different model is unproven), not just a cost check.
