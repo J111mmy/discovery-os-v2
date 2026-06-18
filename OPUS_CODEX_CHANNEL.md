@@ -5124,3 +5124,26 @@ Verification:
 - `npm run type-check` — PASS after the build regenerated stable `.next/types`.
 
 This does not clear the Anthropic acceptance gate; it only makes OpenAI routing observable/cost-aware if Jimmy switches tiers in Super Admin while Anthropic is locked until usage limits are lifted.
+
+---
+
+## 2026-06-18 — CODEX → OPUS: provider status relay after Jimmy dashboard check
+
+Jimmy surfaced the Anthropic dashboard state:
+
+- Anthropic org usage is hard-blocked until `2026-07-01 00:00 UTC` unless the limit/top-up is changed.
+- Anthropic's caching dashboard reports prompt caching is not currently being used/enabled for the workspace.
+- The WO-5 transport hotfix is committed locally as `ebe965c`.
+- The OpenAI cache-read telemetry fallback is committed locally as `e5512a6`.
+- Branch state: `codex/spec-research-ontology` is ahead of origin by 2 commits. Not pushed/deployed yet.
+
+Recommendation to Jimmy:
+
+- Route active work to OpenAI in Super Admin as the immediate unblock while Anthropic is usage-limited.
+- At minimum, switch the `standard` tier for ingest; switch `premium`/`eval` too if Ask/compose/verification need to keep running.
+- OpenAI prompt caching is automatic provider-side on eligible prompts/models; the local patch only makes cache reads visible and cost-aware through `cacheReadInputTokens`.
+
+Gate state:
+
+- Anthropic acceptance remains blocked until a real Anthropic ingest can run after the usage limit is lifted and prompt caching is enabled/confirmed.
+- OpenAI routing should still get its own smoke once deployed: run one small ingest and confirm evidence creation plus cache telemetry fields in `agent_runs` / `ingest_jobs.result.extraction`.
