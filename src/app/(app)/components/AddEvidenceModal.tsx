@@ -7,17 +7,16 @@
  * File extraction uses /api/ingest/extract-text (same as the full ingest page).
  * After a successful ingest the user is navigated to the new source detail page.
  *
- * The full-page ingest form at /projects/[id]/ingest remains available for
- * complex cases (very long polls, retry workflows, etc.).
- *
- * Usage:
- *   <AddEvidenceModal open={open} onClose={() => setOpen(false)} projectId={id} />
+ * Flow: form → prescan (speakers + orgs) → review (if any found) → ingest
+ * Prescan errors and empty results both skip straight to ingest.
  */
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SOURCE_TYPE_LABELS } from "@/lib/labels";
 import type { SourceType } from "@/types/database";
+import type { PrescanResult, PrescanSpeaker, PrescanDetectedOrg } from "@/lib/ingest/prescan";
+import type { EntityResolution, ProjectEntityRole } from "@/lib/ingest/entity-resolutions";
 
 // ── Source types available in the modal ───────────────────────────
 
@@ -39,6 +38,30 @@ const ALLOWED_EXTENSIONS = new Set(["pdf", "doc", "docx", "txt", "md", "markdown
 
 type JobStatus = "idle" | "queued" | "processing" | "done" | "failed";
 type InputMode = "paste" | "file";
+// prescanPhase drives the pre-ingest review step
+type PrescanPhase = "idle" | "scanning" | "review";
+
+// Editable draft state for each speaker found by prescan
+type SpeakerDraft = {
+  id: string;
+  raw_label: string;
+  name: string;
+  role: ProjectEntityRole | null;
+  org_name: string;
+  person_id: string | null;
+  person_label: string | null;   // display name for the linked person
+  company_id: string | null;
+  company_label: string | null;  // display name for the linked company
+};
+
+// Editable draft state for each standalone org found by prescan
+type OrgDraft = {
+  id: string;
+  name: string;
+  company_id: string | null;
+  company_label: string | null;
+  is_tool_or_product: boolean;
+};
 
 // ── Icons ──────────────────────────────────────────────────────────
 
@@ -76,6 +99,68 @@ interface Props {
   projectId: string | null;
 }
 
+// ── Helpers ────────────────────────────────────────────────────────
+
+const ROLE_LABELS: Record<ProjectEntityRole, string> = {
+  customer: "Customer",
+  internal: "Internal",
+  interviewer: "Interviewer",
+};
+
+// Convert prescan speakers + orgs into initial draft state.
+// Auto-link only when score is 0.9+ (near-exact match).
+function initSpeakerDraft(s: PrescanSpeaker): SpeakerDraft {
+  const top = s.person_match_candidates[0];
+  const topOrg = s.org_match_candidates[0];
+  return {
+    id: s.id,
+    raw_label: s.raw_label,
+    name: s.suggested_name ?? s.raw_label,
+    role: s.suggested_role,
+    org_name: s.suggested_org_name ?? "",
+    person_id: top?.score >= 0.9 ? top.person_id : null,
+    person_label: top?.score >= 0.9 ? top.name : null,
+    company_id: topOrg?.score >= 0.9 ? topOrg.company_id : null,
+    company_label: topOrg?.score >= 0.9 ? topOrg.name : null,
+  };
+}
+
+function initOrgDraft(o: PrescanDetectedOrg): OrgDraft {
+  const top = o.org_match_candidates[0];
+  return {
+    id: o.id,
+    name: o.name,
+    company_id: top?.score >= 0.9 ? top.company_id : null,
+    company_label: top?.score >= 0.9 ? top.name : null,
+    is_tool_or_product: false,
+  };
+}
+
+// Build the entity_resolutions payload from confirmed drafts.
+function buildResolutions(speakers: SpeakerDraft[], orgs: OrgDraft[]): EntityResolution[] {
+  const speakerRows: EntityResolution[] = speakers.map((d) => ({
+    raw_label: d.raw_label,
+    resolved_name: d.name.trim() || null,
+    person_id: d.person_id ?? null,
+    project_role: d.role ?? null,
+    org_name: d.org_name.trim() || null,
+    company_id: d.company_id ?? null,
+    is_tool_or_product: false,
+  }));
+
+  const orgRows: EntityResolution[] = orgs.map((d) => ({
+    raw_label: d.name,
+    resolved_name: null,
+    person_id: null,
+    project_role: null,
+    org_name: d.is_tool_or_product ? null : d.name.trim() || null,
+    company_id: d.is_tool_or_product ? null : (d.company_id ?? null),
+    is_tool_or_product: d.is_tool_or_product,
+  }));
+
+  return [...speakerRows, ...orgRows];
+}
+
 // ── Modal ──────────────────────────────────────────────────────────
 
 export function AddEvidenceModal({ open, onClose, projectId }: Props) {
@@ -90,15 +175,20 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
   const [fileError, setFileError] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
 
+  // Prescan state
+  const [prescanPhase, setPrescanPhase] = useState<PrescanPhase>("idle");
+  const [prescanResult, setPrescanResult] = useState<PrescanResult | null>(null);
+  const [speakerDrafts, setSpeakerDrafts] = useState<SpeakerDraft[]>([]);
+  const [orgDrafts, setOrgDrafts] = useState<OrgDraft[]>([]);
+
   // Ingest job state
   const [jobId, setJobId] = useState<string | null>(null);
   const [sourceId, setSourceId] = useState<string | null>(null);
   const [jobStatus, setJobStatus] = useState<JobStatus>("idle");
   const [claimsCreated, setClaimsCreated] = useState<number | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  // Using a ref for the poll count so incrementing it doesn't re-run the
-  // polling effect and tear down + recreate the interval every 1800ms (which
-  // caused the form/Analyzing flicker).
+  // Ref so the poll count never causes the polling effect to tear down and
+  // recreate the interval (which caused the form/Analyzing flicker — #49).
   const pollCountRef = useRef(0);
 
   const titleRef = useRef<HTMLInputElement>(null);
@@ -114,6 +204,10 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
     setFileName(null);
     setFileError(null);
     setExtractingFn(false);
+    setPrescanPhase("idle");
+    setPrescanResult(null);
+    setSpeakerDrafts([]);
+    setOrgDrafts([]);
     setJobId(null);
     setSourceId(null);
     setJobStatus("idle");
@@ -125,21 +219,17 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Close on Escape
+  // Close on Escape (only when in idle form state)
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && jobStatus === "idle") onClose();
+      if (e.key === "Escape" && jobStatus === "idle" && prescanPhase === "idle") onClose();
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, jobStatus, onClose]);
+  }, [open, jobStatus, prescanPhase, onClose]);
 
-  // Poll ingest status.
-  // pollCountRef is intentionally excluded from deps — it's a ref, not state,
-  // so mutation never causes a re-render or effect teardown. Having a plain
-  // state counter in the dep array caused the interval to be torn down and
-  // recreated every 1800ms, which produced the form/Analyzing flicker.
+  // Poll ingest status
   useEffect(() => {
     if (!jobId || jobStatus === "done" || jobStatus === "failed") return;
     pollCountRef.current = 0;
@@ -233,14 +323,15 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
     }
   }
 
-  // Helper to satisfy the exhaustive-deps linter (useState setter stays stable)
   function setExtractingFn(v: boolean) { setExtracting(v); }
 
-  // ── Submit ─────────────────────────────────────────────────────
+  // ── Prescan + ingest ───────────────────────────────────────────
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  // Called after the user confirms the review step (or directly when
+  // prescan finds nothing / errors).
+  async function startIngest(entity_resolutions: EntityResolution[]) {
     if (!projectId) return;
+    setPrescanPhase("idle");
     setSubmitError(null);
     setJobStatus("queued");
     try {
@@ -252,6 +343,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
           title: title.trim(),
           type,
           raw_text: rawText.trim(),
+          entity_resolutions,
         }),
       });
       const data = await res.json();
@@ -269,13 +361,70 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
     }
   }
 
+  // Form submit: run prescan, then show review if entities are found.
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!projectId) return;
+    setPrescanPhase("scanning");
+    setSubmitError(null);
+
+    try {
+      const res = await fetch(`/api/projects/${projectId}/ingest/prescan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, raw_text: rawText.trim() }),
+      });
+
+      if (!res.ok) {
+        // Prescan failed: fall through to direct ingest
+        await startIngest([]);
+        return;
+      }
+
+      const prescan = (await res.json()) as PrescanResult;
+
+      if (prescan.speakers.length === 0 && prescan.detected_orgs.length === 0) {
+        // Nothing to review: skip straight to ingest
+        await startIngest([]);
+        return;
+      }
+
+      setSpeakerDrafts(prescan.speakers.map(initSpeakerDraft));
+      setOrgDrafts(prescan.detected_orgs.map(initOrgDraft));
+      setPrescanResult(prescan);
+      setPrescanPhase("review");
+    } catch {
+      // Network error during prescan: fall through to direct ingest
+      await startIngest([]);
+    }
+  }
+
+  // Confirm button in the review step.
+  function handleConfirmAndIngest() {
+    void startIngest(buildResolutions(speakerDrafts, orgDrafts));
+  }
+
+  // Update a single field on a speaker draft.
+  function updateSpeaker(id: string, patch: Partial<SpeakerDraft>) {
+    setSpeakerDrafts((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, ...patch } : d))
+    );
+  }
+
+  // Update a single field on an org draft.
+  function updateOrg(id: string, patch: Partial<OrgDraft>) {
+    setOrgDrafts((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, ...patch } : d))
+    );
+  }
+
   // ── Derived state ──────────────────────────────────────────────
 
   const isWorking = jobStatus === "queued" || jobStatus === "processing";
   const isDone = jobStatus === "done";
   const isFailed = jobStatus === "failed";
   const canSubmit =
-    !isWorking && !isDone && !extracting &&
+    prescanPhase === "idle" && !isWorking && !isDone && !extracting &&
     !!title.trim() && !!rawText.trim() && !!projectId;
 
   if (!open) return null;
@@ -292,6 +441,9 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
   const labelStyle: React.CSSProperties = {
     fontSize: 12.5, fontWeight: 540, color: "var(--ink-2)",
     display: "block", marginBottom: 6,
+  };
+  const smInputStyle: React.CSSProperties = {
+    ...inputStyle, padding: "7px 10px", fontSize: 13,
   };
 
   return (
@@ -324,12 +476,16 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
             <IcoUpload size={17} />
           </div>
           <div>
-            <div style={{ fontWeight: 640, fontSize: 16, color: "var(--ink)" }}>Add evidence</div>
+            <div style={{ fontWeight: 640, fontSize: 16, color: "var(--ink)" }}>
+              {prescanPhase === "review" ? "Review entities" : "Add evidence"}
+            </div>
             <div style={{ fontSize: 12.5, color: "var(--ink-3)", marginTop: 1 }}>
-              Paste or upload a transcript, note, or document.
+              {prescanPhase === "review"
+                ? `Confirm speakers and organizations before ingesting.`
+                : "Paste or upload a transcript, note, or document."}
             </div>
           </div>
-          {!isWorking && (
+          {!isWorking && prescanPhase === "idle" && (
             <button
               type="button"
               onClick={onClose}
@@ -346,7 +502,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
         </div>
 
         {/* ── Input stage ── */}
-        {!isWorking && !isDone && (
+        {prescanPhase === "idle" && !isWorking && !isDone && (
           <form onSubmit={handleSubmit}>
             <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
 
@@ -494,7 +650,272 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
           </form>
         )}
 
-        {/* ── Processing stage ── */}
+        {/* ── Prescan scanning stage ── */}
+        {prescanPhase === "scanning" && (
+          <>
+            <div style={{ padding: "36px 26px 40px", textAlign: "center" }}>
+              <div style={{ display: "inline-flex", width: 52, height: 52, borderRadius: "50%", background: "var(--accent-soft)", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+                <span style={{ width: 24, height: 24, border: "2.5px solid var(--accent)", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block", animation: "spin .7s linear infinite" }} />
+              </div>
+              <div style={{ fontSize: 17, fontWeight: 640, color: "var(--ink)", marginBottom: 6 }}>Scanning</div>
+              <div style={{ fontSize: 13.5, color: "var(--ink-3)", maxWidth: 340, margin: "0 auto", lineHeight: 1.5 }}>
+                Looking for speakers and organizations in your source.
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── Review stage ── */}
+        {prescanPhase === "review" && !isWorking && !isDone && prescanResult && (
+          <>
+            <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 18, maxHeight: "60vh", overflowY: "auto" }}>
+
+              {/* Speaker cards */}
+              {speakerDrafts.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ink-faint)", marginBottom: 10 }}>
+                    Speakers ({speakerDrafts.length})
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {speakerDrafts.map((draft) => {
+                      const prescanSpeaker = prescanResult.speakers.find((s) => s.id === draft.id);
+                      return (
+                        <div
+                          key={draft.id}
+                          style={{ borderRadius: 10, border: "1px solid var(--line)", background: "var(--surface-2)", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}
+                        >
+                          {/* Row 1: raw label + name + role */}
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 11.5, fontWeight: 640, padding: "2px 8px", borderRadius: 6, background: "var(--surface-3)", color: "var(--ink-3)", border: "1px solid var(--line)", flexShrink: 0, fontFamily: "var(--font-mono)" }}>
+                              {draft.raw_label}
+                            </span>
+                            <span style={{ color: "var(--ink-faint)", fontSize: 12 }}>→</span>
+                            <input
+                              value={draft.name}
+                              onChange={(e) => updateSpeaker(draft.id, { name: e.target.value })}
+                              placeholder="Confirmed name"
+                              style={{ ...smInputStyle, flex: "1 1 140px", minWidth: 120 }}
+                            />
+                            <select
+                              value={draft.role ?? ""}
+                              onChange={(e) => updateSpeaker(draft.id, { role: (e.target.value as ProjectEntityRole) || null })}
+                              style={{ ...smInputStyle, width: "auto", cursor: "pointer", flexShrink: 0 }}
+                            >
+                              <option value="">No role</option>
+                              {(["customer", "internal", "interviewer"] as ProjectEntityRole[]).map((r) => (
+                                <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Row 2: org name */}
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 12, color: "var(--ink-faint)", flexShrink: 0 }}>Company</span>
+                            <input
+                              value={draft.org_name}
+                              onChange={(e) => updateSpeaker(draft.id, { org_name: e.target.value, company_id: null, company_label: null })}
+                              placeholder="Organization name"
+                              style={{ ...smInputStyle, flex: 1 }}
+                            />
+                          </div>
+
+                          {/* Person match suggestion */}
+                          {!draft.person_id && prescanSpeaker && prescanSpeaker.person_match_candidates.length > 0 && (() => {
+                            const top = prescanSpeaker.person_match_candidates[0];
+                            return (
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                <span style={{ fontSize: 11.5, color: "var(--ink-faint)" }}>Person match:</span>
+                                <span style={{ fontSize: 12, color: "var(--ink-2)" }}>
+                                  {top.name}{top.company_name ? ` · ${top.company_name}` : ""}
+                                  {" "}
+                                  <span style={{ fontSize: 11, color: "var(--ink-faint)" }}>({Math.round(top.score * 100)}%)</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => updateSpeaker(draft.id, { person_id: top.person_id, person_label: top.name })}
+                                  style={{ fontSize: 11.5, padding: "2px 8px", borderRadius: 5, border: "1px solid var(--accent)", background: "var(--accent-soft)", color: "var(--accent)", cursor: "pointer", fontFamily: "inherit", fontWeight: 580 }}
+                                >
+                                  Use
+                                </button>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Linked person chip */}
+                          {draft.person_id && (
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 11.5, color: "var(--ink-faint)" }}>Linked person:</span>
+                              <span style={{ fontSize: 12, color: "var(--pos)", fontWeight: 580 }}>{draft.person_label}</span>
+                              <button
+                                type="button"
+                                onClick={() => updateSpeaker(draft.id, { person_id: null, person_label: null })}
+                                style={{ fontSize: 11, color: "var(--ink-faint)", background: "none", border: "none", cursor: "pointer", lineHeight: 1 }}
+                              >×</button>
+                            </div>
+                          )}
+
+                          {/* Company match suggestion */}
+                          {!draft.company_id && prescanSpeaker && draft.org_name.trim() && prescanSpeaker.org_match_candidates.length > 0 && (() => {
+                            const top = prescanSpeaker.org_match_candidates[0];
+                            return (
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                <span style={{ fontSize: 11.5, color: "var(--ink-faint)" }}>Company match:</span>
+                                <span style={{ fontSize: 12, color: "var(--ink-2)" }}>
+                                  {top.name}
+                                  {" "}<span style={{ fontSize: 11, color: "var(--ink-faint)" }}>({Math.round(top.score * 100)}%)</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => updateSpeaker(draft.id, { company_id: top.company_id, company_label: top.name })}
+                                  style={{ fontSize: 11.5, padding: "2px 8px", borderRadius: 5, border: "1px solid var(--accent)", background: "var(--accent-soft)", color: "var(--accent)", cursor: "pointer", fontFamily: "inherit", fontWeight: 580 }}
+                                >
+                                  Use
+                                </button>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Linked company chip */}
+                          {draft.company_id && (
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 11.5, color: "var(--ink-faint)" }}>Linked company:</span>
+                              <span style={{ fontSize: 12, color: "var(--pos)", fontWeight: 580 }}>{draft.company_label}</span>
+                              <button
+                                type="button"
+                                onClick={() => updateSpeaker(draft.id, { company_id: null, company_label: null })}
+                                style={{ fontSize: 11, color: "var(--ink-faint)", background: "none", border: "none", cursor: "pointer", lineHeight: 1 }}
+                              >×</button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Org rows */}
+              {orgDrafts.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ink-faint)", marginBottom: 10 }}>
+                    Organizations mentioned ({orgDrafts.length})
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {orgDrafts.map((draft) => {
+                      const prescanOrg = prescanResult.detected_orgs.find((o) => o.id === draft.id);
+                      return (
+                        <div
+                          key={draft.id}
+                          style={{
+                            borderRadius: 10, border: "1px solid var(--line)",
+                            background: draft.is_tool_or_product ? "var(--surface-3)" : "var(--surface-2)",
+                            padding: "10px 14px", display: "flex", flexDirection: "column", gap: 6,
+                            opacity: draft.is_tool_or_product ? 0.6 : 1,
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 13, fontWeight: 580, color: "var(--ink)", flex: 1, minWidth: 120 }}>
+                              {draft.name}
+                            </span>
+                            <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--ink-2)", cursor: "pointer", flexShrink: 0 }}>
+                              <input
+                                type="checkbox"
+                                checked={draft.is_tool_or_product}
+                                onChange={(e) => updateOrg(draft.id, {
+                                  is_tool_or_product: e.target.checked,
+                                  company_id: null,
+                                  company_label: null,
+                                })}
+                                style={{ cursor: "pointer" }}
+                              />
+                              Tool / product (skip)
+                            </label>
+                          </div>
+
+                          {/* Company match suggestion */}
+                          {!draft.is_tool_or_product && !draft.company_id && prescanOrg && prescanOrg.org_match_candidates.length > 0 && (() => {
+                            const top = prescanOrg.org_match_candidates[0];
+                            return (
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <span style={{ fontSize: 11.5, color: "var(--ink-faint)" }}>Match:</span>
+                                <span style={{ fontSize: 12, color: "var(--ink-2)" }}>
+                                  {top.name}
+                                  {top.domain ? ` · ${top.domain}` : ""}
+                                  {" "}<span style={{ fontSize: 11, color: "var(--ink-faint)" }}>({Math.round(top.score * 100)}%)</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => updateOrg(draft.id, { company_id: top.company_id, company_label: top.name })}
+                                  style={{ fontSize: 11.5, padding: "2px 8px", borderRadius: 5, border: "1px solid var(--accent)", background: "var(--accent-soft)", color: "var(--accent)", cursor: "pointer", fontFamily: "inherit", fontWeight: 580 }}
+                                >
+                                  Use
+                                </button>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Linked company chip */}
+                          {!draft.is_tool_or_product && draft.company_id && (
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 11.5, color: "var(--ink-faint)" }}>Linked to:</span>
+                              <span style={{ fontSize: 12, color: "var(--pos)", fontWeight: 580 }}>{draft.company_label}</span>
+                              <button
+                                type="button"
+                                onClick={() => updateOrg(draft.id, { company_id: null, company_label: null })}
+                                style={{ fontSize: 11, color: "var(--ink-faint)", background: "none", border: "none", cursor: "pointer", lineHeight: 1 }}
+                              >×</button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Error */}
+              {submitError && (
+                <div style={{ padding: "10px 14px", borderRadius: "var(--r-md)", background: "var(--neg-bg)", border: "1px solid rgba(224,89,79,0.2)", fontSize: 13.5, color: "var(--neg)" }}>
+                  {submitError}
+                </div>
+              )}
+            </div>
+
+            {/* Review footer */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 22px", borderTop: "1px solid var(--line)", background: "var(--surface-2)", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => { setPrescanPhase("idle"); setSubmitError(null); }}
+                style={{ padding: "8px 14px", borderRadius: "var(--r-sm)", background: "transparent", border: "1px solid var(--line)", color: "var(--ink-2)", fontWeight: 540, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" }}
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={() => void startIngest([])}
+                style={{ padding: "8px 14px", borderRadius: "var(--r-sm)", background: "transparent", border: "none", color: "var(--ink-faint)", fontWeight: 500, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}
+              >
+                Skip, ingest as-is
+              </button>
+              <div style={{ flex: 1 }} />
+              <button
+                type="button"
+                onClick={handleConfirmAndIngest}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "9px 18px", borderRadius: "var(--r-md)",
+                  background: "var(--accent)", color: "#fff",
+                  fontWeight: 580, fontSize: 14, cursor: "pointer",
+                  border: "none", fontFamily: "inherit",
+                }}
+              >
+                Confirm &amp; ingest
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ── Processing stage (ingest running) ── */}
         {isWorking && (
           <>
             <div style={{ padding: "36px 26px 40px", textAlign: "center" }}>

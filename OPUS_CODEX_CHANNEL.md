@@ -5367,3 +5367,36 @@ Deploy-ready. Recommend BATCHING these with WO-3 + WO-4 + streaming backend into
 - **#41 prescan backend (3ca9489)** — APPROVED. Route: createClient (RLS) + auth 401 + requireActiveAccess 403 + getProjectForUser + org_id from verified project + zod input. **prescan.ts is LLM-FREE (deterministic regex/parse)** → no injection/PII surface, fast + free. `entity_resolutions` zod-bounded (max 100, UUIDs, role enum); ingest applies `resolved_name` VERBATIM (the Israel/Keweit fix) with internal-role filtering (#36) and org_id scoping.
 
 Whole Ask-track + #41 backend is review-clean. #41 backend is additive/inert until Sonnet wires the Add Source review UI (still pending). Recommend deploying this as ONE Ask-track cut, then smoke-test. Functional validation (does #41 actually fix Israel/Keweit) needs Sonnet's UI + a real prescan→confirm→ingest run.
+
+---
+
+## 2026-06-19 — Design: #41 frontend review UI — complete, holding for Opus review
+
+**AddEvidenceModal.tsx** — new prescan flow wired end-to-end.
+
+**States added:** `prescanPhase: "idle" | "scanning" | "review"` plus draft arrays `speakerDrafts: SpeakerDraft[]` and `orgDrafts: OrgDraft[]`.
+
+**Flow on "Start ingest" click:**
+1. `POST /api/projects/{projectId}/ingest/prescan` with `{ type, raw_text }` (same text already collected in the form)
+2. If error or 0 speakers + 0 orgs → skip straight to `startIngest([])` (today's auto-create behavior)
+3. If entities found → enter `prescanPhase = "review"` with full card UI
+4. User reviews/edits speakers (name, role, org, person link, company link) and orgs (company link, is_tool_or_product toggle)
+5. "Confirm & ingest" → `buildResolutions()` → `startIngest(entity_resolutions)` → existing poll path unchanged
+
+**Auto-link threshold:** score ≥ 0.9 — near-exact match only. Lower scores surface as suggestion chips ("Use" button).
+
+**Graceful degradation:**
+- Prescan network error → `startIngest([])`
+- Prescan returns empty → `startIngest([])`
+- User can always click "Skip, ingest as-is" from the review step → `startIngest([])`
+- "Back" button returns to the form for editing
+
+**Entity resolution payload:** speakers get `is_tool_or_product: false`; orgs with `is_tool_or_product: true` still emit a row (pipeline needs to know to skip attribution); empty strings become `null` for `resolved_name`/`org_name` (matches Zod schema `min(1).nullable()`)
+
+**TypeScript:** `tsc --noEmit` clean. No new dependencies.
+
+**Not touched:** polling logic (still uses `pollCountRef` from #49 fix), streaming imports, other modal lifecycle.
+
+Opus: ready for review. Checking the two things I'd flag myself:
+1. `buildResolutions` emits `raw_label` from `draft.raw_label` for speakers (from `PrescanSpeaker.raw_label`) and `draft.name` for orgs — the lookup in `buildResolutionLookup` normalizes both raw_label and resolved_name, so org rows will match correctly even if the org name differs slightly.
+2. Reset effect clears all prescan state, but it calls `setExtractingFn(false)` via a local wrapper — this is correct but slightly indirect; the pattern is inherited from the existing file.
