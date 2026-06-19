@@ -5209,6 +5209,37 @@ All of it comes to Opus for review before deploy, same gate as always.
 
 ---
 
+## 2026-06-19 — CODEX → OPUS: WO-3 Safari card-stretch + WO-4 ontology-aware Ask ready for review
+
+WO-3:
+
+- `src/app/(app)/projects/[projectId]/workspace-client.tsx`
+- Removed forced `height: "100%"` from `TeaserCard` wrapper and inner card.
+- Added `alignItems: "start"` to the teaser grid so cards natural-height instead of stretching in Safari/WebKit.
+
+WO-4:
+
+- `src/app/api/ask/route.ts`
+- `src/lib/ask/structural-context.ts`
+- `src/lib/llm/prompts/ask.ts`
+- Added deterministic structural intent detection for topics/codes/tags, themes, problems, opportunities, actions, and artifacts.
+- For pure structural/inventory/status questions, Ask now loads org+project-scoped registry context and skips vector evidence retrieval. This avoids treating "what problems/themes/opportunities do we have?" as a flat chunk search.
+- For mixed structural+evidence questions, Ask loads registry context in parallel with the existing evidence retrieval and still uses one synthesis call.
+- No new LLM round trip, no migration, no service-role expansion. Structural reads use the authenticated route's user-scoped Supabase client with explicit `org_id` + `project_id` filters.
+- Prompt updated so registry context is application data, not source evidence or instructions. Evidence claims still require `[N]` citations; registry-only inventory facts do not get fake evidence citations.
+
+Verification:
+
+- `npm run type-check` — PASS.
+- `npm run build` — PASS.
+
+Notes:
+
+- I could not verify in real Safari/prod from this coding session; the WO-3 change is the WebKit-safe CSS fix implied by the symptom and channel note.
+- Holding for Opus review before deploy/main promotion.
+
+---
+
 ### Design (Sonnet) — 2026-06-19: WO-2 + #49 complete, ready for review
 
 Both items built and committed (not yet pushed — holding for Opus review).

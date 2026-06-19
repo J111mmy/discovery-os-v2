@@ -19,6 +19,11 @@ import {
   resolveSpeakerTargetsForQuestion,
   speakerResolutionLabel,
 } from "@/lib/speakers/resolve";
+import {
+  detectAskStructuralIntent,
+  loadAskStructuralContext,
+  type AskStructuralContext,
+} from "@/lib/ask/structural-context";
 import { z } from "zod";
 import type { EvidenceRecord } from "@/types/database";
 
@@ -87,26 +92,60 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
-  const speakerResolution = await resolveSpeakerTargetsForQuestion({
-    supabase,
-    org_id: project.org_id,
-    project_id,
-    question,
-  });
+  const structuralIntent = detectAskStructuralIntent(question);
+  const shouldRetrieveEvidence =
+    !structuralIntent || structuralIntent.needsEvidence;
+
+  let structuralContext: AskStructuralContext | null = null;
+  let speakerResolution: Awaited<
+    ReturnType<typeof resolveSpeakerTargetsForQuestion>
+  > | null = null;
+
+  try {
+    const [resolvedSpeaker, resolvedStructuralContext] = await Promise.all([
+      shouldRetrieveEvidence
+        ? resolveSpeakerTargetsForQuestion({
+            supabase,
+            org_id: project.org_id,
+            project_id,
+            question,
+          })
+        : Promise.resolve(null),
+      structuralIntent
+        ? loadAskStructuralContext({
+            supabase,
+            org_id: project.org_id,
+            project_id,
+            intent: structuralIntent,
+          })
+        : Promise.resolve(null),
+    ]);
+
+    speakerResolution = resolvedSpeaker;
+    structuralContext = resolvedStructuralContext;
+  } catch (err) {
+    console.error("[ask] Structural context retrieval failed:", err);
+    return NextResponse.json(
+      { error: "Could not retrieve project context." },
+      { status: 500 }
+    );
+  }
 
   // Retrieve semantically relevant evidence, narrowed to the named speaker
   // when the question asks what a person said, wanted, felt, or required.
-  let retrieved: EvidenceRecord[];
+  let retrieved: EvidenceRecord[] = [];
   try {
-    const result = await queryEvidence({
-      org_id: project.org_id,
-      project_id,
-      q: question,
-      limit,
-      trust_scope,
-      speaker_resolution: speakerResolution,
-    });
-    retrieved = result.records;
+    if (shouldRetrieveEvidence) {
+      const result = await queryEvidence({
+        org_id: project.org_id,
+        project_id,
+        q: question,
+        limit,
+        trust_scope,
+        speaker_resolution: speakerResolution,
+      });
+      retrieved = result.records;
+    }
   } catch (err) {
     console.error("[ask] Evidence retrieval failed:", err);
     return NextResponse.json(
@@ -116,7 +155,7 @@ export async function POST(req: NextRequest) {
   }
 
   // If no evidence, return a graceful "nothing found" answer
-  if (retrieved.length === 0) {
+  if (retrieved.length === 0 && !structuralContext?.hasData) {
     const speakerFocus = speakerResolutionLabel(speakerResolution);
     if (speakerFocus) {
       return NextResponse.json({
@@ -165,6 +204,7 @@ export async function POST(req: NextRequest) {
             researchGoals,
             evidenceRecords: retrieved,
             speakerResolution,
+            structuralContext: structuralContext?.text ?? null,
           }),
         },
       ],
