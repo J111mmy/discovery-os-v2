@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireActiveAccess } from "@/lib/auth/access";
 import { getProjectForUser } from "@/lib/auth/org";
 import { queryEvidence } from "@/lib/query/evidence";
-import { callLLM } from "@/lib/llm/client";
+import { streamLLM } from "@/lib/llm/client";
 import {
   ASK_PROMPT_VERSION,
   buildAskSystemPrompt,
@@ -43,6 +43,22 @@ export interface AskResponse {
   all_retrieved: EvidenceRecord[]; // full retrieval set, for UI fallback
   prompt_version: string;
   record_count: number;
+}
+
+type AskStreamEvent =
+  | { type: "delta"; text: string }
+  | {
+      type: "done";
+      sources: EvidenceRecord[];
+      all_retrieved: EvidenceRecord[];
+      prompt_version: string;
+      record_count: number;
+    };
+
+const encoder = new TextEncoder();
+
+function encodeStreamEvent(event: AskStreamEvent) {
+  return encoder.encode(`${JSON.stringify(event)}\n`);
 }
 
 export async function POST(req: NextRequest) {
@@ -188,46 +204,66 @@ export async function POST(req: NextRequest) {
         .join(". ")
     : null;
 
-  // Call LLM — standard tier (balanced quality/cost for interactive Q&A)
-  let answer: string;
-  try {
-    const result = await callLLM({
-      tier: "standard",
-      system: buildAskSystemPrompt(),
-      messages: [
-        {
-          role: "user",
-          content: buildAskUserMessage({
-            question,
-            projectName: project.name,
-            projectFrame: project.frame,
-            researchGoals,
-            evidenceRecords: retrieved,
-            speakerResolution,
-            structuralContext: structuralContext?.text ?? null,
-          }),
-        },
-      ],
-      timeoutMs: 60_000,
-    });
-    answer = result.content.trim();
-  } catch (err) {
-    console.error("[ask] LLM synthesis failed:", err);
-    return NextResponse.json(
-      { error: "Could not synthesise an answer. Try again." },
-      { status: 500 }
-    );
-  }
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        // Call LLM — standard tier (balanced quality/cost for interactive Q&A)
+        const result = await streamLLM(
+          {
+            tier: "standard",
+            system: buildAskSystemPrompt(),
+            messages: [
+              {
+                role: "user",
+                content: buildAskUserMessage({
+                  question,
+                  projectName: project.name,
+                  projectFrame: project.frame,
+                  researchGoals,
+                  evidenceRecords: retrieved,
+                  speakerResolution,
+                  structuralContext: structuralContext?.text ?? null,
+                }),
+              },
+            ],
+            timeoutMs: 60_000,
+          },
+          (delta) => {
+            controller.enqueue(
+              encodeStreamEvent({ type: "delta", text: delta })
+            );
+          }
+        );
 
-  // Map citation indices back to records (1-based in the answer, 0-based in array)
-  const citedIndices = parseCitedIndices(answer, retrieved.length);
-  const citedSources = citedIndices.map((i) => retrieved[i - 1]).filter(Boolean);
+        const answer = result.content.trim();
+        // Map citation indices back to records (1-based in the answer, 0-based in array)
+        const citedIndices = parseCitedIndices(answer, retrieved.length);
+        const citedSources = citedIndices
+          .map((i) => retrieved[i - 1])
+          .filter(Boolean);
 
-  return NextResponse.json({
-    answer,
-    sources: citedSources,
-    all_retrieved: retrieved,
-    prompt_version: ASK_PROMPT_VERSION,
-    record_count: retrieved.length,
-  } satisfies AskResponse);
+        controller.enqueue(
+          encodeStreamEvent({
+            type: "done",
+            sources: citedSources,
+            all_retrieved: retrieved,
+            prompt_version: ASK_PROMPT_VERSION,
+            record_count: retrieved.length,
+          })
+        );
+        controller.close();
+      } catch (err) {
+        console.error("[ask] LLM synthesis failed:", err);
+        controller.error(err);
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

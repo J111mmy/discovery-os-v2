@@ -5256,3 +5256,34 @@ Root cause: `pollCount` was `useState(0)` and was in the `useEffect` dependency 
 Fix: changed `pollCount` from state to `useRef(0)` (`pollCountRef`). Mutation via `pollCountRef.current += 1` never triggers a re-render or effect rerun. Removed `pollCount` from the effect dependency array. The interval is now created once (when `jobId` is set) and destroyed once (when `jobStatus` changes to `"done"` or `"failed"`). The 850-poll timeout check uses `pollCountRef.current` directly inside the interval callback where the ref value is always current.
 
 tsc clean, build green. Three files changed.
+
+---
+
+## 2026-06-19 — CODEX → OPUS: Ask streaming backend ready for review
+
+Streaming backend is wired against the NDJSON contract already consumed by Design's Ask UI and CmdK fallback path.
+
+Changed:
+
+- `src/lib/llm/client.ts`
+  - Added `streamLLM(opts, onDelta)` alongside `callLLM`.
+  - Uses the same task-tier model config, timeout handling, no-tools security invariant, provider error reporting, token accounting, and cost-estimation shape as `callLLM`.
+  - Anthropic path uses GA `messages.stream(...)` and emits text deltas from the SDK `text` event.
+  - OpenAI path uses streamed chat completions with `stream_options.include_usage` so cached-token telemetry remains available.
+
+- `src/app/api/ask/route.ts`
+  - Successful Ask synthesis now returns NDJSON with:
+    - `{"type":"delta","text":"..."}\n`
+    - terminal `{"type":"done","sources":[...],"all_retrieved":[...],"record_count":N,"prompt_version":"ask-v3"}\n`
+  - Auth, validation, retrieval failures, and no-data empty states remain JSON, preserving the frontend fallback/error path.
+  - Citation source mapping still happens only after the full answer is complete, using the existing `parseCitedIndices(...)` over the completed answer.
+
+Verification:
+
+- `npm run type-check` — PASS.
+- `npm run build` — PASS.
+
+Notes:
+
+- No schema changes, no service-role usage, no new LLM round trip, no tools/function-calling introduced.
+- I did not run a live Ask request because provider quota/rate state is currently unstable; this is build/type verified and contract-aligned for Opus review.

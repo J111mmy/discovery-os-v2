@@ -66,6 +66,8 @@ export interface LLMCallResult {
   estimatedCostUsd?: number;
 }
 
+export type LLMDeltaHandler = (delta: string) => void;
+
 function contentToText(content: LLMMessageContent) {
   if (typeof content === "string") return content;
   return content.map((block) => block.text).join("\n\n");
@@ -312,6 +314,151 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
 
     return {
       content: response.choices[0]?.message?.content ?? "",
+      model: config.model,
+      inputTokens,
+      outputTokens,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens,
+      estimatedCostUsd: estimateLLMCostUsd({
+        model: config.model,
+        inputTokens,
+        outputTokens,
+        cacheReadInputTokens,
+      }),
+    };
+  }
+
+  throw new Error(`Provider ${config.provider} not yet implemented`);
+}
+
+export async function streamLLM(
+  opts: LLMCallOptions,
+  onDelta: LLMDeltaHandler
+): Promise<LLMCallResult> {
+  const config = await getAIModelConfig(opts.tier);
+
+  if (config.provider === "anthropic") {
+    const request = {
+      model: config.model,
+      max_tokens: opts.maxTokens ?? config.maxTokens,
+      temperature: opts.temperature ?? config.temperature,
+      system: opts.system,
+      messages: opts.messages,
+    };
+
+    // SECURITY INVARIANT A1: streamLLM is text-in/text-out only.
+    // Adding tools/tool_choice/function_call changes the prompt-injection threat model
+    // and requires security review; see docs/security/SECURITY_POSTURE.md.
+    let response: {
+      content: Array<{ type: string; text?: string }>;
+      usage: {
+        input_tokens: number;
+        output_tokens: number;
+        cache_creation_input_tokens?: number | null;
+        cache_read_input_tokens?: number | null;
+      };
+    };
+
+    try {
+      const stream = getAnthropic().messages.stream(
+        request as Parameters<ReturnType<typeof getAnthropic>["messages"]["stream"]>[0],
+        { timeout: opts.timeoutMs ?? 120_000 }
+      );
+      stream.on("text", (textDelta) => {
+        if (textDelta) onDelta(textDelta);
+      });
+      response = (await stream.finalMessage()) as typeof response;
+    } catch (error) {
+      const message = providerErrorMessage("Anthropic", error);
+      console.error(message);
+      throw new Error(message);
+    }
+
+    const content = response.content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text ?? "")
+      .join("");
+    const cacheCreationInputTokens =
+      "cache_creation_input_tokens" in response.usage
+        ? response.usage.cache_creation_input_tokens ?? 0
+        : 0;
+    const cacheReadInputTokens =
+      "cache_read_input_tokens" in response.usage
+        ? response.usage.cache_read_input_tokens ?? 0
+        : 0;
+
+    return {
+      content,
+      model: config.model,
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+      cacheCreationInputTokens,
+      cacheReadInputTokens,
+      estimatedCostUsd: estimateLLMCostUsd({
+        model: config.model,
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheCreationInputTokens,
+        cacheReadInputTokens,
+      }),
+    };
+  }
+
+  if (config.provider === "openai") {
+    const messages = [
+      { role: "system" as const, content: opts.system },
+      ...opts.messages.map((message) => ({
+        role: message.role,
+        content: contentToText(message.content),
+      })),
+    ];
+
+    // SECURITY INVARIANT A1: streamLLM is text-in/text-out only.
+    // Adding tools/tool_choice/function_call changes the prompt-injection threat model
+    // and requires security review; see docs/security/SECURITY_POSTURE.md.
+    const request: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = {
+      model: config.model,
+      max_completion_tokens: opts.maxTokens ?? config.maxTokens,
+      messages,
+      stream: true,
+      stream_options: { include_usage: true },
+    };
+
+    if (supportsOpenAITemperature(config.model)) {
+      request.temperature = opts.temperature ?? config.temperature;
+    }
+
+    let content = "";
+    let usage: OpenAIUsageWithCache | undefined;
+
+    try {
+      const stream = await getOpenAI().chat.completions.create(request, {
+        timeout: opts.timeoutMs ?? 120_000,
+      });
+      for await (const chunk of stream) {
+        const text = chunk.choices[0]?.delta?.content ?? "";
+        if (text) {
+          content += text;
+          onDelta(text);
+        }
+        if (chunk.usage) {
+          usage = chunk.usage as OpenAIUsageWithCache;
+        }
+      }
+    } catch (error) {
+      const message = providerErrorMessage("OpenAI", error);
+      console.error(message);
+      throw new Error(message);
+    }
+
+    const promptTokens = usage?.prompt_tokens ?? 0;
+    const outputTokens = usage?.completion_tokens ?? 0;
+    const cacheReadInputTokens =
+      usage?.prompt_tokens_details?.cached_tokens ?? 0;
+    const inputTokens = Math.max(promptTokens - cacheReadInputTokens, 0);
+
+    return {
+      content,
       model: config.model,
       inputTokens,
       outputTokens,
