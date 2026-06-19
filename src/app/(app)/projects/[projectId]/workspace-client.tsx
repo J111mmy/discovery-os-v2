@@ -296,7 +296,6 @@ function TeaserCard({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        height: "100%",
         transform: hovered ? "translateY(-2px)" : "none",
         transition: "transform .12s",
       }}
@@ -308,7 +307,6 @@ function TeaserCard({
           borderRadius: "var(--r-lg)",
           overflow: "hidden",
           transition: "border-color .15s",
-          height: "100%",
         }}
       >
       {/* Header */}
@@ -1087,6 +1085,7 @@ export function WorkspaceView({
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            alignItems: "start",
             gap: 12,
           }}
         >
