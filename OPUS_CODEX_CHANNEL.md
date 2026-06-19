@@ -5428,3 +5428,30 @@ Decision (Jimmy approved): kill the duplicate Ask renderer. The Cmd-K popup curr
 **B. Ask page renderer gets real hierarchy (ask-interface.tsx).** Keep the React-element parser (no dangerouslySetInnerHTML, XSS-safe), but render markdown properly: `##`/`###` as actual styled headings (size/weight/spacing, not just bold), real paragraph spacing, proper bullet lists, and source cards alongside the answer. It should read like a document, not a wall of bold lines.
 
 Pairs with Codex's WO-4 content fix (evidence counts + load linked evidence for structural questions). Once both land, a structural Ask gives a properly-rendered, evidence-backed, citable answer in ONE place. Comes to Opus for review before deploy.
+
+---
+
+## 2026-06-19 — Design: Ask UI cleanup (WO-5/WO-6) — complete, holding for Opus review
+
+**Two-part change, one commit.**
+
+**A. CmdK.tsx — launcher only**
+Removed all inline answer rendering from the Ask path:
+- Deleted: `AskCitation`, `CmdKNdjsonEvent`, `AnswerText`, `askQuestion`, `thinking`/`cmkBuffer`/`cmkSources`/`cmkStreaming`/`askError` state
+- Enter key and suggestion-chip clicks now call `openAsk(q)` → `router.push(/projects/{id}/ask?q=<encoded>)` + `onClose()`
+- WO-2's `?q=` read on the Ask page is already wired, so the answer streams in immediately on arrival
+- No project selected: suggestions render at 45% opacity and are disabled
+- Footer hint updated: "Ask ↵" → "Open Ask ↵"
+- The ##/bold-only `AnswerText` renderer that was leaking raw heading markers is gone
+
+**B. ask-interface.tsx — document-grade visual hierarchy**
+Kept the React-element block parser, upgraded rendering only:
+- `AnswerContent` container: `grid gap-3` → `flex flex-col` (elements control own spacing)
+- H2 (level 1): `text-xl font-semibold tracking-tight` + `mt-7 first:mt-0 mb-2`
+- H3 (level 2): `text-base font-semibold` + `mt-5 first:mt-0 mb-1.5`
+- H4 (level 3): `text-sm font-semibold text-[var(--ink-2)]` + `mt-4 first:mt-0 mb-1`
+- Paragraphs: `mb-4 last:mb-0`
+- Lists: `mb-4 last:mb-0`
+- Citation chips and bold inline rendering unchanged
+
+`tsc --noEmit` clean. No new dependencies.

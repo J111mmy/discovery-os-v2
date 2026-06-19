@@ -3,7 +3,8 @@
 /**
  * CmdK — Ask + Jump command palette (2C)
  *
- * Ask mode  → POST /api/ask with the active project_id (streaming)
+ * Ask mode  → ↵ or suggestion click → navigates to /projects/{id}/ask?q=<encoded>
+ *             Answers render on the Ask page; no inline answer in the popup.
  * Jump mode → client-side Next.js router.push to real routes
  *
  * Global ⌘K / Ctrl+K keybinding is registered in Rail.tsx (layout-level).
@@ -12,19 +13,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-
-// ── Citation / source shape (subset of EvidenceRecord) ────────────
-
-interface AskCitation {
-  content: string;
-  source_title?: string;
-  segment_speaker?: string | null;
-}
-
-// NDJSON event shapes — same wire format as ask-interface.tsx.
-type CmdKNdjsonEvent =
-  | { type: "delta"; text: string }
-  | { type: "done"; sources: AskCitation[]; record_count: number; prompt_version?: string };
 
 // ── Jump item ──────────────────────────────────────────────────────
 
@@ -72,28 +60,6 @@ export interface CmdKProps {
   onClose: () => void;
   projectId: string | null;
   projectName: string | null;
-}
-
-// ── Inline bold renderer (avoids dangerouslySetInnerHTML) ──────────
-
-function AnswerText({ text }: { text: string }) {
-  const parts = text.split(/\*\*(.+?)\*\*/g);
-  return (
-    <>
-      {parts.map((part, i) =>
-        i % 2 === 1 ? (
-          <strong
-            key={i}
-            style={{ color: "var(--ink)", fontWeight: 640, fontFamily: "var(--font-sans)" }}
-          >
-            {part}
-          </strong>
-        ) : (
-          <span key={i}>{part}</span>
-        )
-      )}
-    </>
-  );
 }
 
 // ── Hairline icons ─────────────────────────────────────────────────
@@ -156,15 +122,6 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
 
   const [q, setQ] = useState("");
   const [mode, setMode] = useState<"ask" | "jump">("ask");
-  // thinking = true while waiting for the first streaming byte
-  const [thinking, setThinking] = useState(false);
-  // cmkBuffer = growing answer text during streaming; persists as final answer
-  const [cmkBuffer, setCmkBuffer] = useState("");
-  // cmkSources = populated once terminal event arrives
-  const [cmkSources, setCmkSources] = useState<AskCitation[]>([]);
-  // cmkStreaming = true from first byte until terminal event
-  const [cmkStreaming, setCmkStreaming] = useState(false);
-  const [askError, setAskError] = useState<string | null>(null);
   const [jumpIdx, setJumpIdx] = useState(0);
   const [reducedMotion, setReducedMotion] = useState(false);
 
@@ -181,13 +138,8 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
   useEffect(() => {
     if (!open) return;
     setQ("");
-    setCmkBuffer("");
-    setCmkSources([]);
-    setCmkStreaming(false);
-    setAskError(null);
     setMode("ask");
     setJumpIdx(0);
-    setThinking(false);
     const id = setTimeout(() => inputRef.current?.focus(), 40);
     return () => clearTimeout(id);
   }, [open]);
@@ -202,115 +154,13 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
       )
     : allItems;
 
-  // ── Ask handler ──────────────────────────────────────────────────
+  // ── Navigate to Ask page ─────────────────────────────────────────
 
-  async function askQuestion(question: string) {
+  function openAsk(question: string) {
     const trimmed = question.trim();
-    if (!trimmed) return;
-    if (!projectId) {
-      setAskError("Open a project first to ask questions about your evidence.");
-      return;
-    }
-
-    setThinking(true);
-    setCmkBuffer("");
-    setCmkSources([]);
-    setCmkStreaming(false);
-    setAskError(null);
-
-    try {
-      const res = await fetch("/api/ask", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_id: projectId, question: trimmed }),
-      });
-
-      if (!res.ok) {
-        const data: unknown = await res.json().catch(() => null);
-        const msg =
-          typeof data === "object" &&
-          data !== null &&
-          "error" in data &&
-          typeof (data as { error: unknown }).error === "string"
-            ? (data as { error: string }).error
-            : "Something went wrong.";
-        setAskError(msg);
-        return;
-      }
-
-      // Fallback: non-streaming JSON response
-      const contentType = res.headers.get("content-type") ?? "";
-      if (contentType.includes("application/json")) {
-        const data = (await res.json()) as {
-          answer: string;
-          sources: AskCitation[];
-        };
-        setCmkBuffer(data.answer);
-        setCmkSources(data.sources);
-        return;
-      }
-
-      if (!res.body) {
-        setAskError("No response body from server.");
-        return;
-      }
-
-      // NDJSON streaming path — first byte ends the "thinking" state.
-      setThinking(false);
-      setCmkStreaming(true);
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let answerText = "";
-      let lineBuffer = "";
-
-      stream: while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        lineBuffer += decoder.decode(value, { stream: true });
-
-        const lines = lineBuffer.split("\n");
-        lineBuffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const event = JSON.parse(line) as CmdKNdjsonEvent;
-            if (event.type === "delta") {
-              answerText += event.text;
-              setCmkBuffer(answerText);
-            } else if (event.type === "done") {
-              setCmkBuffer(answerText);
-              setCmkSources(event.sources);
-              setCmkStreaming(false);
-              break stream;
-            }
-          } catch {
-            // malformed line — skip
-          }
-        }
-      }
-
-      // Flush decoder and handle any trailing partial done event.
-      lineBuffer += decoder.decode();
-      if (lineBuffer.trim()) {
-        try {
-          const event = JSON.parse(lineBuffer) as CmdKNdjsonEvent;
-          if (event.type === "done") {
-            setCmkBuffer(answerText);
-            setCmkSources(event.sources);
-          }
-        } catch {
-          // partial tail — show whatever answer arrived
-        }
-      }
-    } catch {
-      setAskError("Network error — please try again.");
-    } finally {
-      setThinking(false);
-      setCmkStreaming(false);
-    }
+    if (!trimmed || !projectId) return;
+    router.push(`/projects/${projectId}/ask?q=${encodeURIComponent(trimmed)}`);
+    onClose();
   }
 
   // ── Keyboard handler ─────────────────────────────────────────────
@@ -346,7 +196,7 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
     }
     if (mode === "ask" && e.key === "Enter" && !e.shiftKey && q.trim()) {
       e.preventDefault();
-      void askQuestion(q);
+      openAsk(q);
     }
   }
 
@@ -354,18 +204,12 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
 
   function switchMode(next: "ask" | "jump") {
     setMode(next);
-    setCmkBuffer("");
-    setCmkSources([]);
-    setCmkStreaming(false);
-    setAskError(null);
     setQ("");
     setJumpIdx(0);
     setTimeout(() => inputRef.current?.focus(), 0);
   }
 
   if (!open) return null;
-
-  const hasAnswer = cmkBuffer.length > 0;
 
   // Animation — skip when reduced-motion is requested
   const backdropStyle: React.CSSProperties = {
@@ -411,34 +255,22 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
             padding: "14px 18px", borderBottom: "1px solid var(--line)",
           }}
         >
-          {/* Leading icon / spinner */}
+          {/* Leading icon */}
           <span
             aria-hidden
             style={{
               flexShrink: 0, display: "grid", placeItems: "center",
-              color: thinking ? "var(--accent)" : mode === "ask" ? "var(--accent)" : "var(--ink-3)",
-              ...(thinking
-                ? {
-                    width: 18, height: 18,
-                    border: "2px solid var(--accent)", borderTopColor: "transparent",
-                    borderRadius: "50%", animation: "spin .7s linear infinite",
-                  }
-                : {}),
+              color: mode === "ask" ? "var(--accent)" : "var(--ink-3)",
             }}
           >
-            {!thinking && (mode === "ask" ? <IcoSparkle size={18} /> : <IcoSearch size={18} />)}
+            {mode === "ask" ? <IcoSparkle size={18} /> : <IcoSearch size={18} />}
           </span>
 
           {/* Text input */}
           <input
             ref={inputRef}
             value={q}
-            onChange={(e) => {
-              setQ(e.target.value);
-              setCmkBuffer("");
-              setCmkSources([]);
-              setAskError(null);
-            }}
+            onChange={(e) => setQ(e.target.value)}
             onKeyDown={handleKey}
             placeholder={
               mode === "ask" ? "Ask your evidence anything…" : "Jump to a screen…"
@@ -487,7 +319,7 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
         <div style={{ maxHeight: "54vh", overflowY: "auto" }}>
 
           {/* ASK — suggestion list */}
-          {mode === "ask" && !hasAnswer && !thinking && !askError && (
+          {mode === "ask" && (
             <div style={{ padding: "14px 18px 18px" }}>
               <div
                 style={{
@@ -500,14 +332,17 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
               {SUGGESTIONS.map((s, i) => (
                 <button
                   key={i}
-                  onClick={() => { setQ(s); void askQuestion(s); }}
+                  onClick={() => openAsk(s)}
+                  disabled={!projectId}
                   style={{
                     display: "flex", alignItems: "center", gap: 11, width: "100%",
                     textAlign: "left", padding: "10px 10px", borderRadius: 10,
-                    background: "transparent", border: "none", cursor: "pointer",
+                    background: "transparent", border: "none",
+                    cursor: projectId ? "pointer" : "default",
                     transition: ".12s", fontFamily: "inherit",
+                    opacity: projectId ? 1 : 0.45,
                   }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--sel)"; }}
+                  onMouseEnter={(e) => { if (projectId) (e.currentTarget as HTMLElement).style.background = "var(--sel)"; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
                 >
                   <span style={{ color: "var(--ink-faint)", flexShrink: 0, display: "grid", placeItems: "center" }}>
@@ -519,133 +354,6 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
                   </span>
                 </button>
               ))}
-            </div>
-          )}
-
-          {/* ASK — thinking (waiting for first byte) */}
-          {mode === "ask" && thinking && (
-            <div
-              style={{
-                padding: "32px 18px", textAlign: "center",
-                color: "var(--ink-3)", fontSize: 14,
-              }}
-            >
-              Searching your evidence…
-            </div>
-          )}
-
-          {/* ASK — error */}
-          {mode === "ask" && askError && !thinking && (
-            <div style={{ padding: "18px 20px" }}>
-              <div
-                style={{
-                  padding: "12px 14px", borderRadius: "var(--r-md)",
-                  background: "var(--neg-bg)",
-                  border: "1px solid rgba(224,89,79,0.2)",
-                  fontSize: 13.5, color: "var(--neg)",
-                }}
-              >
-                {askError}
-              </div>
-            </div>
-          )}
-
-          {/* ASK — streaming / answer */}
-          {mode === "ask" && hasAnswer && !thinking && (
-            <div style={{ padding: "18px 20px 22px" }}>
-              <div
-                style={{
-                  fontSize: 12, color: "var(--ink-faint)",
-                  marginBottom: 12, fontWeight: 500,
-                }}
-              >
-                "{q}"
-              </div>
-              <p
-                style={{
-                  fontFamily: "var(--font-serif)", fontSize: 17,
-                  lineHeight: 1.62, color: "var(--ink-2)", margin: "0 0 18px",
-                }}
-              >
-                <AnswerText text={cmkBuffer} />
-                {/* Streaming pulse after the last word */}
-                {cmkStreaming && (
-                  <span
-                    aria-hidden
-                    style={{
-                      display: "inline-block",
-                      width: 2,
-                      height: "0.85em",
-                      background: "var(--accent)",
-                      marginLeft: 3,
-                      verticalAlign: "text-bottom",
-                      borderRadius: 1,
-                      opacity: 0.8,
-                      animation: "pulse 1s ease-in-out infinite",
-                    }}
-                  />
-                )}
-              </p>
-
-              {/* Sources — shown only after terminal event */}
-              {cmkSources.length > 0 && !cmkStreaming && (
-                <>
-                  <div
-                    style={{
-                      fontSize: 11, letterSpacing: ".09em", textTransform: "uppercase",
-                      color: "var(--ink-faint)", fontWeight: 700, marginBottom: 9,
-                    }}
-                  >
-                    Grounded in
-                  </div>
-                  {cmkSources.slice(0, 4).map((s, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        padding: "12px 14px", borderRadius: "var(--r-md)",
-                        background: "var(--surface-2)", border: "1px solid var(--line)",
-                        marginBottom: 8,
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontFamily: "var(--font-serif)", fontSize: 14, lineHeight: 1.52,
-                          marginBottom: 6, color: "var(--ink-2)",
-                        }}
-                      >
-                        "{s.content}"
-                      </div>
-                      {(s.source_title || s.segment_speaker) && (
-                        <div style={{ fontSize: 11.5, color: "var(--ink-faint)" }}>
-                          {s.source_title && (
-                            <span style={{ color: "var(--ink-3)", fontWeight: 580 }}>
-                              {s.source_title}
-                            </span>
-                          )}
-                          {s.segment_speaker && <span> · {s.segment_speaker}</span>}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </>
-              )}
-
-              {/* Continue in Ask — shown only after streaming completes */}
-              {projectId && !cmkStreaming && (
-                <button
-                  onClick={() => { router.push(`/projects/${projectId}/ask?q=${encodeURIComponent(q)}`); onClose(); }}
-                  style={{
-                    display: "inline-flex", alignItems: "center", gap: 7, marginTop: 10,
-                    padding: "8px 14px", borderRadius: "var(--r-md)",
-                    background: "var(--surface-2)", border: "1px solid var(--line)",
-                    color: "var(--ink-2)", fontSize: 13, fontWeight: 540,
-                    cursor: "pointer", fontFamily: "inherit",
-                  }}
-                >
-                  <IcoArrow size={13} />
-                  Continue in Ask ↗
-                </button>
-              )}
             </div>
           )}
 
@@ -732,7 +440,7 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
           <div style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
             {mode === "ask" && (
               <span style={{ fontSize: 11.5, color: "var(--ink-faint)", display: "flex", alignItems: "center", gap: 5 }}>
-                Ask <Kbd>↵</Kbd>
+                Open Ask <Kbd>↵</Kbd>
               </span>
             )}
             {mode === "jump" && (

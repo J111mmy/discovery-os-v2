@@ -195,10 +195,10 @@ function AnswerBlockView({
   if (block.type === "heading") {
     const headingClasses =
       block.level === 1
-        ? "text-base font-semibold text-[var(--ink)]"
+        ? "mt-7 first:mt-0 mb-2 text-xl font-semibold tracking-tight text-[var(--ink)]"
         : block.level === 2
-        ? "text-sm font-semibold text-[var(--ink)]"
-        : "text-sm font-semibold text-[var(--ink-2)]";
+        ? "mt-5 first:mt-0 mb-1.5 text-base font-semibold text-[var(--ink)]"
+        : "mt-4 first:mt-0 mb-1 text-sm font-semibold text-[var(--ink-2)]";
     const Tag = block.level === 1 ? "h2" : block.level === 2 ? "h3" : "h4";
     return (
       <Tag className={headingClasses}>
@@ -213,7 +213,7 @@ function AnswerBlockView({
       <ListTag
         className={`${
           block.ordered ? "list-decimal" : "list-disc"
-        } space-y-1.5 pl-5 text-sm leading-6 text-[var(--ink)]`}
+        } mb-4 last:mb-0 space-y-1.5 pl-5 text-sm leading-6 text-[var(--ink)]`}
       >
         {block.items.map((item, i) => (
           <li key={i}>{renderInline(item, citationIndexMap, onCitationClick)}</li>
@@ -223,7 +223,7 @@ function AnswerBlockView({
   }
 
   return (
-    <p className="text-sm leading-7 text-[var(--ink)]">
+    <p className="mb-4 last:mb-0 text-sm leading-7 text-[var(--ink)]">
       {renderInline(block.text, citationIndexMap, onCitationClick)}
     </p>
   );
@@ -242,7 +242,7 @@ function AnswerContent({
   const citationIndexMap = buildCitationIndexMap(answer, recordCount);
 
   return (
-    <div className="grid gap-3">
+    <div className="flex flex-col">
       {blocks.map((block, i) => (
         <AnswerBlockView
           key={i}
