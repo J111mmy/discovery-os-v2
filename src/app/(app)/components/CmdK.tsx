@@ -633,7 +633,7 @@ export function CmdK({ open, onClose, projectId, projectName }: CmdKProps) {
               {/* Continue in Ask — shown only after streaming completes */}
               {projectId && !cmkStreaming && (
                 <button
-                  onClick={() => { router.push(`/projects/${projectId}/ask`); onClose(); }}
+                  onClick={() => { router.push(`/projects/${projectId}/ask?q=${encodeURIComponent(q)}`); onClose(); }}
                   style={{
                     display: "inline-flex", alignItems: "center", gap: 7, marginTop: 10,
                     padding: "8px 14px", borderRadius: "var(--r-md)",

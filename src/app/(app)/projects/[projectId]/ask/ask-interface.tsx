@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useState, useRef } from "react";
+import { FormEvent, useState, useRef, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import type { EvidenceRecord } from "@/types/database";
 
 type TrustScopeFilter = "include_pending" | "trusted";
@@ -366,6 +367,7 @@ function SourceCard({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
+  const searchParams = useSearchParams();
   const [query, setQuery] = useState("");
   const [lastQuery, setLastQuery] = useState("");
   // Streaming state: buffer holds the growing answer text; streaming is true
@@ -378,6 +380,8 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
   const [error, setError] = useState<string | null>(null);
   const [trustScope, setTrustScope] = useState<TrustScopeFilter>("include_pending");
   const sourcesRef = useRef<HTMLDivElement>(null);
+  // Prevent the ?q= auto-run from firing more than once per mount.
+  const autoRanRef = useRef(false);
 
   function scrollToSource(n: number) {
     const el = document.getElementById(`source-${n}`);
@@ -389,8 +393,8 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
     }
   }
 
-  async function runQuery(nextTrustScope = trustScope) {
-    const trimmedQuery = query.trim();
+  async function runQuery(nextTrustScope = trustScope, overrideQuestion?: string) {
+    const trimmedQuery = (overrideQuestion ?? query).trim();
     if (!trimmedQuery) {
       setError("Ask a question about the evidence first.");
       setStreamBuffer("");
@@ -505,6 +509,18 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
       setStreaming(false);
     }
   }
+
+  // Auto-run the question from ?q= when navigating from CmdK "Continue in Ask".
+  // Uses overrideQuestion so the query state value doesn't need to have settled.
+  useEffect(() => {
+    if (autoRanRef.current) return;
+    const initQ = searchParams.get("q");
+    if (!initQ) return;
+    autoRanRef.current = true;
+    setQuery(initQ);
+    void runQuery(trustScope, initQ);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally fires once on mount only
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

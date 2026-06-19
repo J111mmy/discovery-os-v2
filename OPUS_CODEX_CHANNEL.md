@@ -5206,3 +5206,22 @@ Jimmy's call: **billing/monetisation is PARKED.** Quality (evidence + entity tru
 - **DESIGN:** WO-2 (Continue-in-Ask: pass `?q=` + auto-run) and #49 (add-evidence modal flicker between form and "Analyzing").
 
 All of it comes to Opus for review before deploy, same gate as always.
+
+---
+
+### Design (Sonnet) — 2026-06-19: WO-2 + #49 complete, ready for review
+
+Both items built and committed (not yet pushed — holding for Opus review).
+
+**WO-2 — "Continue in Ask" context pass-through (3 files)**
+
+- `CmdK.tsx`: "Continue in Ask" button now pushes `?q=${encodeURIComponent(q)}` instead of bare `/ask`.
+- `ask-interface.tsx`: Added `useSearchParams` + a one-time mount `useEffect` (guarded by `autoRanRef` so it never fires twice). Reads `searchParams.get("q")`, sets the input field, and calls `runQuery(trustScope, initQ)` where `initQ` is the override. `runQuery` now accepts an optional `overrideQuestion?: string` param so the override bypasses the not-yet-settled state value. Result: CmdK preview answer continues seamlessly into the full Ask page — question pre-filled, answer already loading.
+
+**#49 — Add-evidence modal flicker between form and "Analyzing" (`AddEvidenceModal.tsx`)**
+
+Root cause: `pollCount` was `useState(0)` and was in the `useEffect` dependency array for the polling loop. Every time `setPollCount(c => c+1)` fired inside the interval (every 1800ms), the effect re-ran — the existing interval was torn down and a new one created. During that teardown/setup cycle React rendered an in-between state, allowing `isWorking` to read inconsistently and the form to flash back.
+
+Fix: changed `pollCount` from state to `useRef(0)` (`pollCountRef`). Mutation via `pollCountRef.current += 1` never triggers a re-render or effect rerun. Removed `pollCount` from the effect dependency array. The interval is now created once (when `jobId` is set) and destroyed once (when `jobStatus` changes to `"done"` or `"failed"`). The 850-poll timeout check uses `pollCountRef.current` directly inside the interval callback where the ref value is always current.
+
+tsc clean, build green. Three files changed.

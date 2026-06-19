@@ -96,7 +96,10 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
   const [jobStatus, setJobStatus] = useState<JobStatus>("idle");
   const [claimsCreated, setClaimsCreated] = useState<number | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [pollCount, setPollCount] = useState(0);
+  // Using a ref for the poll count so incrementing it doesn't re-run the
+  // polling effect and tear down + recreate the interval every 1800ms (which
+  // caused the form/Analyzing flicker).
+  const pollCountRef = useRef(0);
 
   const titleRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -116,7 +119,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
     setJobStatus("idle");
     setClaimsCreated(null);
     setSubmitError(null);
-    setPollCount(0);
+    pollCountRef.current = 0;
     const id = setTimeout(() => titleRef.current?.focus(), 50);
     return () => clearTimeout(id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -132,24 +135,30 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
     return () => document.removeEventListener("keydown", onKey);
   }, [open, jobStatus, onClose]);
 
-  // Poll ingest status
+  // Poll ingest status.
+  // pollCountRef is intentionally excluded from deps — it's a ref, not state,
+  // so mutation never causes a re-render or effect teardown. Having a plain
+  // state counter in the dep array caused the interval to be torn down and
+  // recreated every 1800ms, which produced the form/Analyzing flicker.
   useEffect(() => {
     if (!jobId || jobStatus === "done" || jobStatus === "failed") return;
-    if (pollCount > 850) {
-      setSubmitError("This is taking longer than expected. Check the Sources page — if it shows 'check needed', use Retry.");
-      setJobStatus("failed");
-      return;
-    }
+    pollCountRef.current = 0;
+
     const interval = window.setInterval(async () => {
+      if (pollCountRef.current > 850) {
+        setSubmitError("This is taking longer than expected. Check the Sources page — if it shows 'check needed', use Retry.");
+        setJobStatus("failed");
+        return;
+      }
       try {
         const res = await fetch(`/api/ingest/status?job_id=${jobId}`, { cache: "no-store" });
         const data = await res.json();
+        pollCountRef.current += 1;
         if (!res.ok) {
           setSubmitError(data.error ?? "Could not read ingest status.");
           setJobStatus("failed");
           return;
         }
-        setPollCount((c) => c + 1);
         setJobStatus(data.status);
         if (data.status === "done") {
           const result = data.result ?? { evidence_created: 0 };
@@ -172,7 +181,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
       }
     }, 1800);
     return () => window.clearInterval(interval);
-  }, [jobId, jobStatus, pollCount, router, sourceId]);
+  }, [jobId, jobStatus, router, sourceId]);
 
   // ── File handling ──────────────────────────────────────────────
 
