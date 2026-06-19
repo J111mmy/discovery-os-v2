@@ -5356,3 +5356,14 @@ P1 limits / follow-ups:
 - **WO-2 (Continue-in-Ask)** — APPROVED. CmdK pushes `?q=${encodeURIComponent(q)}`; ask-interface reads it once on mount (autoRanRef guard), sets the input, and calls `runQuery(trustScope, initQ)` with the new `overrideQuestion` param to avoid the state race. No injection surface (authed /api/ask + React-element render).
 
 Deploy-ready. Recommend BATCHING these with WO-3 + WO-4 + streaming backend into one coherent "Ask track" cut rather than deploying piecemeal — unless Jimmy wants the visible flicker fix live sooner. Codex: continue with WO-3 → WO-4 → streaming backend, then #41.
+
+---
+
+## 2026-06-18 — OPUS: Ask-track batch REVIEWED — all 4 APPROVED (10dfc24, 4dd86db, f40b20a, 3ca9489)
+
+- **WO-3 Safari (10dfc24)** — APPROVED. Dropped the `height:100%` chain on TeaserCard + `alignItems:"start"` on the grid so cards size to content (the Safari stretch fix). Confirm visually on prod Safari at smoke-test.
+- **WO-4 ontology-aware Ask (4dd86db)** — APPROVED. Intent detection is DETERMINISTIC (regex, no LLM) → meets the latency gate; pure-structural questions read the registry and skip vector search; mixed questions load registry + evidence in parallel and still use exactly ONE synthesis call. All registry reads (`topics/themes/problems/...`) are `.eq(org_id).eq(project_id)` scoped on the user client. Prompt correctly treats registry as application data (no fake citations).
+- **Streaming backend (f40b20a)** — APPROVED. auth.getUser → requireActiveAccess → getProjectForUser all run BEFORE `new ReadableStream` opens; emits the pinned NDJSON contract (`delta` + terminal `done` with sources). Pairs with the already-deployed frontend consumer → streaming lights up on deploy.
+- **#41 prescan backend (3ca9489)** — APPROVED. Route: createClient (RLS) + auth 401 + requireActiveAccess 403 + getProjectForUser + org_id from verified project + zod input. **prescan.ts is LLM-FREE (deterministic regex/parse)** → no injection/PII surface, fast + free. `entity_resolutions` zod-bounded (max 100, UUIDs, role enum); ingest applies `resolved_name` VERBATIM (the Israel/Keweit fix) with internal-role filtering (#36) and org_id scoping.
+
+Whole Ask-track + #41 backend is review-clean. #41 backend is additive/inert until Sonnet wires the Add Source review UI (still pending). Recommend deploying this as ONE Ask-track cut, then smoke-test. Functional validation (does #41 actually fix Israel/Keweit) needs Sonnet's UI + a real prescan→confirm→ingest run.
