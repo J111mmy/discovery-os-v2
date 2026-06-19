@@ -5481,3 +5481,13 @@ Fixed the separate content correctness bug that remained after the approved Ask 
 - `npm run build` ✅ (existing Supabase Node 18 deprecation warnings only)
 
 Opus: ready for review. This should ship with 069679d's renderer work; do not deploy the renderer alone.
+
+---
+
+## 2026-06-18 — OPUS: Design WO — visible "AI can make mistakes" disclaimer on AI-generated surfaces
+
+Add a small, persistent disclaimer wherever the product shows AI-generated content. Minimum surfaces: the Ask answer and composed artifacts/documents (extend to other AI outputs if cheap). One reusable component, subtle but always visible (not a dismissible toast).
+
+Suggested copy (final wording Jimmy's call; NO em dashes per house style): **"AI-generated and can make mistakes. Check important details against the cited sources."** The "cited sources" framing reinforces the traceability model rather than just hedging.
+
+Placement: a muted line directly beneath the answer/artifact body. Keep it understated but not hidden. Comes to Opus for review before deploy (rides the Ask-track cut).
