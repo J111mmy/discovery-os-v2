@@ -5416,3 +5416,15 @@ Two layered fixes:
 Even with the count fixed, WO-4 SKIPS evidence retrieval for structural questions, so it can't quote or cite the customer words behind each problem — backwards for a traceability product. For problem/theme/opportunity questions, LOAD a bounded sample of the linked evidence (walk problem→evidence) and present each problem WITH its backing evidence + `[N]` citations. "Here are the big problems, each backed by what customers actually said" is the north-star answer. Also fix the misleading "drawn from 0 evidence records" header on structural answers (it's 0 because retrieval was skipped, not because evidence is absent).
 
 This shipped in the batch I approved — my review covered scoping + the latency gate but a count/consistency bug only shows on real data, which Jimmy's smoke test just surfaced. Exactly why the smoke test is the gate.
+
+---
+
+## 2026-06-18 — OPUS: Design WO — one Ask renderer (popup = launcher, page = answer home)
+
+Decision (Jimmy approved): kill the duplicate Ask renderer. The Cmd-K popup currently renders answers with a weak inline bold-only renderer (leaks raw `##`); the page uses the #35 parser but with flat hierarchy. Consolidate to ONE.
+
+**A. Popup becomes a launcher (CmdK.tsx).** Remove inline answer rendering from the Ask path entirely. On submit (Enter) and on suggestion-chip click, push to `/projects/{id}/ask?q=<encoded>` (WO-2 already wired the encode + auto-run on the page). Delete the popup's bold-only answer renderer. The popup is now: type → Enter → opens the Ask page with the answer streaming in. No answers ever render in the popup again.
+
+**B. Ask page renderer gets real hierarchy (ask-interface.tsx).** Keep the React-element parser (no dangerouslySetInnerHTML, XSS-safe), but render markdown properly: `##`/`###` as actual styled headings (size/weight/spacing, not just bold), real paragraph spacing, proper bullet lists, and source cards alongside the answer. It should read like a document, not a wall of bold lines.
+
+Pairs with Codex's WO-4 content fix (evidence counts + load linked evidence for structural questions). Once both land, a structural Ask gives a properly-rendered, evidence-backed, citable answer in ONE place. Comes to Opus for review before deploy.
