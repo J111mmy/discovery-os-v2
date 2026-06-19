@@ -3,6 +3,11 @@
 import { z } from "zod";
 import { inngest } from "../client";
 import { createServiceClient } from "@/lib/supabase/server";
+import {
+  buildResolutionLookup,
+  parseEntityResolutions,
+  type EntityResolution,
+} from "@/lib/ingest/entity-resolutions";
 import { callLLM } from "@/lib/llm/client";
 import {
   buildEntityExtractionPrompt,
@@ -144,6 +149,33 @@ function formatEvidence(records: EvidenceForEntityExtraction[]) {
 
 function filterEvidenceIds(ids: string[], allowed: Set<string>) {
   return Array.from(new Set(ids.filter((id) => allowed.has(id))));
+}
+
+function evidenceIdsForResolution(
+  evidence: EvidenceForEntityExtraction[],
+  resolution: EntityResolution
+) {
+  const labels = [
+    resolution.raw_label,
+    resolution.resolved_name ?? null,
+  ]
+    .map((label) => (label ? normalizeName(label) : ""))
+    .filter(Boolean);
+
+  return evidence
+    .filter((record) => {
+      const metadataSpeaker =
+        typeof record.metadata?.speaker === "string" ? record.metadata.speaker : null;
+      const originalSpeaker =
+        typeof record.metadata?.speaker_original_label === "string"
+          ? record.metadata.speaker_original_label
+          : null;
+      const speakerLabels = [metadataSpeaker, originalSpeaker]
+        .map((label) => (label ? normalizeName(label) : ""))
+        .filter(Boolean);
+      return speakerLabels.some((label) => labels.includes(label));
+    })
+    .map((record) => record.id);
 }
 
 async function findOrCreateCompany(input: {
@@ -313,6 +345,25 @@ export const extractEntities = inngest.createFunction(
         return (data ?? []) as EvidenceForEntityExtraction[];
       });
 
+      const entityResolutions = await step.run("fetch-entity-resolutions", async () => {
+        const { data, error } = await supabase
+          .from("sources")
+          .select("metadata")
+          .eq("org_id", org_id)
+          .eq("project_id", project_id)
+          .eq("id", source_id)
+          .single();
+
+        if (error) {
+          throw new Error(`Failed to fetch source resolutions: ${error.message}`);
+        }
+
+        return parseEntityResolutions(
+          (data as { metadata?: Record<string, unknown> } | null)?.metadata
+            ?.entity_resolutions
+        );
+      });
+
       if (evidence.length === 0) {
         await step.run("complete-empty", async () => {
           await supabase
@@ -385,9 +436,21 @@ export const extractEntities = inngest.createFunction(
             person,
           ])
         );
+        const existingPeopleById = new Map<string, ExistingPerson>(
+          ((peopleResult.data ?? []) as ExistingPerson[]).map((person) => [
+            person.id,
+            person,
+          ])
+        );
         const existingCompanies = new Map<string, ExistingCompany>(
           ((companiesResult.data ?? []) as ExistingCompany[]).map((company) => [
             normalizeName(company.name),
+            company,
+          ])
+        );
+        const existingCompaniesById = new Map<string, ExistingCompany>(
+          ((companiesResult.data ?? []) as ExistingCompany[]).map((company) => [
+            company.id,
             company,
           ])
         );
@@ -400,12 +463,36 @@ export const extractEntities = inngest.createFunction(
 
         const companyByName = new Map<string, string>();
         const competitorBySlug = new Map<string, string>();
+        const resolutionByLabel = buildResolutionLookup(entityResolutions);
+        const toolOrProductOrgNames = new Set(
+          entityResolutions
+            .filter((resolution) => resolution.is_tool_or_product)
+            .map((resolution) => normalizeName(resolution.org_name ?? ""))
+            .filter(Boolean)
+        );
         let companiesResolved = 0;
         let peopleResolved = 0;
         let competitorsResolved = 0;
         let linksCreated = 0;
 
+        for (const resolution of entityResolutions) {
+          if (resolution.is_tool_or_product || !resolution.company_id) continue;
+          const company = existingCompaniesById.get(resolution.company_id);
+          if (company) {
+            companyByName.set(normalizeName(resolution.org_name ?? company.name), company.id);
+          }
+        }
+
         const companyInputs = [
+          ...entityResolutions
+            .filter(
+              (resolution) =>
+                !resolution.is_tool_or_product && Boolean(resolution.org_name?.trim())
+            )
+            .map((resolution) => ({
+              name: resolution.org_name as string,
+              domain: null,
+            })),
           ...extraction.extraction.companies.map((company) => ({
             name: company.name,
             domain: company.domain ?? null,
@@ -417,6 +504,7 @@ export const extractEntities = inngest.createFunction(
 
         for (const company of companyInputs) {
           const key = normalizeName(company.name);
+          if (!key || toolOrProductOrgNames.has(key)) continue;
           if (companyByName.has(key)) continue;
           const companyId = await findOrCreateCompany({
             org_id,
@@ -437,6 +525,7 @@ export const extractEntities = inngest.createFunction(
         }
 
         for (const company of extraction.extraction.companies) {
+          if (toolOrProductOrgNames.has(normalizeName(company.name))) continue;
           const companyId = companyByName.get(normalizeName(company.name));
           if (!companyId) continue;
           for (const evidenceId of filterEvidenceIds(
@@ -457,18 +546,57 @@ export const extractEntities = inngest.createFunction(
           }
         }
 
-        for (const person of extraction.extraction.people) {
-          const companyId = person.company
-            ? companyByName.get(normalizeName(person.company)) ?? null
+        const peopleInputs = [
+          ...entityResolutions
+            .filter((resolution) => resolution.resolved_name || resolution.person_id)
+            .map((resolution) => ({
+              name: resolution.resolved_name ?? resolution.raw_label,
+              role: null as string | null,
+              company: resolution.is_tool_or_product
+                ? null
+                : resolution.org_name ?? null,
+              evidence_ids: evidenceIdsForResolution(evidence, resolution),
+              resolution,
+            })),
+          ...extraction.extraction.people.map((person) => ({
+            ...person,
+            resolution:
+              resolutionByLabel.get(normalizeName(person.name)) ??
+              (person.company
+                ? entityResolutions.find(
+                    (resolution) =>
+                      !resolution.is_tool_or_product &&
+                      normalizeName(resolution.org_name ?? "") ===
+                        normalizeName(person.company ?? "")
+                  ) ?? null
+                : null),
+          })),
+        ];
+
+        for (const person of peopleInputs) {
+          const resolution = person.resolution;
+          const resolvedName = resolution?.resolved_name ?? person.name;
+          const companyName = resolution?.is_tool_or_product
+            ? null
+            : resolution?.org_name ?? person.company ?? null;
+          const companyId = resolution?.company_id
+            ? resolution.company_id
+            : companyName
+              ? companyByName.get(normalizeName(companyName)) ?? null
+              : null;
+          const existingById = resolution?.person_id
+            ? existingPeopleById.get(resolution.person_id)
             : null;
-          const personId = await findOrCreatePerson({
-            org_id,
-            name: person.name,
-            role: person.role ?? null,
-            company_id: companyId,
-            existing: existingPeople,
-            supabase,
-          });
+          const personId = existingById
+            ? existingById.id
+            : await findOrCreatePerson({
+                org_id,
+                name: resolvedName,
+                role: person.role ?? null,
+                company_id: companyId,
+                existing: existingPeople,
+                supabase,
+              });
           peopleResolved += 1;
 
           await supabase
@@ -489,7 +617,7 @@ export const extractEntities = inngest.createFunction(
               evidence_id: evidenceId,
               entity_type: "person",
               entity_id: personId,
-              label: person.name,
+              label: resolvedName,
               person_id: personId,
             });
             linksCreated += 1;

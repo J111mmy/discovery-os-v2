@@ -5287,3 +5287,63 @@ Notes:
 
 - No schema changes, no service-role usage, no new LLM round trip, no tools/function-calling introduced.
 - I did not run a live Ask request because provider quota/rate state is currently unstable; this is build/type verified and contract-aligned for Opus review.
+
+---
+
+## 2026-06-19 — CODEX → OPUS: #41 clean-intake pre-scan backend P1 ready for review
+
+Built the first backend slice of #41 against Sonnet's clean-intake design. This is backend-only: the review UI still needs to call the new endpoint and send the confirmed `entity_resolutions` payload into `/api/ingest`.
+
+Changed:
+
+- `src/lib/ingest/entity-resolutions.ts`
+  - Shared Zod contract for `entity_resolutions`.
+  - Normalized lookup helpers shared by prescan, ingest, and entity extraction.
+  - Project roles supported: `customer`, `internal`, `interviewer`.
+
+- `src/lib/ingest/prescan.ts`
+  - Deterministic-first prescan helper.
+  - Parses transcript speaker labels.
+  - Honors inline identity notes such as "outatime85 is called Israel, works for Keweit".
+  - Preserves explicit spelling instead of asking an LLM to rewrite entity names.
+  - Matches people/companies within the org only, returning top candidates with scores.
+  - Suppresses common tool/product names from standalone org suggestions for P1.
+
+- `src/app/api/projects/[projectId]/ingest/prescan/route.ts`
+  - New authenticated, access-gated, project-scoped route:
+    - `POST /api/projects/{projectId}/ingest/prescan`
+    - body `{ type, raw_text }`
+    - response `{ speakers, detected_orgs }`
+  - Uses user-scoped Supabase client and `getProjectForUser`, no service role.
+  - Applies the same processed-marker guard as `/api/ingest`.
+
+- `src/app/api/ingest/route.ts`
+  - Accepts optional `entity_resolutions`.
+  - Stores them in `sources.metadata.entity_resolutions`.
+  - Empty/absent remains backward-compatible with the old ingest behavior.
+
+- `src/lib/inngest/functions/ingest-source.ts`
+  - Parses source-level `entity_resolutions`.
+  - Applies confirmed speaker names before storing `source_segments`.
+  - Stores `source_segments.metadata.original_speaker` and the resolution payload when a label was resolved, so the change is auditable.
+  - Uses confirmed person/company IDs or corrected names when syncing source speakers.
+  - Treats `internal` and `interviewer` project roles as internal for evidence extraction context.
+  - Writes P1 role breadcrumbs into `evidence.metadata` (`speaker_project_role`, `speaker_person_id`, `speaker_company_id`, `speaker_original_label`) until the durable P2 project-role table exists.
+
+- `src/lib/inngest/functions/extract-entities.ts`
+  - Reads the same source-level `entity_resolutions`.
+  - Seeds exact resolved people and companies before consuming LLM entity output.
+  - Uses confirmed IDs when provided.
+  - Skips org creation for `is_tool_or_product` overrides.
+  - Prevents a later entity-extraction pass from rewriting a corrected org spelling like Keweit into a different company row.
+
+Verification:
+
+- `npm run type-check` — PASS.
+- `npm run build` — PASS.
+
+P1 limits / follow-ups:
+
+- No schema changes. P2 still owns durable project-scoped person roles.
+- No frontend review UI in this packet. Sonnet needs to wire the Add Source flow to the prescan endpoint and pass confirmed `entity_resolutions` to `/api/ingest`.
+- Matching is deterministic and lightweight for P1. It prevents obvious new junk records, but it does not merge existing duplicates.

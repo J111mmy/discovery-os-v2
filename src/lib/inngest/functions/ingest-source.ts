@@ -6,6 +6,12 @@ import { inngest } from "../client";
 import { createServiceClient } from "@/lib/supabase/server";
 import { callLLM, embedBatch, type LLMCallResult, type LLMTextBlock } from "@/lib/llm/client";
 import { matchEvidenceToSegment } from "@/lib/evidence/anchor.mjs";
+import {
+  buildResolutionLookup,
+  isInternalProjectRole,
+  parseEntityResolutions,
+  type EntityResolution,
+} from "@/lib/ingest/entity-resolutions";
 import { PROCESSED_MARKER_ERROR, looksLikeProcessedMarker } from "@/lib/ingest/quality";
 import { redactPII } from "@/lib/llm/pii";
 import {
@@ -31,6 +37,7 @@ type RawSegment = {
   char_end: number;
   start_time: string | null;
   end_time: string | null;
+  metadata?: Record<string, unknown>;
 };
 
 type TranscriptTurn = {
@@ -87,6 +94,7 @@ type SourceSpeaker = {
   name: string;
   role: string | null;
   affiliation: Affiliation;
+  company_id?: string | null;
 };
 
 const MAX_TURN_TOKENS = 800;
@@ -625,6 +633,47 @@ function inferInternalSpeakerNames(segments: RawSegment[], type: SourceType) {
   return facilitator && facilitator.questions > 0 ? [facilitator.name] : [];
 }
 
+function applyEntityResolutionsToSegments(
+  segments: RawSegment[],
+  entityResolutions: EntityResolution[]
+) {
+  if (entityResolutions.length === 0) return segments;
+  const resolutionsByLabel = buildResolutionLookup(entityResolutions);
+
+  return segments.map((segment) => {
+    if (!segment.speaker) return segment;
+    const resolution = resolutionsByLabel.get(normalizeName(segment.speaker));
+    if (!resolution) return segment;
+
+    const resolvedName = resolution.resolved_name?.trim() || segment.speaker;
+    const speakerChanged = resolvedName !== segment.speaker;
+    return {
+      ...segment,
+      speaker: resolvedName,
+      metadata: {
+        ...(segment.metadata ?? {}),
+        original_speaker: speakerChanged ? segment.speaker : null,
+        entity_resolution: {
+          raw_label: resolution.raw_label,
+          resolved_name: resolution.resolved_name ?? null,
+          person_id: resolution.person_id ?? null,
+          project_role: resolution.project_role ?? null,
+          company_id: resolution.company_id ?? null,
+          org_name: resolution.org_name ?? null,
+          is_tool_or_product: resolution.is_tool_or_product ?? false,
+        },
+      },
+    };
+  });
+}
+
+function internalSpeakerNamesFromResolutions(entityResolutions: EntityResolution[]) {
+  return entityResolutions
+    .filter((resolution) => isInternalProjectRole(resolution.project_role))
+    .map((resolution) => resolution.resolved_name ?? resolution.raw_label)
+    .filter(Boolean);
+}
+
 function segmentText(text: string, type: SourceType): RawSegment[] {
   const transcriptTurns = parseTranscriptTurns(text);
 
@@ -690,33 +739,91 @@ async function syncSourceSpeakers(input: {
   project_id: string;
   segments: RawSegment[];
   inferredInternalSpeakerNames: string[];
+  entityResolutions: EntityResolution[];
 }) {
   const speakerNames = uniqueSpeakerNames(input.segments);
   if (speakerNames.length === 0) return [];
 
   const inferredInternal = new Set(input.inferredInternalSpeakerNames.map(normalizeName));
+  const resolutionsByLabel = buildResolutionLookup(input.entityResolutions);
 
-  const { data: existingPeople, error } = await input.supabase
-    .from("people")
-    .select("id, name, role, affiliation")
-    .eq("org_id", input.org_id);
+  const [peopleResult, companiesResult] = await Promise.all([
+    input.supabase
+      .from("people")
+      .select("id, name, role, affiliation, company_id")
+      .eq("org_id", input.org_id),
+    input.supabase
+      .from("companies")
+      .select("id, name")
+      .eq("org_id", input.org_id),
+  ]);
 
-  if (error) throw new Error(`Failed to fetch source speakers: ${error.message}`);
+  if (peopleResult.error) {
+    throw new Error(`Failed to fetch source speakers: ${peopleResult.error.message}`);
+  }
+  if (companiesResult.error) {
+    throw new Error(`Failed to fetch source speaker companies: ${companiesResult.error.message}`);
+  }
 
   const existingByName = new Map<string, SourceSpeaker>(
-    ((existingPeople ?? []) as SourceSpeaker[]).map((person) => [
+    ((peopleResult.data ?? []) as SourceSpeaker[]).map((person) => [
       normalizeName(person.name),
       person,
     ])
   );
+  const existingById = new Map<string, SourceSpeaker>(
+    ((peopleResult.data ?? []) as SourceSpeaker[]).map((person) => [person.id, person])
+  );
+  const companiesByName = new Map<string, { id: string; name: string }>(
+    ((companiesResult.data ?? []) as Array<{ id: string; name: string }>).map((company) => [
+      normalizeName(company.name),
+      company,
+    ])
+  );
   const synced: SourceSpeaker[] = [];
 
+  async function companyIdForResolution(resolution: EntityResolution | null) {
+    if (!resolution || resolution.is_tool_or_product) return null;
+    if (resolution.company_id) return resolution.company_id;
+    const orgName = resolution.org_name?.trim();
+    if (!orgName) return null;
+
+    const key = normalizeName(orgName);
+    const existing = companiesByName.get(key);
+    if (existing) return existing.id;
+
+    const { data, error: insertError } = await input.supabase
+      .from("companies")
+      .insert({
+        org_id: input.org_id,
+        name: orgName,
+      })
+      .select("id, name")
+      .single();
+
+    if (insertError || !data) {
+      throw new Error(`Failed to create speaker company ${orgName}: ${insertError?.message}`);
+    }
+
+    companiesByName.set(key, data as { id: string; name: string });
+    return data.id as string;
+  }
+
   for (const speakerName of speakerNames) {
-    const key = normalizeName(speakerName);
+    const resolution = resolutionsByLabel.get(normalizeName(speakerName)) ?? null;
+    const resolvedName = resolution?.resolved_name?.trim() || speakerName;
+    const key = normalizeName(resolvedName);
     if (!key) continue;
 
-    const desiredAffiliation: Affiliation = inferredInternal.has(key) ? "internal" : "unknown";
-    const existing = existingByName.get(key);
+    const desiredAffiliation: Affiliation =
+      resolution && isInternalProjectRole(resolution.project_role)
+        ? "internal"
+        : inferredInternal.has(key)
+          ? "internal"
+          : "unknown";
+    const existing = resolution?.person_id
+      ? existingById.get(resolution.person_id)
+      : existingByName.get(key);
     let person: SourceSpeaker;
 
     if (existing) {
@@ -739,26 +846,30 @@ async function syncSourceSpeakers(input: {
 
         person = updated as SourceSpeaker;
         existingByName.set(key, person);
+        existingById.set(person.id, person);
       }
     } else {
+      const companyId = await companyIdForResolution(resolution);
       const { data: inserted, error: insertError } = await input.supabase
         .from("people")
         .insert({
           org_id: input.org_id,
-          name: speakerName,
+          name: resolvedName,
           role: null,
+          company_id: companyId,
           status: "interviewed",
           affiliation: desiredAffiliation,
         })
-        .select("id, name, role, affiliation")
+        .select("id, name, role, affiliation, company_id")
         .single();
 
       if (insertError || !inserted) {
-        throw new Error(`Failed to create speaker ${speakerName}: ${insertError?.message}`);
+        throw new Error(`Failed to create speaker ${resolvedName}: ${insertError?.message}`);
       }
 
       person = inserted as SourceSpeaker;
       existingByName.set(key, person);
+      existingById.set(person.id, person);
     }
 
     await input.supabase
@@ -767,7 +878,11 @@ async function syncSourceSpeakers(input: {
         {
           person_id: person.id,
           project_id: input.project_id,
-          status: person.affiliation === "internal" ? "facilitator" : "interviewed",
+          status:
+            person.affiliation === "internal" ||
+            resolution?.project_role === "interviewer"
+              ? "facilitator"
+              : "interviewed",
         },
         { onConflict: "person_id,project_id" }
       );
@@ -1299,16 +1414,27 @@ export const ingestSource = inngest.createFunction(
         return text;
       });
 
+      const entityResolutions = await step.run("parse-entity-resolutions", async () =>
+        parseEntityResolutions(source.metadata?.entity_resolutions)
+      );
+
       const rawSegments = await step.run("segment-text", async () => {
         const segments = segmentText(rawText, source.type);
         if (segments.length === 0) {
           throw new Error("Source produced no segments");
         }
-        return segments;
+        return applyEntityResolutionsToSegments(segments, entityResolutions);
       });
 
-      const inferredInternalSpeakerNames = await step.run("infer-internal-speakers", async () =>
-        inferInternalSpeakerNames(rawSegments, source.type)
+      const inferredInternalSpeakerNames = await step.run(
+        "infer-internal-speakers",
+        async () =>
+          Array.from(
+            new Set([
+              ...inferInternalSpeakerNames(rawSegments, source.type),
+              ...internalSpeakerNamesFromResolutions(entityResolutions),
+            ])
+          )
       );
 
       const segments = await step.run("store-segments", async () => {
@@ -1325,6 +1451,7 @@ export const ingestSource = inngest.createFunction(
           raw_content: segment.content,
           redacted_content: redactPII(segment.content),
           word_count: wordCount(segment.content),
+          metadata: segment.metadata ?? {},
         }));
 
         const { data, error } = await supabase
@@ -1344,6 +1471,7 @@ export const ingestSource = inngest.createFunction(
           project_id,
           segments: rawSegments,
           inferredInternalSpeakerNames,
+          entityResolutions,
         })
       );
       const sourceInternalSpeakers = mergeInternalSpeakers(internalSpeakers, sourceSpeakers);
@@ -1489,6 +1617,7 @@ export const ingestSource = inngest.createFunction(
 
         const batchSize = 20;
         const stored: Array<{ id: string; metadata: Record<string, unknown> | null }> = [];
+        const entityResolutionByLabel = buildResolutionLookup(entityResolutions);
 
         for (let i = 0; i < claimsToStore.length; i += batchSize) {
           const batch = claimsToStore.slice(i, i + batchSize);
@@ -1497,6 +1626,9 @@ export const ingestSource = inngest.createFunction(
           const evidenceBatch = batch.map((claim, idx) => {
             const adjacentHint = titleFromHint(claim.adjacent_project_hint ?? "");
             const adjacentProject = resolveAdjacentProject(adjacentHint, otherProjects);
+            const speakerResolution = claim.speaker
+              ? entityResolutionByLabel.get(normalizeName(claim.speaker)) ?? null
+              : null;
 
             return {
               org_id,
@@ -1510,6 +1642,14 @@ export const ingestSource = inngest.createFunction(
               themes: claim.themes,
               metadata: {
                 speaker: claim.speaker ?? null,
+                speaker_project_role: speakerResolution?.project_role ?? null,
+                speaker_person_id: speakerResolution?.person_id ?? null,
+                speaker_company_id: speakerResolution?.company_id ?? null,
+                speaker_original_label:
+                  speakerResolution?.raw_label &&
+                  speakerResolution.raw_label !== claim.speaker
+                    ? speakerResolution.raw_label
+                    : null,
                 conversation_unit_id: claim.unit_id,
                 original_segment_id: claim.segment_id,
                 anchor_method: claim.anchor_method,

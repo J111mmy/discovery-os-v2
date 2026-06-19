@@ -6,6 +6,7 @@ import { requireActiveAccess } from "@/lib/auth/access";
 import { getProjectForUser } from "@/lib/auth/org";
 import { inngest } from "@/lib/inngest/client";
 import { PROCESSED_MARKER_ERROR, looksLikeProcessedMarker } from "@/lib/ingest/quality";
+import { EntityResolutionsSchema } from "@/lib/ingest/entity-resolutions";
 import { z } from "zod";
 
 const IngestSchema = z.object({
@@ -26,6 +27,7 @@ const IngestSchema = z.object({
   description: z.string().optional(),
   raw_text: z.string().min(20, "Text must be at least 20 characters"),
   metadata: z.record(z.unknown()).optional(),
+  entity_resolutions: EntityResolutionsSchema,
 });
 
 export async function POST(req: NextRequest) {
@@ -51,7 +53,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { project_id, type, title, description, raw_text, metadata } = parsed.data;
+  const {
+    project_id,
+    type,
+    title,
+    description,
+    raw_text,
+    metadata,
+    entity_resolutions,
+  } = parsed.data;
 
   if (looksLikeProcessedMarker(raw_text)) {
     return NextResponse.json({ error: PROCESSED_MARKER_ERROR }, { status: 422 });
@@ -79,7 +89,7 @@ export async function POST(req: NextRequest) {
       type,
       title,
       description,
-      metadata: { ...(metadata ?? {}), raw_text },
+      metadata: { ...(metadata ?? {}), raw_text, entity_resolutions },
       ingested_by: user.id,
       trust_scope: "pending",
     })
