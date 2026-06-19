@@ -19,8 +19,11 @@ type AgentRunSummary = {
   status: string;
 };
 
+const ACTIVE_PROJECT_FILTER = "archived.is.null,archived.eq.false";
+
 export type OrgStats = OrgSummary & {
   member_count: number;
+  project_count: number;
   source_count: number;
   last_source_at: string | null;
   last_run: AgentRunSummary | null;
@@ -39,7 +42,7 @@ type ProjectSummary = {
   description: string | null;
   created_at: string;
   last_synthesised_at: string | null;
-  archived: boolean;
+  archived: boolean | null;
 };
 
 type RecentAgentRun = {
@@ -124,12 +127,17 @@ export async function getAllOrgsWithStats(): Promise<OrgStats[]> {
 
   const orgIds = orgRows.map((org) => org.id);
 
-  // Parallel: member counts, source counts, last agent run per org
-  const [membersResult, sourcesResult, runsResult] = await Promise.all([
+  // Parallel: member counts, active project counts, source counts, last agent run per org
+  const [membersResult, projectsResult, sourcesResult, runsResult] = await Promise.all([
     supabase
       .from("org_members")
       .select("org_id")
       .in("org_id", orgIds),
+    supabase
+      .from("projects")
+      .select("org_id")
+      .in("org_id", orgIds)
+      .or(ACTIVE_PROJECT_FILTER),
     supabase
       .from("sources")
       .select("org_id, ingested_at")
@@ -146,6 +154,11 @@ export async function getAllOrgsWithStats(): Promise<OrgStats[]> {
   const membersByOrg = new Map<string, number>();
   for (const m of membersResult.data ?? []) {
     membersByOrg.set(m.org_id, (membersByOrg.get(m.org_id) ?? 0) + 1);
+  }
+
+  const projectsByOrg = new Map<string, number>();
+  for (const p of projectsResult.data ?? []) {
+    projectsByOrg.set(p.org_id, (projectsByOrg.get(p.org_id) ?? 0) + 1);
   }
 
   const sourcesByOrg = new Map<string, number>();
@@ -166,6 +179,7 @@ export async function getAllOrgsWithStats(): Promise<OrgStats[]> {
     slug: org.slug,
     created_at: org.created_at,
     member_count: membersByOrg.get(org.id) ?? 0,
+    project_count: projectsByOrg.get(org.id) ?? 0,
     source_count: sourcesByOrg.get(org.id) ?? 0,
     last_source_at: lastSourceByOrg.get(org.id) ?? null,
     last_run: lastRunByOrg.get(org.id) ?? null,
@@ -187,7 +201,7 @@ export async function getOrgDetail(orgId: string): Promise<OrgDetail | null> {
       .from("projects")
       .select("id, name, description, created_at, last_synthesised_at, archived")
       .eq("org_id", orgId)
-      .eq("archived", false)
+      .or(ACTIVE_PROJECT_FILTER)
       .order("created_at", { ascending: false }),
     supabase
       .from("agent_runs")

@@ -50,6 +50,7 @@ export default async function AdminPage() {
               <tr className="border-b border-[var(--line)]">
                 <th className="px-5 py-3 font-semibold text-[var(--ink)]">Organisation</th>
                 <th className="px-5 py-3 font-semibold text-[var(--ink)] text-right">Members</th>
+                <th className="px-5 py-3 font-semibold text-[var(--ink)] text-right">Projects</th>
                 <th className="px-5 py-3 font-semibold text-[var(--ink)] text-right">Sources</th>
                 <th className="px-5 py-3 font-semibold text-[var(--ink)]">Last activity</th>
                 <th className="px-5 py-3 font-semibold text-[var(--ink)]">Last run</th>
@@ -65,6 +66,9 @@ export default async function AdminPage() {
                   </td>
                   <td className="px-5 py-4 text-right text-[var(--ink-2)]">
                     {org.member_count}
+                  </td>
+                  <td className="px-5 py-4 text-right text-[var(--ink-2)]">
+                    {org.project_count}
                   </td>
                   <td className="px-5 py-4 text-right text-[var(--ink-2)]">
                     {org.source_count}

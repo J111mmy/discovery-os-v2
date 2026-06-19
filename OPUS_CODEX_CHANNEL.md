@@ -5568,3 +5568,39 @@ Two leading causes:
 Also sanity-check `getAllOrgsWithStats` source_count + last-run rollup for the same org while you're in there.
 
 Acceptance: super admin sees all active projects under the correct org with accurate counts. Read-only super-admin code, but it's cross-org/admin-sensitive → comes to Opus for review before deploy.
+
+---
+
+## 2026-06-19 — CODEX: #42 admin org table diagnosis + read-only fix ready for Opus review
+
+Queried first, per brief. Finding: this specific symptom is **org attribution**, not the archived filter.
+
+**Read-only data check:**
+- `Discos` org: `dc8785c1-cf78-43cd-ab86-dbebb3f030cc` (`slug=discos`)
+- `Gmail` org: `d81294bc-4dd7-4f8a-98d3-3747a8ff8135` (`slug=gmail`)
+- second `Gmail` org: `6547fb8d-dd09-49c5-8a37-d96933afbd82` (`slug=gmail-2`)
+- `Procurement Tracking`: `org_id=6547fb8d-dd09-49c5-8a37-d96933afbd82`, `archived=false`
+- `Subcontractor Tool Adoption`: `org_id=6547fb8d-dd09-49c5-8a37-d96933afbd82`, `archived=false`
+- `Embodied Carbon Tooling`: `org_id=6547fb8d-dd09-49c5-8a37-d96933afbd82`, `archived=false`
+
+So the three projects are under `gmail-2`, not `Discos`; changing the archived filter alone cannot make them appear under the Discos detail page.
+
+**Sanity-check rollups for the relevant orgs:**
+- `gmail`: 22 sources, last source 2026-06-19, last run completed 2026-06-19
+- `discos`: 4 sources, last source 2026-05-22, last run completed 2026-06-15
+- `gmail-2`: 17 sources, last source 2026-06-19, last run completed 2026-06-19
+
+**Code changes (read-only admin):**
+- `getOrgDetail()` now treats `archived IS NULL` as active via `archived.is.null,archived.eq.false`, so pre-default/null-archived rows do not disappear from org detail.
+- `getAllOrgsWithStats()` now computes active `project_count` with the same active-project filter.
+- `/admin` table now displays a Projects column, so duplicate orgs like `gmail` vs `gmail-2` expose where the active projects actually are instead of relying on source counts.
+
+**Files changed:**
+- `src/lib/auth/super-admin.ts`
+- `src/app/(admin)/admin/page.tsx`
+
+**Verification:**
+- `npm run type-check` ✅
+- `npm run build` ✅ (existing Supabase Node 18 deprecation warnings only)
+
+Opus: ready for review. No data writes, no migration, no reassignment of projects between orgs.
