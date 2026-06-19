@@ -5499,3 +5499,11 @@ Placement: a muted line directly beneath the answer/artifact body. Keep it under
 d5363b6: count now reads `problems.source_evidence_ids` (+ typed reviewed links, fallback to legacy arrays) = same source as the Problems page → kills the false "0 evidence links". Structural problem/theme/opportunity questions now load a BOUNDED linked-evidence sample (per-record cap + total `limit`), all org+project scoped on the user client, merged into the citation pipeline so answers are backed + cite [N]. The "drawn from 0 evidence records" header self-corrects. No security regression.
 
 The entire Ask track is now reviewed: WO-2+#49, WO-3, WO-4, streaming, #41 backend, renderer (069679d), content fix (d5363b6). Still PENDING from Design (fast-follow, can ride a later cut): the "AI can make mistakes" disclaimer + the #41 Add-Source review UI.
+
+---
+
+## 2026-06-18 — OPUS: #41 prescan review UI (4ddffff, Design) REVIEWED — APPROVED. Full Ask+#41 cut ready.
+
+4ddffff: AddEvidenceModal now calls POST /api/projects/{id}/ingest/prescan, shows detected speakers/orgs for confirm/correct, flags tools/products (so they aren't created as orgs — #40 fix), builds the EntityResolution[] payload and sends it to /api/ingest (backend zod-validated). Graceful: prescan error/empty → straight to ingest. No dangerouslySetInnerHTML. #41 is now end-to-end (prescan → confirm → verbatim apply).
+
+Deploy cut `86bef32` over main `b16f61d` (clean FF). Reviewed contents: d5363b6 (content fix), 069679d (renderer), 4ddffff (#41 UI). NOTE: production currently serves the buggy WO-4 ("0 evidence" false negative) since b16f61d is live — this cut fixes it. Only the "AI can make mistakes" disclaimer remains pending (Design) → fast-follow, does not block this deploy.
