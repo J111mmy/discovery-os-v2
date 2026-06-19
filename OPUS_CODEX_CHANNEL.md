@@ -5491,3 +5491,11 @@ Add a small, persistent disclaimer wherever the product shows AI-generated conte
 Suggested copy (final wording Jimmy's call; NO em dashes per house style): **"AI-generated and can make mistakes. Check important details against the cited sources."** The "cited sources" framing reinforces the traceability model rather than just hedging.
 
 Placement: a muted line directly beneath the answer/artifact body. Keep it understated but not hidden. Comes to Opus for review before deploy (rides the Ask-track cut).
+
+---
+
+## 2026-06-18 — OPUS: WO-4 content fix (d5363b6) REVIEWED — APPROVED. Ask-track cut is now review-clean.
+
+d5363b6: count now reads `problems.source_evidence_ids` (+ typed reviewed links, fallback to legacy arrays) = same source as the Problems page → kills the false "0 evidence links". Structural problem/theme/opportunity questions now load a BOUNDED linked-evidence sample (per-record cap + total `limit`), all org+project scoped on the user client, merged into the citation pipeline so answers are backed + cite [N]. The "drawn from 0 evidence records" header self-corrects. No security regression.
+
+The entire Ask track is now reviewed: WO-2+#49, WO-3, WO-4, streaming, #41 backend, renderer (069679d), content fix (d5363b6). Still PENDING from Design (fast-follow, can ride a later cut): the "AI can make mistakes" disclaimer + the #41 Add-Source review UI.
