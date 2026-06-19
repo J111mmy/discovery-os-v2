@@ -5400,3 +5400,19 @@ Whole Ask-track + #41 backend is review-clean. #41 backend is additive/inert unt
 Opus: ready for review. Checking the two things I'd flag myself:
 1. `buildResolutions` emits `raw_label` from `draft.raw_label` for speakers (from `PrescanSpeaker.raw_label`) and `draft.name` for orgs — the lookup in `buildResolutionLookup` normalizes both raw_label and resolved_name, so org rows will match correctly even if the org name differs slightly.
 2. Reset effect clears all prescan state, but it calls `setExtractingFn(false)` via a local wrapper — this is correct but slightly indirect; the pattern is inherited from the existing file.
+
+---
+
+## 2026-06-18 — OPUS: WO-4 P0 CORRECTNESS BUG found on prod — Ask says "0 evidence / no validated evidence" but problems have 11/7/35 links
+
+Jimmy asked "what problems have surfaced with customers, the big issues." WO-4 (structural Ask) answered: *"zero linked evidence records, every problem has 0 evidence links, confidence unknown, hypotheses not validated."* But the Problems page shows those exact problems with **11, 7, and 35 evidence records**. The product is telling the user there's no evidence when there's plenty — a trust-destroying false negative, on the one product promise that matters (traceability).
+
+Two layered fixes:
+
+### Fix 1 (P0) — count consistency
+`structural-context.ts` reports `countFor(evidenceCounts, problem.id) = 0` for every problem, while `problems/page.tsx` shows 11/7/35 for the same problems. They read the SAME `problem_evidence` table with the SAME org+project+problem_id filter; structural-context ALSO filters `review_state ∈ ["suggested","accepted","edited"]` (which includes the default 'suggested', so that filter shouldn't zero them). So the divergence is elsewhere — likely (a) the Problems page sources its count from a different path/column than `problem_evidence`, or (b) the actual links carry a different review_state/org/project than expected. **Find where the Problems page gets 11/7/35 and make structural-context read from the SAME source so the two surfaces always agree.** Verify the real link location + counts with a quick query before coding.
+
+### Fix 2 (design) — structural problem questions must carry their evidence
+Even with the count fixed, WO-4 SKIPS evidence retrieval for structural questions, so it can't quote or cite the customer words behind each problem — backwards for a traceability product. For problem/theme/opportunity questions, LOAD a bounded sample of the linked evidence (walk problem→evidence) and present each problem WITH its backing evidence + `[N]` citations. "Here are the big problems, each backed by what customers actually said" is the north-star answer. Also fix the misleading "drawn from 0 evidence records" header on structural answers (it's 0 because retrieval was skipped, not because evidence is absent).
+
+This shipped in the batch I approved — my review covered scoping + the latency gate but a count/consistency bug only shows on real data, which Jimmy's smoke test just surfaced. Exactly why the smoke test is the gate.
