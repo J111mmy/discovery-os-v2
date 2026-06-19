@@ -5507,3 +5507,64 @@ The entire Ask track is now reviewed: WO-2+#49, WO-3, WO-4, streaming, #41 backe
 4ddffff: AddEvidenceModal now calls POST /api/projects/{id}/ingest/prescan, shows detected speakers/orgs for confirm/correct, flags tools/products (so they aren't created as orgs — #40 fix), builds the EntityResolution[] payload and sends it to /api/ingest (backend zod-validated). Graceful: prescan error/empty → straight to ingest. No dangerouslySetInnerHTML. #41 is now end-to-end (prescan → confirm → verbatim apply).
 
 Deploy cut `86bef32` over main `b16f61d` (clean FF). Reviewed contents: d5363b6 (content fix), 069679d (renderer), 4ddffff (#41 UI). NOTE: production currently serves the buggy WO-4 ("0 evidence" false negative) since b16f61d is live — this cut fixes it. Only the "AI can make mistakes" disclaimer remains pending (Design) → fast-follow, does not block this deploy.
+
+---
+
+## 2026-06-19 — Design: AI disclaimer — complete, holding for Opus review (3f85d44)
+
+**New component: `src/app/(app)/components/AiDisclaimer.tsx`**
+
+One reusable component, no props, no state. A muted `text-[var(--ink-faint)] text-xs` line with a small info-circle SVG, rendered as a `<p>` with `flex items-start gap-1.5`. Never dismissible.
+
+Copy: "AI-generated and can make mistakes. Check important details against the cited sources."
+
+**Placed on three surfaces:**
+1. **Ask page** (`ask-interface.tsx`) — inside the answer card, below the streaming indicator, always visible once answer text exists (including during streaming)
+2. **Compose editor** (`compose-editor.tsx`) — above the add-section / save button row, visible whenever AI-drafted sections are present
+3. **ArtifactReader** (`ArtifactReader.tsx`) — both paths: markdown fallback (below `<article>`) and HtmlReader (below the `<div dangerouslySetInnerHTML>` docpaper, still inside `<main>`)
+
+`tsc --noEmit` clean. Rides the Ask-track cut.
+
+---
+
+## 2026-06-19 — Design: loading.tsx skeletons — complete, holding for Opus review (75f8a2a)
+
+**7 new files, zero shared dependencies.**
+
+Each `loading.tsx` is a pure Server Component (no `"use client"`, no imports from the page it wraps). App Router shows these instantly on navigation while the server fetch is in flight.
+
+**Files and what each matches:**
+| File | Mimics |
+|---|---|
+| `projects/[projectId]/loading.tsx` | max-w-6xl header + left main sections + right sidebar |
+| `projects/[projectId]/ask/loading.tsx` | Studio chrome header + inner max-w-3xl form card |
+| `projects/[projectId]/evidence/loading.tsx` | PipelineRail 3-tab row + 6 evidence record rows |
+| `projects/[projectId]/problems/loading.tsx` | PipelineRail 3-tab row + sidebar list + main detail pane |
+| `projects/[projectId]/documents/loading.tsx` | Header + 2 grouped card grids (2–3 col) |
+| `people/loading.tsx` | Header + 8 person rows with avatar circle + badge |
+| `companies/loading.tsx` | Header + 8 company rows with logo chip |
+
+**Conventions used:**
+- `motion-safe:animate-pulse` — skips the animation for users with prefers-reduced-motion (matches the pattern already in `problems-list.tsx`)
+- `bg-[var(--surface-2)]` for skeleton blocks — matches existing skeleton style in the codebase
+- `border-[var(--line)] bg-[var(--surface)]` for card outlines — exact same tokens as real cards, so the switch from skeleton to real content is smooth
+
+`tsc --noEmit` clean.
+
+Note: `sources/loading.tsx` not added — the sources route already has client-side deferred loading and wasn't on the list. If wanted, same pattern applies.
+
+---
+
+## 2026-06-18 — OPUS: Codex next backend item — #42 admin org table misrepresents orgs (high-priority)
+
+#42: on /admin, the 'Discos' org doesn't surface its projects (Procurement Tracking, Subcontractor Tool Adoption, Embodied Carbon Tooling) that are visible in-app. Super admin can't trust the org list.
+
+**Diagnose first (query, don't guess):** for those 3 projects, get their real `org_id` and `archived` values, and the 'Discos' org id.
+
+Two leading causes:
+1. **`getOrgDetail` filters `.eq("archived", false)` (`super-admin.ts:190`)** — this DROPS projects where `archived IS NULL` (null != false in SQL). Pre-default rows would vanish from admin but still show in-app. Fix: include null-archived (`.or("archived.is.null,archived.eq.false")` or `.neq("archived", true)`), after confirming that's the cause.
+2. **Org attribution / duplicate orgs** — the table shows TWO "Gmail" orgs; the 3 projects may live under a different org_id than the 'Discos' row. If so, this is a data-attribution issue (which org do the projects actually belong to), not just a filter.
+
+Also sanity-check `getAllOrgsWithStats` source_count + last-run rollup for the same org while you're in there.
+
+Acceptance: super admin sees all active projects under the correct org with accurate counts. Read-only super-admin code, but it's cross-org/admin-sensitive → comes to Opus for review before deploy.
