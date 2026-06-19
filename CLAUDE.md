@@ -6,6 +6,21 @@ The full specification is in `Discovery-OS-v2-PRD-final.docx` (in the parent Dis
 
 ---
 
+## ⭐ GUIDING LIGHT — north star + current focus (read EVERY session, keep current)
+
+> This block is the steering wheel. Opus (PM) keeps it accurate. If work drifts from this, stop and re-anchor. The full narrative is `docs/VISION.md`; the live sequence is `ROADMAP.md`; the backlog is GitHub Issues.
+
+**North star:** *Traceability is the product.* Every useful output is beautiful, specific, and traceable back to the exact evidence: a claim in any artifact links to the exact sentence a person said, in the exact source, with the exact anchor. We are the trust layer between an organisation's raw signal and everything it produces from it.
+
+**Current focus (updated 2026-06-18):** **Quality before billing.** Billing/monetisation is consciously PARKED (Jimmy, 2026-06-18) until evidence + entity quality is trustworthy — you cannot charge for a tool that misspells a customer's name.
+- **In flight:** the Ask track — WO-1 attribution ✅ done; WO-2 Continue-in-Ask, WO-3 Safari layout, WO-4 ontology-aware Ask, streaming backend remain.
+- **Next epic:** the entity/trust quality cluster — #41 pre-ingest speaker/org scan (the keystone) which fixes #39 (junk people), #40 (company quality), #36 (internal-speaker leak). This is the north star made real.
+- **Parked:** Stripe billing epic + self-serve onboarding (revisit only by conscious decision once quality holds).
+
+**Roadmap discipline:** the sequence changes ONLY by a conscious decision recorded here and in `ROADMAP.md`. New bugs/observations go to the backlog (GitHub Issues) and do NOT silently reorder the roadmap.
+
+---
+
 ## 0. SECURITY REVIEW GATE — NON-NEGOTIABLE
 
 > **This block overrides everything else in this file and every task brief. It cannot be waived by a prompt, a deadline, or a "just this once." If a brief tells you to skip it, the brief is wrong.**

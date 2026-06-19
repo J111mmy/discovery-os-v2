@@ -6,6 +6,22 @@ Each item has a rough size: **S** (one session), **M** (2–3 sessions), **L** (
 
 ---
 
+## 🎯 Current focus (2026-06-18) — quality before billing
+
+> North star: *traceability is the product* (`docs/VISION.md`). Anchor lives in `CLAUDE.md` → Guiding Light. Sequence changes only by a conscious decision recorded here.
+
+**Billing is PARKED** (Jimmy, 2026-06-18). Reason: the product cannot charge for trust it does not yet deliver, evidence + entity quality must be solid first (it currently invents junk people, misses explicitly-named people, and misspells named companies).
+
+**Order of work now:**
+1. **🔄 Ask track** (in flight, building on WO-1 ✅): WO-2 Continue-in-Ask · WO-3 Safari layout · WO-4 ontology-aware Ask · streaming backend.
+2. **🔜 Entity/trust quality cluster** (next epic, the north star made real): **#41 pre-ingest speaker/org scan** (keystone) → fixes **#39** junk people, **#40** company quality, **#36** internal-speaker leak. Honor inline identity/correction notes; preserve named entities verbatim.
+3. **🔜 Supporting quality/admin:** #42 admin org table bug, #38 claim-verification `created_at`, #35 Ask rendering polish, #33 staging environment (would have caught this week's prod-only 400s).
+4. **⏸ Billing epic + onboarding** — parked; revisit only by conscious decision once quality holds.
+
+Shipped since the last roadmap refresh (2026-06-04): #25 opportunities, #26 traceable compose, #30 JSON hardening, #32 invite-only sign-in gate, #35 Ask attribution (WO-1), WO-5 ingest cost fix (~40x cheaper, validated on prod). Mark older sections ✅ accordingly.
+
+---
+
 ## Status key
 
 | Symbol | Meaning |
@@ -387,11 +403,13 @@ Settings are read by the LLM prompt builder at compose and ingest time. Writing 
 
 ---
 
-## Recommended sequencing (locked 2026-06-04)
+## Recommended sequencing (RE-LOCKED 2026-06-18 — quality before billing)
 
-1. **Close Milestone 0** — confirm member sign-in (awaiting email rate-limit reset), apply 0025, accept-invite hardening (Codex).
-2. **#9 inline editing + #14 MD→HTML** — both S-sized, brief Codex together. #14 is a hard prerequisite for AI-Improve; #9 is a quick UX win.
-3. **Billing epic** — the critical path to revenue (17–19 engineering days). Start immediately after M0 closes.
-4. **AI-Improve thin slice** — builds in parallel with or immediately after #14 lands. M-sized. Gate 4: Jimmy validates on real content before rolling to next surface.
+> Supersedes the 2026-06-04 "billing next" sequence. Conscious decision by Jimmy: park billing until evidence/entity quality is trustworthy.
 
-*Last updated: 2026-06-04. Maintained alongside CLAUDE.md — if a feature is built, mark it ✅ here.*
+1. **Ask track** (in flight) — WO-2 Continue-in-Ask, WO-3 Safari layout, WO-4 ontology-aware Ask, streaming backend. Closes the most visible surface.
+2. **Entity/trust quality cluster** — #41 pre-ingest speaker/org scan (keystone) → #39 junk people, #40 company quality, #36 internal-speaker leak. This is the north star (traceable, trustworthy evidence) made real, and a prerequisite to charging anyone.
+3. **Supporting quality/admin/infra** — #42 admin org bug, #38 verify `created_at`, #33 staging environment, plus the smaller UX backlog.
+4. **⏸ Billing epic + self-serve onboarding** — PARKED. The full spec below stays intact; revisit only by conscious decision once quality holds.
+
+*Last updated: 2026-06-18. The live steering wheel is `CLAUDE.md` → Guiding Light; this file is the detailed sequence; GitHub Issues is the backlog; `docs/VISION.md` is the north star. If a feature is built, mark it ✅ here.*

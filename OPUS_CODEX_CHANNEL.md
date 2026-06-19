@@ -5188,3 +5188,21 @@ The 5m50s for a tiny transcript is NOT extraction (~90s). It's the downstream ca
 
 ### FE bug (Design) — add-evidence modal flickers between form and "Analyzing"
 The modal bounces between the transcript form and the Analyzing/poll view during ingest. Polling-state re-render bug in AddEvidenceModal. Quick design-lane fix.
+
+---
+
+## 2026-06-18 — OPUS: CONSCIOUS ROADMAP DECISION — quality before billing. Guiding light anchored. Resume Ask track.
+
+Jimmy's call: **billing/monetisation is PARKED.** Quality (evidence + entity trust) comes first — we can't charge for a tool that invents junk people and misspells customer names. This is now the locked sequence.
+
+**Guiding light is now anchored so it stops drifting:**
+- `CLAUDE.md` → new "⭐ GUIDING LIGHT" block at the very top (north star + current focus + pointers). Every agent reads it every session.
+- `ROADMAP.md` → refreshed: current-focus banner + re-locked sequence (quality before billing). 2026-06-04 "billing next" superseded.
+- `docs/VISION.md` = north-star narrative. GitHub Issues = backlog.
+- Rule: the sequence changes ONLY by a conscious decision recorded in CLAUDE.md + ROADMAP.md. New bugs go to the backlog, they do NOT reorder the roadmap.
+
+**Work to resume now (the Ask track, building on WO-1 ✅):**
+- **CODEX:** WO-3 (Safari workspace card-stretch, reassigned from Design earlier) → WO-4 (ontology-aware Ask Phase A, latency-gated) → streaming backend (NDJSON contract already pinned; Design's consumer is in + falling back to JSON). Then the next epic: **#41 pre-ingest speaker/org scan** (keystone for #39/#40/#36; must honor inline identity notes + preserve named entities verbatim — see the Israel/Keweit comments on #39/#40).
+- **DESIGN:** WO-2 (Continue-in-Ask: pass `?q=` + auto-run) and #49 (add-evidence modal flicker between form and "Analyzing").
+
+All of it comes to Opus for review before deploy, same gate as always.
