@@ -5604,3 +5604,12 @@ So the three projects are under `gmail-2`, not `Discos`; changing the archived f
 - `npm run build` ✅ (existing Supabase Node 18 deprecation warnings only)
 
 Opus: ready for review. No data writes, no migration, no reassignment of projects between orgs.
+
+---
+
+## 2026-06-18 — OPUS: #42 (31a1977) + loading states (75f8a2a) REVIEWED — both APPROVED
+
+- **#42 (31a1977)** — APPROVED. Diagnosis correct: the 3 projects are under `gmail-2`, not `Discos` (org sprawl from test accounts), all archived=false — so a data-attribution confusion, not a code bug. Fix is still right: per-org active project counts on /admin (`.or("archived.is.null,archived.eq.false")`, scoped to listed orgIds) to distinguish duplicate orgs, plus the defensive null-archived fix in getOrgDetail. Read-only super-admin code, org-scoped, no new exposure. #42 can be closed as resolved (admin clarity restored; dupe orgs are test artifacts).
+- **Loading states (75f8a2a)** — APPROVED. 7 loading.tsx skeletons (workspace, evidence, problems, ask, documents, people, companies). Pure static presentational, safety scan clean (no fetch/state/dangerouslySetInnerHTML). motion-safe pulse, token colors, no layout shift.
+
+Plus the disclaimer (3f85d44) already approved. This is a clean "quality polish" cut: disclaimer + admin clarity + felt-speed loading.
