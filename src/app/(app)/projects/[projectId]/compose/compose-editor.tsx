@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ArtifactType, ArtifactVerificationStatus } from "@/types/database";
+import { AiDisclaimer } from "../../../components/AiDisclaimer";
 import {
   getArtifactVerificationStatusAction,
   type ArtifactVerificationState,
@@ -471,6 +472,8 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
               />
             </section>
           ))}
+
+          <AiDisclaimer />
 
           <div className="flex items-center justify-between">
             <button

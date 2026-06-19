@@ -3,6 +3,7 @@
 import { FormEvent, useState, useRef, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import type { EvidenceRecord } from "@/types/database";
+import { AiDisclaimer } from "../../../components/AiDisclaimer";
 
 type TrustScopeFilter = "include_pending" | "trusted";
 
@@ -649,6 +650,8 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
                 Searching…
               </div>
             )}
+
+            <AiDisclaimer />
           </div>
         )}
       </section>

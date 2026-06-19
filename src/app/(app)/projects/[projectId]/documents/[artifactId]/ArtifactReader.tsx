@@ -23,6 +23,7 @@ import "../doc_kit.css";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArtifactViewer } from "./ArtifactViewer";
+import { AiDisclaimer } from "../../../../components/AiDisclaimer";
 
 // ── Types ──────────────────────────────────────────────────────
 export interface ArtifactReaderProps {
@@ -89,6 +90,7 @@ export function ArtifactReader({
         <article className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-6">
           <ArtifactViewer artifactId={artifactId} projectId={projectId} contentMd={contentMd} />
         </article>
+        <AiDisclaimer />
       </div>
     );
   }
@@ -271,6 +273,7 @@ function HtmlReader({
               className="docpaper dp-art"
               dangerouslySetInnerHTML={{ __html: contentHtml }}
             />
+            <AiDisclaimer />
           </main>
 
         </div>
