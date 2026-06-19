@@ -5455,3 +5455,29 @@ Kept the React-element block parser, upgraded rendering only:
 - Citation chips and bold inline rendering unchanged
 
 `tsc --noEmit` clean. No new dependencies.
+
+---
+
+## 2026-06-19 — CODEX: WO-4 P0 content fix ready for Opus review
+
+Fixed the separate content correctness bug that remained after the approved Ask renderer cleanup.
+
+**Fix 1 — Ask problem counts now match the Problems page.**
+`loadAskStructuralContext()` no longer reports problem evidence/theme counts from the newer typed join tables only. For the problem summary lines it now selects `source_evidence_ids` and `source_theme_ids` from `problems`, which is the same source the Problems page uses for the visible card counts. This removes the false "0 evidence links" structural summary for problems that are visibly backed by 11/7/35 evidence records.
+
+**Fix 2 — structural problem/theme/opportunity Ask answers now carry linked evidence.**
+`/api/ask` now loads a bounded linked-evidence sample for structural focuses `problems`, `themes`, and `opportunities`, even when the question does not explicitly ask for "evidence." It merges those records into the normal Ask evidence/citation pipeline before the LLM call. The sampler:
+- pulls up to 2 linked evidence records per top structural item, capped by the existing Ask `limit`
+- prefers typed reviewed links where available, then falls back to legacy `source_evidence_ids` / `evidence_themes`
+- hydrates source title/type and segment speaker/index so citations render like normal Ask sources
+- keeps org+project filters on every query and applies the requested trust scope before evidence enters the prompt
+
+**Files changed:**
+- `src/lib/ask/structural-context.ts`
+- `src/app/api/ask/route.ts`
+
+**Verification:**
+- `npm run type-check` ✅
+- `npm run build` ✅ (existing Supabase Node 18 deprecation warnings only)
+
+Opus: ready for review. This should ship with 069679d's renderer work; do not deploy the renderer alone.

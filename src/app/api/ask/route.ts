@@ -22,6 +22,8 @@ import {
 import {
   detectAskStructuralIntent,
   loadAskStructuralContext,
+  loadAskStructuralLinkedEvidence,
+  shouldLoadLinkedEvidenceForStructuralIntent,
   type AskStructuralContext,
 } from "@/lib/ask/structural-context";
 import { z } from "zod";
@@ -59,6 +61,21 @@ const encoder = new TextEncoder();
 
 function encodeStreamEvent(event: AskStreamEvent) {
   return encoder.encode(`${JSON.stringify(event)}\n`);
+}
+
+function mergeEvidenceRecords(...groups: EvidenceRecord[][]) {
+  const seen = new Set<string>();
+  const merged: EvidenceRecord[] = [];
+
+  for (const group of groups) {
+    for (const record of group) {
+      if (!record.id || seen.has(record.id)) continue;
+      seen.add(record.id);
+      merged.push(record);
+    }
+  }
+
+  return merged;
 }
 
 export async function POST(req: NextRequest) {
@@ -109,36 +126,51 @@ export async function POST(req: NextRequest) {
   }
 
   const structuralIntent = detectAskStructuralIntent(question);
-  const shouldRetrieveEvidence =
+  const shouldRetrieveSemanticEvidence =
     !structuralIntent || structuralIntent.needsEvidence;
+  const shouldRetrieveLinkedStructuralEvidence =
+    shouldLoadLinkedEvidenceForStructuralIntent(structuralIntent);
 
   let structuralContext: AskStructuralContext | null = null;
+  let linkedStructuralEvidence: EvidenceRecord[] = [];
   let speakerResolution: Awaited<
     ReturnType<typeof resolveSpeakerTargetsForQuestion>
   > | null = null;
 
   try {
-    const [resolvedSpeaker, resolvedStructuralContext] = await Promise.all([
-      shouldRetrieveEvidence
-        ? resolveSpeakerTargetsForQuestion({
-            supabase,
-            org_id: project.org_id,
-            project_id,
-            question,
-          })
-        : Promise.resolve(null),
-      structuralIntent
-        ? loadAskStructuralContext({
-            supabase,
-            org_id: project.org_id,
-            project_id,
-            intent: structuralIntent,
-          })
-        : Promise.resolve(null),
-    ]);
+    const [resolvedSpeaker, resolvedStructuralContext, resolvedLinkedStructuralEvidence] =
+      await Promise.all([
+        shouldRetrieveSemanticEvidence
+          ? resolveSpeakerTargetsForQuestion({
+              supabase,
+              org_id: project.org_id,
+              project_id,
+              question,
+            })
+          : Promise.resolve(null),
+        structuralIntent
+          ? loadAskStructuralContext({
+              supabase,
+              org_id: project.org_id,
+              project_id,
+              intent: structuralIntent,
+            })
+          : Promise.resolve(null),
+        shouldRetrieveLinkedStructuralEvidence && structuralIntent
+          ? loadAskStructuralLinkedEvidence({
+              supabase,
+              org_id: project.org_id,
+              project_id,
+              intent: structuralIntent,
+              trust_scope,
+              limit,
+            })
+          : Promise.resolve([]),
+      ]);
 
     speakerResolution = resolvedSpeaker;
     structuralContext = resolvedStructuralContext;
+    linkedStructuralEvidence = resolvedLinkedStructuralEvidence;
   } catch (err) {
     console.error("[ask] Structural context retrieval failed:", err);
     return NextResponse.json(
@@ -151,7 +183,8 @@ export async function POST(req: NextRequest) {
   // when the question asks what a person said, wanted, felt, or required.
   let retrieved: EvidenceRecord[] = [];
   try {
-    if (shouldRetrieveEvidence) {
+    let semanticEvidence: EvidenceRecord[] = [];
+    if (shouldRetrieveSemanticEvidence) {
       const result = await queryEvidence({
         org_id: project.org_id,
         project_id,
@@ -160,8 +193,9 @@ export async function POST(req: NextRequest) {
         trust_scope,
         speaker_resolution: speakerResolution,
       });
-      retrieved = result.records;
+      semanticEvidence = result.records;
     }
+    retrieved = mergeEvidenceRecords(linkedStructuralEvidence, semanticEvidence).slice(0, limit);
   } catch (err) {
     console.error("[ask] Evidence retrieval failed:", err);
     return NextResponse.json(
