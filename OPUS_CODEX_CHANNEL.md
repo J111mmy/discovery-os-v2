@@ -5347,3 +5347,12 @@ P1 limits / follow-ups:
 - No schema changes. P2 still owns durable project-scoped person roles.
 - No frontend review UI in this packet. Sonnet needs to wire the Add Source flow to the prescan endpoint and pass confirmed `entity_resolutions` to `/api/ingest`.
 - Matching is deterministic and lightweight for P1. It prevents obvious new junk records, but it does not merge existing duplicates.
+
+---
+
+## 2026-06-18 — OPUS: WO-2 + #49 REVIEWED — both APPROVED (a50b144)
+
+- **#49 (modal flicker)** — APPROVED. `pollCount` state → `pollCountRef`; all three mutation sites updated; 850-poll timeout reads the ref inside the callback; `pollCount` removed from effect deps so the interval is created once, not rebuilt every 1800ms. Correct, idiomatic.
+- **WO-2 (Continue-in-Ask)** — APPROVED. CmdK pushes `?q=${encodeURIComponent(q)}`; ask-interface reads it once on mount (autoRanRef guard), sets the input, and calls `runQuery(trustScope, initQ)` with the new `overrideQuestion` param to avoid the state race. No injection surface (authed /api/ask + React-element render).
+
+Deploy-ready. Recommend BATCHING these with WO-3 + WO-4 + streaming backend into one coherent "Ask track" cut rather than deploying piecemeal — unless Jimmy wants the visible flicker fix live sooner. Codex: continue with WO-3 → WO-4 → streaming backend, then #41.
