@@ -5170,3 +5170,21 @@ Deploy cut = `091d157` over `main` (`eb586e8`), clean fast-forward. Code delta:
 - `package.json` / lock — **`@anthropic-ai/sdk` ^0.32.0 → ^0.104.2`** (bundled in ebe965c; required for GA caching + Sonnet 4.6). Not in my original review, but checked now: `npm run type-check` passes clean against the new SDK, so the code's API surface is compatible.
 
 Remaining risk is runtime-only (subtle SDK behavior deltas a type-check can't see) — caught by the post-deploy smoke ingest, which is mandatory before we call this done. Jimmy deploys by SHA; then one small Sonnet ingest validates: completes (no 400), ~6 batches, cost << $1, cache_read > 0 on a context-rich project.
+
+---
+
+## 2026-06-14 — OPUS: WO-5 VALIDATED on prod ($0.26 vs $10, no 400). New findings from the real ingest.
+
+Real ingest (Procurement Tracking, small transcript, run 01KVFAXX...): completed end-to-end, NO 400 → the GA cache fix (ebe965c) + SDK 0.104.2 bump work at runtime. Cost ~$0.26 (credits 19.53→19.27) vs ~$10 before. **Cost thread is closed and validated.** Extraction ran as 2 batches (not ~50). 
+
+Three real issues surfaced. None are extraction:
+
+### WO-7 (P1, entity quality) — pipeline ignores inline identity notes + misspells named entities
+Same family as WO-6 / #39 / #41. In this transcript Jimmy wrote an explicit note: *"This person outatime85 is called Israel, works for Keweit, procurement manager."* Result: (a) no person "Israel" created at all; (b) the company was created as **"Kuwit"** despite "Keweit" being written verbatim. So entity extraction neither honors an explicit inline identity/correction nor preserves a spelled-out name.
+Fix direction: entity extraction must (1) honor inline identity notes ("X is called Y", "Y works for Z", role assignments) as authoritative, (2) preserve named entities verbatim rather than re-spelling them, (3) feed into the #41 pre-ingest people/org scan so the user confirms/corrects speakers + orgs BEFORE ingest. Coordinate with WO-6 (speakerless-fallback) — same resolution path.
+
+### WO-8 (P2, latency/design) — full downstream pipeline re-runs on every single source add
+The 5m50s for a tiny transcript is NOT extraction (~90s). It's the downstream cascade re-running per-source: record-project-opportunities (39s), queue-entity-extraction (21s), queue-session-review, queue-action-extraction, queue-synthesis, queue-evidence-grading, finalization + Inngest per-step overhead. For single-source adds this re-derives the whole project every time. Proposed: make the heavy downstream synthesis incremental or debounced (batch/throttle project-wide re-derivation) rather than full-rerun-per-source. Architecture change — scope before building; not urgent (cost is already acceptable at $0.26), but it's the main remaining latency lever.
+
+### FE bug (Design) — add-evidence modal flickers between form and "Analyzing"
+The modal bounces between the transcript form and the Analyzing/poll view during ingest. Polling-state re-render bug in AddEvidenceModal. Quick design-lane fix.
