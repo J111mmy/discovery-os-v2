@@ -611,6 +611,7 @@ export function EvidenceBrowser({
   );
   const isInternal = useCallback(
     (record: EvidenceRecord) => {
+      if (record.source_type === "internal_meeting") return true;
       const spk = record.segment_speaker?.trim().toLowerCase();
       return !!spk && internalSet.has(spk);
     },

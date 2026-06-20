@@ -614,7 +614,7 @@ export default async function EvidencePage({ params, searchParams }: Props) {
       .eq("project_id", project.id),
     read
       .from("people")
-      .select("display_name")
+      .select("name")
       .eq("affiliation", "internal"),
   ]);
 
@@ -624,7 +624,7 @@ export default async function EvidencePage({ params, searchParams }: Props) {
   const filterKind = topicIdFilter || themeFilter ? "topic" : evidenceResult.appliedFilterLabel ? "theme" : undefined;
 
   const internalSpeakerNames = (internalPeople ?? [])
-    .map((p: { display_name: string | null }) => (p.display_name ?? "").trim().toLowerCase())
+    .map((p: { name: string | null }) => (p.name ?? "").trim().toLowerCase())
     .filter(Boolean);
 
   return (

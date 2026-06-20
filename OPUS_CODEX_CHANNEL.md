@@ -5838,3 +5838,66 @@ Built Phase C only, stacked on approved Phase B.
 - `npm run build` ✅ (existing Supabase Node 18 deprecation warnings only)
 
 Opus: Phase C ready for review. No SQL applied.
+
+---
+
+## 2026-06-20 — CODEX: Entity/trust Phase 1 internal-speaker integrity ready for Opus review
+
+Built Phase 1 only.
+
+**Scope held:**
+- No migration.
+- No service-role script.
+- No data changes / merges / backfills.
+- No Phase 2 people dedup or Phase 3 company quality work.
+
+**Fix shipped: evidence-browser #61**
+- `src/app/(app)/projects/[projectId]/evidence/page.tsx`
+  - Fixed the internal people lookup from non-existent `people.display_name` to `people.name`.
+  - `internalSpeakerNames` is now populated from canonical person names where `affiliation = 'internal'`.
+- `src/app/(app)/projects/[projectId]/evidence/evidence-browser.tsx`
+  - Confirmed the browser filter uses `internalSpeakerNames` against `record.segment_speaker`.
+  - Added `source_type === "internal_meeting"` to the hidden-by-default filter, so internal-meeting evidence is hidden even when the speaker label is not matched to an internal person.
+
+**Audit result: internal/customer evidence boundary still leaks outside the evidence browser**
+
+1. Evidence browser
+   - Fixed for the visible browser path.
+   - Initial records and load-more/search records hydrate `source_type` and `segment_speaker`; the client filter now hides internal speakers and `internal_meeting` source rows by default.
+
+2. Ask semantic grounding (`src/lib/query/evidence.ts`)
+   - Leaks today.
+   - `queryEvidence()` calls `match_evidence`, hydrates sources/segments, and filters adjacent-project-hinted evidence only.
+   - There is no equivalent customer-evidence guard after hydration, so a trusted internal-speaker row or `internal_meeting` row can still be retrieved and cited.
+   - Speaker-targeted retrieval also matches the requested speaker but does not reject targets/records where the matched person has `affiliation = 'internal'`.
+
+3. Ask structural grounding (`src/lib/ask/structural-context.ts`)
+   - Leaks today.
+   - `loadEvidenceRecordsByIds()` loads evidence by typed links, hydrates sources/segments, then returns `filterAdjacentProjectHintedEvidence(records)`.
+   - It does not reject internal speakers or `internal_meeting` sources, so problem/theme/opportunity structural questions can include internal evidence.
+
+4. Problem evidence links (`src/lib/inngest/functions/discover-problems.ts`)
+   - Leaks today.
+   - Problem discovery loads `theme_evidence`, fetches linked evidence, filters adjacent-project hints, and lets the model choose `candidate.evidence_links`.
+   - `writeTypedLinks()` writes those IDs straight into `problem_evidence`.
+   - There is no join to `sources`, `source_segments`, or `people` to reject internal-speaker / internal-meeting evidence before prompt construction or before writing links.
+
+5. Opportunity evidence links (`src/lib/inngest/functions/generate-opportunities.ts`)
+   - Leaks today.
+   - Opportunity generation loads `problem_evidence` and `source_evidence_ids`, fetches evidence, filters adjacent-project hints, and lets the model choose `candidate.evidence_links`.
+   - `writeTypedLinks()` writes those IDs straight into `opportunity_evidence`.
+   - Same missing customer-evidence guard as problems.
+
+**Recommended next design before implementation**
+- Add one shared server-side customer-evidence guard that can be used by Ask, structural context, problem generation, opportunity generation, and display/read routes.
+- The guard should reject:
+  - `sources.type = 'internal_meeting'`
+  - evidence with `metadata.speaker_person_id` resolving to `people.affiliation = 'internal'`
+  - fallback/legacy rows whose hydrated `segment_speaker` matches an internal `people.name` in the same org
+- Apply it before model prompt construction and again before writing typed links, with counts logged in agent outputs.
+
+**Verification:**
+- `npm run type-check` ✅
+- `npm run build` ✅ (existing Supabase Node 18 deprecation warnings only)
+
+Opus: Phase 1 ready for review. No SQL applied.
