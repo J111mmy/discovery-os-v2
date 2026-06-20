@@ -61,7 +61,7 @@ export interface WorkspaceViewProps {
   themeRows: Array<{ id: string; label: string; evidence_count: number }>;
   hiddenThemeCount: number;
   problemCount: number;
-  problemPreviews: Array<{ id: string; title: string }>;
+  problemPreviews: Array<{ id: string; title: string; evidence_link_count: number }>;
   gapSignals: GapSignal[] | null;
   suggestedWorkspaceRows: SuggestedWorkspacePreview[];
   synthesisRunning: boolean;
@@ -683,6 +683,246 @@ function confidenceBadgeStyle(confidence: ProjectOpportunityConfidence) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SuggestedWorkspacesCard — collapsible aside for project opportunities
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SuggestedWorkspacesCard({
+  projectId,
+  workspaces,
+  onCreateFromOpportunity,
+  onOpportunityStatus,
+}: {
+  projectId: string;
+  workspaces: SuggestedWorkspacePreview[];
+  onCreateFromOpportunity: (formData: FormData) => Promise<void>;
+  onOpportunityStatus: (formData: FormData) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+
+  if (workspaces.length === 0) return null;
+
+  return (
+    <div
+      id="suggested-workspaces"
+      style={{
+        background: "var(--surface)",
+        border: "1px solid var(--line)",
+        borderRadius: "var(--r-lg)",
+        overflow: "hidden",
+      }}
+    >
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          width: "100%",
+          padding: "14px 18px",
+          textAlign: "left",
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+          fontFamily: "inherit",
+          color: "var(--ink)",
+          transition: ".14s",
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLElement).style.background = "var(--sel)";
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLElement).style.background = "transparent";
+        }}
+      >
+        <span style={{ flex: 1, fontWeight: 600, fontSize: 13.5 }}>
+          Suggested workspaces
+          <span
+            style={{
+              marginLeft: 8,
+              fontSize: 12,
+              fontWeight: 500,
+              color: "var(--ink-2)",
+            }}
+          >
+            {workspaces.length}
+          </span>
+        </span>
+        <Link
+          href={`/projects/${projectId}/opportunities`}
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            fontSize: 12,
+            fontWeight: 560,
+            color: "var(--accent)",
+            textDecoration: "none",
+            flexShrink: 0,
+          }}
+        >
+          Product opportunities →
+        </Link>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="var(--ink-faint)"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{
+            flexShrink: 0,
+            transform: open ? "rotate(180deg)" : "rotate(0deg)",
+            transition: "transform .18s",
+          }}
+          aria-hidden
+        >
+          <path d="M4 6l4 4 4-4" />
+        </svg>
+      </button>
+
+      {open && (
+        <div style={{ borderTop: "1px solid var(--line)" }}>
+          {workspaces.map((workspace, idx) => {
+            const frameLine = firstFrameLine(workspace.suggested_frame);
+            return (
+              <div
+                key={workspace.id}
+                style={{
+                  padding: "16px 18px",
+                  borderBottom:
+                    idx < workspaces.length - 1 ? "1px solid var(--line)" : "none",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                }}
+              >
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
+                  <span
+                    style={{
+                      padding: "2px 8px",
+                      borderRadius: 999,
+                      fontSize: 11.5,
+                      fontWeight: 500,
+                      border: "1px solid var(--line)",
+                      background: "var(--surface-2)",
+                      color: "var(--ink-2)",
+                    }}
+                  >
+                    {workspace.status === "watching" ? "Watching" : "Suggested workspace"}
+                  </span>
+                  <span
+                    style={{
+                      padding: "2px 8px",
+                      borderRadius: 999,
+                      fontSize: 11.5,
+                      fontWeight: 500,
+                      ...confidenceBadgeStyle(workspace.confidence),
+                    }}
+                  >
+                    {workspace.confidence} confidence
+                  </span>
+                </div>
+                <div style={{ fontWeight: 600, fontSize: 14, color: "var(--ink)" }}>
+                  {workspace.title}
+                </div>
+                {workspace.description && (
+                  <p style={{ fontSize: 13, color: "var(--ink-3)", lineHeight: 1.55, margin: 0 }}>
+                    {workspace.description}
+                  </p>
+                )}
+                {frameLine && (
+                  <p style={{ fontSize: 12, color: "var(--ink-faint)", margin: 0 }}>
+                    Suggested frame: {frameLine}
+                  </p>
+                )}
+                <div style={{ fontSize: 12, color: "var(--ink-faint)", display: "flex", gap: 8 }}>
+                  <span>
+                    {workspace.supporting_evidence_count} evidence record
+                    {workspace.supporting_evidence_count !== 1 ? "s" : ""}
+                  </span>
+                  <span>·</span>
+                  <span>
+                    {workspace.source_project_count} source project
+                    {workspace.source_project_count !== 1 ? "s" : ""}
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  <form action={onCreateFromOpportunity}>
+                    <input type="hidden" name="project_id" value={projectId} />
+                    <input type="hidden" name="opportunity_id" value={workspace.id} />
+                    <button
+                      type="submit"
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: "var(--r-sm)",
+                        background: "var(--accent)",
+                        color: "#fff",
+                        border: "none",
+                        fontSize: 12.5,
+                        fontWeight: 560,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      Create project
+                    </button>
+                  </form>
+                  {workspace.status !== "watching" && (
+                    <form action={onOpportunityStatus}>
+                      <input type="hidden" name="project_id" value={projectId} />
+                      <input type="hidden" name="opportunity_id" value={workspace.id} />
+                      <input type="hidden" name="status" value="watching" />
+                      <button
+                        type="submit"
+                        style={{
+                          padding: "6px 14px",
+                          borderRadius: "var(--r-sm)",
+                          border: "1px solid var(--line)",
+                          background: "transparent",
+                          color: "var(--ink-2)",
+                          fontSize: 12.5,
+                          fontWeight: 560,
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                        }}
+                      >
+                        Keep watching
+                      </button>
+                    </form>
+                  )}
+                  <form action={onOpportunityStatus}>
+                    <input type="hidden" name="project_id" value={projectId} />
+                    <input type="hidden" name="opportunity_id" value={workspace.id} />
+                    <input type="hidden" name="status" value="dismissed" />
+                    <button
+                      type="submit"
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: "var(--r-sm)",
+                        border: "1px solid rgba(224,89,79,.2)",
+                        background: "transparent",
+                        color: "var(--neg)",
+                        fontSize: 12.5,
+                        fontWeight: 560,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      Dismiss
+                    </button>
+                  </form>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // WorkspaceView — main export
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -914,6 +1154,68 @@ export function WorkspaceView({
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
+        {/* ── Needs your attention band ── */}
+        {(pendingCount > 0 || project.synthesis_stale) && (
+          <div
+            style={{
+              background: "var(--surface)",
+              border: "1px solid var(--line)",
+              borderRadius: "var(--r-lg)",
+              padding: "12px 18px",
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              gap: "8px 20px",
+            }}
+          >
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: ".08em",
+                textTransform: "uppercase",
+                color: "var(--ink-faint)",
+                flexShrink: 0,
+              }}
+            >
+              Needs attention
+            </span>
+            {pendingCount > 0 && (
+              <Link
+                href={`/projects/${project.id}/evidence`}
+                style={{
+                  fontSize: 13,
+                  color: "var(--warn)",
+                  fontWeight: 560,
+                  textDecoration: "none",
+                }}
+              >
+                {pendingCount} evidence item{pendingCount !== 1 ? "s" : ""} need review
+              </Link>
+            )}
+            {project.synthesis_stale && (
+              <form action={onSynthesize} style={{ display: "contents" }}>
+                <input type="hidden" name="project_id" value={project.id} />
+                <button
+                  type="submit"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    fontSize: 13,
+                    color: "var(--accent)",
+                    fontWeight: 560,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  New evidence available, run synthesis
+                </button>
+              </form>
+            )}
+          </div>
+        )}
+
         {/* ── Evidence by theme card ── */}
         {showThemes && (
           <div style={cardStyle}>
@@ -1080,7 +1382,7 @@ export function WorkspaceView({
           </div>
         )}
 
-        {/* ── 3-col teaser grid ── */}
+        {/* ── 2-col teaser grid ── */}
         <div
           style={{
             display: "grid",
@@ -1106,18 +1408,11 @@ export function WorkspaceView({
             items={(gapSignals ?? []).map((g) => g.area)}
             href={`/projects/${project.id}/sources`}
           />
-          <TeaserCard
-            label="Suggested workspaces"
-            count={suggestedWorkspaceRows.length}
-            color="var(--info)"
-            items={suggestedWorkspaceRows.map((workspace) => workspace.title)}
-            href="#suggested-workspaces"
-          />
         </div>
 
-        {/* ── Suggested workspace rows from project_opportunities (create / watch / dismiss) ── */}
-        {suggestedWorkspaceRows.length > 0 && (
-          <div id="suggested-workspaces" style={cardStyle}>
+        {/* ── Problems by evidence band ── */}
+        {problemPreviews.length > 0 && (
+          <div style={cardStyle}>
             <div
               style={{
                 padding: "14px 20px",
@@ -1125,245 +1420,73 @@ export function WorkspaceView({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                flexWrap: "wrap",
                 gap: 12,
               }}
             >
-              <div style={{ flex: "1 1 260px", minWidth: 0 }}>
-                <div style={{ fontWeight: 620, fontSize: 14, color: "var(--ink)" }}>
-                  Suggested workspaces
-                </div>
-                <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 2 }}>
-                  Adjacent discovery areas you may turn into separate workspaces.
-                </div>
+              <div style={{ fontWeight: 620, fontSize: 14, color: "var(--ink)" }}>
+                Problems by evidence
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                <Link
-                  href={`/projects/${project.id}/opportunities`}
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 560,
-                    color: "var(--accent)",
-                    textDecoration: "none",
-                  }}
-                >
-                  Product opportunities →
-                </Link>
-                <span
-                  style={{
-                    padding: "3px 10px",
-                    borderRadius: 999,
-                    border: "1px solid var(--line)",
-                    fontSize: 12,
-                    color: "var(--ink-faint)",
-                  }}
-                >
-                  {suggestedWorkspaceRows.length} active
-                </span>
-              </div>
+              <Link
+                href={`/projects/${project.id}/problems`}
+                style={{ fontSize: 12, fontWeight: 560, color: "var(--accent)", textDecoration: "none" }}
+              >
+                View all →
+              </Link>
             </div>
-
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 0,
-              }}
-            >
-              {suggestedWorkspaceRows.map((workspace, idx) => {
-                const frameLine = firstFrameLine(workspace.suggested_frame);
-                return (
-                  <div
-                    key={workspace.id}
+            <div>
+              {[...problemPreviews]
+                .sort((a, b) => b.evidence_link_count - a.evidence_link_count)
+                .map((p, i, arr) => (
+                  <Link
+                    key={p.id}
+                    href={`/projects/${project.id}/problems?problem=${p.id}`}
                     style={{
-                      padding: "16px 20px",
-                      borderBottom:
-                        idx < suggestedWorkspaceRows.length - 1
-                          ? "1px solid var(--line)"
-                          : "none",
                       display: "flex",
-                      flexDirection: "column",
-                      gap: 10,
+                      alignItems: "center",
+                      gap: 12,
+                      padding: "12px 20px",
+                      borderBottom: i < arr.length - 1 ? "1px solid var(--line)" : "none",
+                      textDecoration: "none",
+                      transition: "background .12s",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLElement).style.background = "var(--sel)";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.background = "transparent";
                     }}
                   >
-                    <div
-                      style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        alignItems: "center",
-                        gap: 6,
-                      }}
+                    <span
+                      style={{ flex: 1, fontSize: 13, color: "var(--ink)", fontWeight: 500 }}
                     >
-                      <span
-                        style={{
-                          padding: "2px 8px",
-                          borderRadius: 999,
-                          fontSize: 11.5,
-                          fontWeight: 500,
-                          border: "1px solid var(--line)",
-                          background: "var(--surface-2)",
-                          color: "var(--ink-2)",
-                        }}
-                      >
-                        {workspace.status === "watching" ? "Watching" : "Suggested workspace"}
-                      </span>
-                      <span
-                        style={{
-                          padding: "2px 8px",
-                          borderRadius: 999,
-                          fontSize: 11.5,
-                          fontWeight: 500,
-                          ...confidenceBadgeStyle(workspace.confidence),
-                        }}
-                      >
-                        {workspace.confidence} confidence
-                      </span>
-                    </div>
-
-                    <div style={{ fontWeight: 600, fontSize: 14, color: "var(--ink)" }}>
-                      {workspace.title}
-                    </div>
-                    {workspace.description && (
-                      <p
-                        style={{
-                          fontSize: 13,
-                          color: "var(--ink-3)",
-                          lineHeight: 1.55,
-                          margin: 0,
-                        }}
-                      >
-                        {workspace.description}
-                      </p>
-                    )}
-                    {frameLine && (
-                      <p
-                        style={{
-                          fontSize: 12,
-                          color: "var(--ink-faint)",
-                          margin: 0,
-                        }}
-                      >
-                        Suggested frame: {frameLine}
-                      </p>
-                    )}
-                    <div
+                      {p.title}
+                    </span>
+                    <span
                       style={{
                         fontSize: 12,
-                        color: "var(--ink-faint)",
-                        display: "flex",
-                        gap: 8,
+                        color: p.evidence_link_count > 0 ? "var(--ink-2)" : "var(--ink-faint)",
+                        fontFeatureSettings: '"tnum"',
+                        flexShrink: 0,
                       }}
                     >
-                      <span>
-                        {workspace.supporting_evidence_count} evidence record
-                        {workspace.supporting_evidence_count !== 1 ? "s" : ""}
-                      </span>
-                      <span>·</span>
-                      <span>
-                        {workspace.source_project_count} source project
-                        {workspace.source_project_count !== 1 ? "s" : ""}
-                      </span>
-                    </div>
-
-                    {/* Action forms */}
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      <form action={onCreateFromOpportunity}>
-                        <input
-                          type="hidden"
-                          name="project_id"
-                          value={project.id}
-                        />
-                        <input
-                          type="hidden"
-                          name="opportunity_id"
-                          value={workspace.id}
-                        />
-                        <button
-                          type="submit"
-                          style={{
-                            padding: "6px 14px",
-                            borderRadius: "var(--r-sm)",
-                            background: "var(--accent)",
-                            color: "#fff",
-                            border: "none",
-                            fontSize: 12.5,
-                            fontWeight: 560,
-                            cursor: "pointer",
-                            fontFamily: "inherit",
-                          }}
-                        >
-                          Create project
-                        </button>
-                      </form>
-
-                      {workspace.status !== "watching" && (
-                        <form action={onOpportunityStatus}>
-                          <input
-                            type="hidden"
-                            name="project_id"
-                            value={project.id}
-                          />
-                          <input
-                            type="hidden"
-                            name="opportunity_id"
-                            value={workspace.id}
-                          />
-                          <input type="hidden" name="status" value="watching" />
-                          <button
-                            type="submit"
-                            style={{
-                              padding: "6px 14px",
-                              borderRadius: "var(--r-sm)",
-                              border: "1px solid var(--line)",
-                              background: "transparent",
-                              color: "var(--ink-2)",
-                              fontSize: 12.5,
-                              fontWeight: 560,
-                              cursor: "pointer",
-                              fontFamily: "inherit",
-                            }}
-                          >
-                            Keep watching
-                          </button>
-                        </form>
-                      )}
-
-                      <form action={onOpportunityStatus}>
-                        <input
-                          type="hidden"
-                          name="project_id"
-                          value={project.id}
-                        />
-                        <input
-                          type="hidden"
-                          name="opportunity_id"
-                          value={workspace.id}
-                        />
-                        <input type="hidden" name="status" value="dismissed" />
-                        <button
-                          type="submit"
-                          style={{
-                            padding: "6px 14px",
-                            borderRadius: "var(--r-sm)",
-                            border: "1px solid rgba(224,89,79,.2)",
-                            background: "transparent",
-                            color: "var(--neg)",
-                            fontSize: 12.5,
-                            fontWeight: 560,
-                            cursor: "pointer",
-                            fontFamily: "inherit",
-                          }}
-                        >
-                          Dismiss
-                        </button>
-                      </form>
-                    </div>
-                  </div>
-                );
-              })}
+                      {p.evidence_link_count > 0
+                        ? `${p.evidence_link_count} evidence`
+                        : "no evidence yet"}
+                    </span>
+                  </Link>
+                ))}
             </div>
           </div>
         )}
+
+        {/* ── Suggested workspaces collapsible aside ── */}
+        <SuggestedWorkspacesCard
+          projectId={project.id}
+          workspaces={suggestedWorkspaceRows}
+          onCreateFromOpportunity={onCreateFromOpportunity}
+          onOpportunityStatus={onOpportunityStatus}
+        />
+
 
         {/* ── Project context collapsible ── */}
         <ProjectContextCard project={project} />

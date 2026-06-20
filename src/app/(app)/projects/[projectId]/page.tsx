@@ -27,6 +27,7 @@ type ThemeRow = {
 type ProblemPreview = {
   id: string;
   title: string;
+  evidence_link_count: number;
 };
 
 type ActivityRun = {
@@ -180,12 +181,12 @@ export default async function ProjectPage({ params }: Props) {
       .in("status", ["surfaced", "acknowledged", "active"]),
     supabase
       .from("problems")
-      .select("id, title")
+      .select("id, title, source_evidence_ids")
       .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .in("status", ["surfaced", "acknowledged", "active"])
       .order("created_at", { ascending: false })
-      .limit(3),
+      .limit(5),
     supabase
       .from("agent_runs")
       .select("*", { count: "exact", head: true })
@@ -288,7 +289,16 @@ export default async function ProjectPage({ params }: Props) {
       themeRows={themeRows}
       hiddenThemeCount={hiddenThemeCount}
       problemCount={problemCount ?? 0}
-      problemPreviews={(problemPreviews ?? []) as ProblemPreview[]}
+      problemPreviews={(problemPreviews ?? []).map((p) => {
+        const raw = p as { id: string; title: string; source_evidence_ids?: unknown };
+        return {
+          id: raw.id,
+          title: raw.title,
+          evidence_link_count: Array.isArray(raw.source_evidence_ids)
+            ? raw.source_evidence_ids.length
+            : 0,
+        } satisfies ProblemPreview;
+      })}
       gapSignals={gapSignals}
       suggestedWorkspaceRows={suggestedWorkspaceRows}
       synthesisRunning={synthesisRunning}
