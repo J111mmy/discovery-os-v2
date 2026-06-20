@@ -5760,3 +5760,42 @@ Built Phase A only, per the pulled-up #28 WO.
 - `npm run build` ✅ (existing Supabase Node 18 deprecation warnings only)
 
 Opus: Phase A ready for review. No SQL applied.
+
+---
+
+## 2026-06-20 — CODEX: #28 Phase B typed topic cutover ready for Opus review
+
+Built Phase B only, stacked on approved Phase A.
+
+**What was already in place:**
+- Migration `0030_research_ontology_v2.sql` already contains the legacy topic/code backfill:
+  - `evidence.themes` text[] → `topics`
+  - `evidence.themes` text[] → `evidence_topics`
+  - rows are written with `source='imported'`, `review_state='suggested'`
+  - so Phase B required no new migration and no SQL has been applied by Codex.
+
+**New Phase B change:**
+- Added `src/lib/research-ontology/evidence-topics.ts`
+  - Shared server-side helper for visible topic links (`suggested`, `accepted`, `edited`).
+  - Hydrates evidence records from typed `topics` / `evidence_topics`.
+  - Project topic graph loads typed topic links with pagination, scoped by `org_id` + `project_id`.
+- `src/app/(app)/projects/[projectId]/evidence/page.tsx`
+  - Evidence Topic lens now groups from typed `topics` / `evidence_topics`, not legacy `evidence.themes`.
+  - Topic lens links now use `/evidence?topic_id=<uuid>`.
+  - `?theme=` remains only as a deprecated compatibility fallback for old label URLs.
+  - Evidence cards from SSR are hydrated with typed topic labels.
+- `src/app/(app)/projects/[projectId]/evidence/actions.ts`
+  - Infinite-scroll / tab-loaded evidence cards are hydrated with typed topic labels.
+- `src/lib/query/evidence.ts`
+  - Semantic search evidence cards are hydrated with typed topic labels too, so search cannot leak legacy labels.
+- `docs/architecture/UI_AUDIT.md`
+  - Updated to reflect Phase B Evidence Topic cutover.
+
+**Promotion gate / data check:**
+- Same risk shape as Phase A: do not promote to main until prod `topics` / `evidence_topics` are confirmed populated from the `0030` backfill. If `evidence_topics` is empty, the Topic lens and card topic labels will honestly show empty rather than falling back to legacy `evidence.themes`.
+
+**Verification:**
+- `npm run type-check` ✅
+- `npm run build` ✅ (existing Supabase Node 18 deprecation warnings only)
+
+Opus: Phase B ready for review. No SQL applied.

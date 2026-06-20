@@ -28,6 +28,7 @@ export interface LensEvidencePreview {
 }
 
 export interface TopicLensItem {
+  id: string;
   label: string;
   support_count: number;
   trust_mix: LensTrustMix;
@@ -411,13 +412,13 @@ function TopicLens({ projectId, items }: { projectId: string; items: TopicLensIt
     <div className="grid gap-3 p-4 sm:p-5">
       {items.map((item) => (
         <article
-          key={item.label}
+          key={item.id}
           className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4"
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <Link
-                href={`/projects/${projectId}/evidence?theme=${encodeURIComponent(item.label)}`}
+                href={`/projects/${projectId}/evidence?topic_id=${item.id}`}
                 className="text-base font-semibold text-[var(--ink)] transition-colors hover:text-[var(--accent)]"
               >
                 {item.label}

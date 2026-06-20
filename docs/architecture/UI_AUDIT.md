@@ -45,7 +45,11 @@ Every other screen predates P3:
   `problem_evidence` / `problem_themes` / `problem_topics` for the drawer and card counts. The
   client type still carries `source_evidence_ids` / `source_theme_ids` as compatibility props, but
   the page populates them from typed links before rendering. Remaining ontology catch-up belongs to
-  the Topics layer and wider cross-system reads.
+  wider cross-system reads.
+- **Evidence UI Phase B cutover started.** The Evidence Topic lens and evidence record cards now
+  read typed `topics` / `evidence_topics` instead of the legacy `evidence.themes` text array. The
+  legacy `?theme=` URL remains as a deprecated compatibility fallback; new Topic lens links use
+  typed `topic_id`.
 - **Topics are invisible** outside the evidence browser (the descriptive layer added in P3).
 - **No opportunities page/detail** (schema-only; tied to #25/#26). The workspace "Opportunities"
   card shows `project_opportunities` (the older "suggested workspaces" concept), which is now

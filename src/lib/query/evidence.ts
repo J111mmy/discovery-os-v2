@@ -8,6 +8,7 @@ import {
   type SpeakerResolution,
 } from "@/lib/speakers/resolve";
 import { filterAdjacentProjectHintedEvidence } from "@/lib/evidence/adjacent-project";
+import { hydrateEvidenceRecordsWithTypedTopics } from "@/lib/research-ontology/evidence-topics";
 
 export interface EvidenceQueryOptions {
   org_id: string;
@@ -134,6 +135,13 @@ async function hydrateEvidenceRecords(input: {
       }
     });
   }
+
+  await hydrateEvidenceRecordsWithTypedTopics({
+    supabase,
+    orgId: org_id,
+    projectId: project_id,
+    records,
+  });
 
   if (sourceIds.length > 0) {
     const { data: sources } = await supabase

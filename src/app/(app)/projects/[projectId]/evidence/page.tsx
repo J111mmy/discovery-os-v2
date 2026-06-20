@@ -1,4 +1,9 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import {
+  hydrateEvidenceRecordsWithTypedTopics,
+  loadVisibleProjectTopicGraph,
+  VISIBLE_REVIEW_STATES,
+} from "@/lib/research-ontology/evidence-topics";
 import { createClient } from "@/lib/supabase/server";
 import type { EvidenceRecord } from "@/types/database";
 import { notFound, redirect } from "next/navigation";
@@ -7,12 +12,12 @@ import { EvidenceBrowser, type EvidenceLensData, type LensEvidencePreview, type 
 
 interface Props {
   params: { projectId: string };
-  searchParams?: { theme?: string; theme_id?: string };
+  searchParams?: { theme?: string; theme_id?: string; topic_id?: string };
 }
 
 type EvidenceResult = {
   records: EvidenceRecord[];
-  appliedThemeLabel?: string;
+  appliedFilterLabel?: string;
 };
 
 type LensEvidenceRow = Pick<
@@ -42,6 +47,10 @@ type LensThemeRow = {
 type LensEvidenceThemeRow = {
   evidence_id: string;
   theme_id: string;
+};
+
+type LensEvidenceTopicFilterRow = {
+  evidence_id: string;
 };
 
 type LensProblemRow = {
@@ -136,6 +145,43 @@ async function resolveThemeEvidenceFilter(
   };
 }
 
+async function resolveTopicEvidenceFilter(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  orgId: string,
+  projectId: string,
+  topicId: string | undefined
+): Promise<{ label: string; evidenceIds: string[] } | null> {
+  if (!isUuid(topicId)) return null;
+
+  const { data: topic, error: topicError } = await supabase
+    .from("topics")
+    .select("id, label")
+    .eq("org_id", orgId)
+    .eq("project_id", projectId)
+    .eq("id", topicId)
+    .in("review_state", [...VISIBLE_REVIEW_STATES])
+    .maybeSingle();
+
+  if (topicError || !topic) return null;
+
+  const { data: links, error: linksError } = await supabase
+    .from("evidence_topics")
+    .select("evidence_id")
+    .eq("org_id", orgId)
+    .eq("project_id", projectId)
+    .eq("topic_id", topic.id)
+    .in("review_state", [...VISIBLE_REVIEW_STATES]);
+
+  if (linksError) return null;
+
+  return {
+    label: topic.label as string,
+    evidenceIds: Array.from(
+      new Set(((links ?? []) as LensEvidenceTopicFilterRow[]).map((link) => link.evidence_id))
+    ),
+  };
+}
+
 async function getEvidenceLensData(
   supabase: Awaited<ReturnType<typeof createClient>>,
   orgId: string,
@@ -149,10 +195,14 @@ async function getEvidenceLensData(
     .order("created_at", { ascending: false })
     .limit(5000);
 
-  const evidence = ((evidenceData ?? []) as LensEvidenceRow[]).map((row) => ({
+  const evidence: LensEvidenceRow[] = ((evidenceData ?? []) as LensEvidenceRow[]).map((row) => ({
     ...row,
-    themes: Array.isArray(row.themes) ? row.themes : [],
+    themes: [],
   }));
+  const topicGraph = await loadVisibleProjectTopicGraph({ supabase, orgId, projectId });
+  for (const row of evidence) {
+    row.themes = topicGraph.labelsByEvidenceId.get(row.id) ?? [];
+  }
   const evidenceById = new Map(evidence.map((row) => [row.id, row]));
   const sourceIds = Array.from(new Set(evidence.map((row) => row.source_id).filter(Boolean)));
 
@@ -205,7 +255,6 @@ async function getEvidenceLensData(
     source_theme_ids: stringArray(problem.source_theme_ids),
   }));
 
-  const nonExcludedEvidence = evidence.filter((row) => row.trust_scope !== "excluded");
   const themeLinksByEvidence = new Map<string, Set<string>>();
   const evidenceIdsByTheme = new Map<string, Set<string>>();
 
@@ -228,54 +277,49 @@ async function getEvidenceLensData(
     problems.map((problem) => [problem.id, new Set(problem.source_theme_ids ?? [])])
   );
 
-  const topicRows = Array.from(
-    nonExcludedEvidence.reduce((acc, row) => {
-      for (const label of uniqueStrings(row.themes)) {
-        if (!acc.has(label)) {
-          acc.set(label, {
-            rows: [] as LensEvidenceRow[],
-            trust_mix: emptyTrustMix(),
-            source_types: new Set<string>(),
-            linked_themes: new Set<string>(),
-            linked_problems: new Set<string>(),
-          });
-        }
+  const topicRows = topicGraph.topics
+    .map((topic) => {
+      const rows = Array.from(topicGraph.evidenceIdsByTopicId.get(topic.id) ?? [])
+        .map((id) => evidenceById.get(id))
+        .filter((row): row is LensEvidenceRow => Boolean(row))
+        .filter((row) => row.trust_scope !== "excluded")
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      if (rows.length === 0) return null;
 
-        const entry = acc.get(label)!;
-        entry.rows.push(row);
-        addToTrustMix(entry.trust_mix, row.trust_scope);
+      const trustMix = emptyTrustMix();
+      const sourceTypes = new Set<string>();
+      const linkedThemes = new Set<string>();
+      const linkedProblems = new Set<string>();
+
+      for (const row of rows) {
+        addToTrustMix(trustMix, row.trust_scope);
 
         const sourceType = sourceById.get(row.source_id)?.type;
-        if (sourceType) entry.source_types.add(sourceType);
+        if (sourceType) sourceTypes.add(sourceType);
 
         for (const themeId of Array.from(themeLinksByEvidence.get(row.id) ?? [])) {
-          entry.linked_themes.add(themeId);
+          linkedThemes.add(themeId);
         }
 
         for (const problem of problems) {
           if (problemEvidenceIds.get(problem.id)?.has(row.id)) {
-            entry.linked_problems.add(problem.id);
+            linkedProblems.add(problem.id);
           }
         }
       }
-      return acc;
-    }, new Map<string, {
-      rows: LensEvidenceRow[];
-      trust_mix: LensTrustMix;
-      source_types: Set<string>;
-      linked_themes: Set<string>;
-      linked_problems: Set<string>;
-    }>())
-  )
-    .map(([label, entry]) => ({
-      label,
-      support_count: entry.rows.length,
-      trust_mix: entry.trust_mix,
-      source_types: Array.from(entry.source_types).sort(),
-      linked_theme_count: entry.linked_themes.size,
-      linked_problem_count: entry.linked_problems.size,
-      recent_evidence: previewForEvidence(entry.rows[0], sourceById),
-    }))
+
+      return {
+        id: topic.id,
+        label: topic.label,
+        support_count: rows.length,
+        trust_mix: trustMix,
+        source_types: Array.from(sourceTypes).sort(),
+        linked_theme_count: linkedThemes.size,
+        linked_problem_count: linkedProblems.size,
+        recent_evidence: previewForEvidence(rows[0], sourceById),
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row))
     .sort((a, b) => b.support_count - a.support_count || a.label.localeCompare(b.label))
     .slice(0, 80);
 
@@ -368,9 +412,16 @@ async function getRecentEvidence(
   projectId: string,
   trustScope: EvidenceRecord["trust_scope"] | "all" = "all",
   themeFilter?: string,
-  themeIdFilter?: string
+  themeIdFilter?: string,
+  topicIdFilter?: string
 ): Promise<EvidenceResult> {
   const supabase = await createClient();
+  const topicEvidenceFilter = await resolveTopicEvidenceFilter(
+    supabase,
+    orgId,
+    projectId,
+    topicIdFilter
+  );
   const themeEvidenceFilter = await resolveThemeEvidenceFilter(
     supabase,
     orgId,
@@ -384,15 +435,21 @@ async function getRecentEvidence(
     .eq("org_id", orgId)
     .eq("project_id", projectId);
 
-  if (themeEvidenceFilter) {
+  if (topicEvidenceFilter) {
+    if (topicEvidenceFilter.evidenceIds.length === 0) {
+      return { records: [], appliedFilterLabel: topicEvidenceFilter.label };
+    }
+    evidenceQuery = evidenceQuery.in("id", topicEvidenceFilter.evidenceIds);
+  } else if (themeEvidenceFilter) {
     if (themeEvidenceFilter.evidenceIds.length === 0) {
-      return { records: [], appliedThemeLabel: themeEvidenceFilter.label };
+      return { records: [], appliedFilterLabel: themeEvidenceFilter.label };
     }
     evidenceQuery = evidenceQuery.in("id", themeEvidenceFilter.evidenceIds);
   } else if (themeFilter) {
-    // Legacy topic/code filter — themes is a text[] column; contains = @> (subset)
+    // Deprecated compatibility path for old topic-label URLs. New Topic lens
+    // links use typed topic IDs through evidence_topics.
     evidenceQuery = evidenceQuery.contains("themes", [themeFilter]);
-  } else if (themeIdFilter) {
+  } else if (themeIdFilter || topicIdFilter) {
     evidenceQuery = evidenceQuery.eq("trust_scope", "pending");
   } else if (trustScope !== "all") {
     evidenceQuery = evidenceQuery.eq("trust_scope", trustScope);
@@ -402,7 +459,12 @@ async function getRecentEvidence(
     .order("created_at", { ascending: false })
     .limit(50);
 
-  const records = (evidence ?? []) as EvidenceRecord[];
+  const records = await hydrateEvidenceRecordsWithTypedTopics({
+    supabase,
+    orgId,
+    projectId,
+    records: (evidence ?? []) as EvidenceRecord[],
+  });
   const sourceIds = Array.from(new Set(records.map((record) => record.source_id)));
   const segmentIds = Array.from(
     new Set(records.map((record) => record.segment_id).filter(Boolean))
@@ -458,7 +520,7 @@ async function getRecentEvidence(
 
   return {
     records,
-    appliedThemeLabel: themeEvidenceFilter?.label,
+    appliedFilterLabel: topicEvidenceFilter?.label ?? themeEvidenceFilter?.label,
   };
 }
 
@@ -497,6 +559,7 @@ export default async function EvidencePage({ params, searchParams }: Props) {
 
   const themeFilter = searchParams?.theme ?? undefined;
   const themeIdFilter = searchParams?.theme_id ?? undefined;
+  const topicIdFilter = searchParams?.topic_id ?? undefined;
 
   const [
     { count: pendingCount },
@@ -526,8 +589,8 @@ export default async function EvidencePage({ params, searchParams }: Props) {
       .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .eq("trust_scope", "excluded"),
-    themeFilter || themeIdFilter
-      ? getRecentEvidence(project.org_id, project.id, "all", themeFilter, themeIdFilter)
+    themeFilter || themeIdFilter || topicIdFilter
+      ? getRecentEvidence(project.org_id, project.id, "all", themeFilter, themeIdFilter, topicIdFilter)
       : getRecentEvidence(project.org_id, project.id, "pending"),
     getEvidenceLensData(supabase, project.org_id, project.id),
     supabase
@@ -549,8 +612,8 @@ export default async function EvidencePage({ params, searchParams }: Props) {
 
   const evidenceCount = (pendingCount ?? 0) + (trustedCount ?? 0) + (excludedCount ?? 0);
   const records = evidenceResult.records;
-  const appliedThemeFilter = evidenceResult.appliedThemeLabel ?? themeFilter;
-  const filterKind = evidenceResult.appliedThemeLabel ? "theme" : themeFilter ? "topic" : undefined;
+  const appliedThemeFilter = evidenceResult.appliedFilterLabel ?? themeFilter;
+  const filterKind = topicIdFilter || themeFilter ? "topic" : evidenceResult.appliedFilterLabel ? "theme" : undefined;
 
   const internalSpeakerNames = (internalPeople ?? [])
     .map((p: { display_name: string | null }) => (p.display_name ?? "").trim().toLowerCase())

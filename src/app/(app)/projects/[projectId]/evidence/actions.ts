@@ -3,6 +3,7 @@
 import { accessRedirectPath, requireActiveAccess } from "@/lib/auth/access";
 import { getProjectForUser } from "@/lib/auth/org";
 import { inngest } from "@/lib/inngest/client";
+import { hydrateEvidenceRecordsWithTypedTopics } from "@/lib/research-ontology/evidence-topics";
 import { createClient } from "@/lib/supabase/server";
 import type { EvidenceRecord, TrustScope, TrustScopeSource } from "@/types/database";
 import { revalidatePath } from "next/cache";
@@ -356,7 +357,12 @@ export async function loadEvidenceRecordsAction({
     .order("created_at", { ascending: false })
     .range(safeOffset, safeOffset + safeLimit - 1);
 
-  const records = (evidence ?? []) as EvidenceRecord[];
+  const records = await hydrateEvidenceRecordsWithTypedTopics({
+    supabase,
+    orgId: project.org_id,
+    projectId: project.id,
+    records: (evidence ?? []) as EvidenceRecord[],
+  });
   const sourceIds = Array.from(new Set(records.map((record) => record.source_id)));
   const segmentIds = Array.from(
     new Set(records.map((record) => record.segment_id).filter(Boolean))
