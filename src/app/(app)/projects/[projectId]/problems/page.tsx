@@ -79,6 +79,20 @@ type ProblemTopicLink = {
   created_at: string;
 };
 
+type ProblemListRow = Omit<ProblemRow, "source_theme_ids" | "source_evidence_ids">;
+
+type ProblemListEvidenceLink = {
+  problem_id: string;
+  evidence_id: string;
+  review_state: string;
+};
+
+type ProblemListThemeLink = {
+  problem_id: string;
+  theme_id: string;
+  review_state: string;
+};
+
 const visibleReviewStates = new Set(["suggested", "accepted", "edited"]);
 
 const evidenceRelationshipOrder: Record<ProblemEvidenceLink["relationship"], number> = {
@@ -120,6 +134,87 @@ function provenanceState(
   if (hasProvenance && hasAssessed) return "mixed";
   if (hasProvenance) return "legacy_only";
   return "assessed";
+}
+
+function addProblemLink(
+  linksByProblem: Map<string, Set<string>>,
+  problemId: string,
+  linkedId: string
+) {
+  const links = linksByProblem.get(problemId) ?? new Set<string>();
+  links.add(linkedId);
+  linksByProblem.set(problemId, links);
+}
+
+async function hydrateProblemRowsWithTypedLinks(input: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  orgId: string;
+  projectId: string;
+  rows: ProblemListRow[];
+}): Promise<ProblemRow[]> {
+  const { supabase, orgId, projectId, rows } = input;
+  const problemIds = rows.map((problem) => problem.id);
+
+  if (problemIds.length === 0) return [];
+
+  const [problemEvidenceResult, problemThemesResult] = await Promise.all([
+    supabase
+      .from("problem_evidence")
+      .select("problem_id, evidence_id, review_state")
+      .eq("org_id", orgId)
+      .eq("project_id", projectId)
+      .in("problem_id", problemIds),
+    supabase
+      .from("problem_themes")
+      .select("problem_id, theme_id, review_state")
+      .eq("org_id", orgId)
+      .eq("project_id", projectId)
+      .in("problem_id", problemIds),
+  ]);
+
+  if (problemEvidenceResult.error) throw new Error("Failed to load typed problem evidence links");
+  if (problemThemesResult.error) throw new Error("Failed to load typed problem theme links");
+
+  let visibleEvidenceLinks = ((problemEvidenceResult.data ?? []) as ProblemListEvidenceLink[])
+    .filter((link) => isVisibleReviewState(link.review_state));
+  const visibleThemeLinks = ((problemThemesResult.data ?? []) as ProblemListThemeLink[])
+    .filter((link) => isVisibleReviewState(link.review_state));
+
+  const evidenceIds = unique(visibleEvidenceLinks.map((link) => link.evidence_id));
+  if (evidenceIds.length > 0) {
+    const { data, error } = await supabase
+      .from("evidence")
+      .select("id, metadata")
+      .eq("org_id", orgId)
+      .eq("project_id", projectId)
+      .in("id", evidenceIds);
+
+    if (error) throw new Error("Failed to load typed problem evidence metadata");
+
+    const adjacentEvidenceIds = adjacentProjectHintedEvidenceIds(
+      (data ?? []) as Array<{ id: string; metadata: unknown }>
+    );
+    visibleEvidenceLinks = visibleEvidenceLinks.filter(
+      (link) => !adjacentEvidenceIds.has(link.evidence_id)
+    );
+  }
+
+  const evidenceIdsByProblem = new Map<string, Set<string>>();
+  const themeIdsByProblem = new Map<string, Set<string>>();
+
+  for (const link of visibleEvidenceLinks) {
+    addProblemLink(evidenceIdsByProblem, link.problem_id, link.evidence_id);
+  }
+
+  for (const link of visibleThemeLinks) {
+    addProblemLink(themeIdsByProblem, link.problem_id, link.theme_id);
+  }
+
+  return rows.map((problem) => ({
+    ...problem,
+    source_evidence_ids: Array.from(evidenceIdsByProblem.get(problem.id) ?? []),
+    source_theme_ids: Array.from(themeIdsByProblem.get(problem.id) ?? []),
+  }));
 }
 
 async function getProblemDetail(input: {
@@ -447,7 +542,7 @@ export default async function ProblemsPage({ params, searchParams }: Props) {
   const [{ data }, { count: sourcesCount }, { count: evidenceCount }] = await Promise.all([
     supabase
       .from("problems")
-      .select("id, title, description, severity, status, source_theme_ids, source_evidence_ids, created_at")
+      .select("id, title, description, severity, status, created_at")
       .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .order("severity", { ascending: true })
@@ -464,7 +559,14 @@ export default async function ProblemsPage({ params, searchParams }: Props) {
       .eq("project_id", project.id),
   ]);
 
-  const problems = sortProblems((data ?? []) as ProblemRow[]);
+  const problems = sortProblems(
+    await hydrateProblemRowsWithTypedLinks({
+      supabase,
+      orgId: project.org_id,
+      projectId: project.id,
+      rows: (data ?? []) as ProblemListRow[],
+    })
+  );
   const selectedProblemId = isUuid(searchParams?.problem) ? searchParams?.problem : null;
   const selectedProblem = selectedProblemId
     ? problems.find((problem) => problem.id === selectedProblemId) ?? null

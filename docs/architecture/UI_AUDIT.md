@@ -41,10 +41,11 @@ targets are built.
 
 Only `evidence-browser.tsx` (the P2 multi-lens browser) references the new ontology tables.
 Every other screen predates P3:
-- **Problems UI reads legacy arrays, not typed links.** `problems-list.tsx` /
-  `problems/page.tsx` resolve evidence via `problems.source_evidence_ids` (text array), not the
-  typed `problem_evidence` table — so `relationship` (supporting/contradicting/example/edge_case),
-  `confidence`, and `rationale` never reach the UI.
+- **Problems UI Phase A cutover started.** `problems/page.tsx` now reads typed
+  `problem_evidence` / `problem_themes` / `problem_topics` for the drawer and card counts. The
+  client type still carries `source_evidence_ids` / `source_theme_ids` as compatibility props, but
+  the page populates them from typed links before rendering. Remaining ontology catch-up belongs to
+  the Topics layer and wider cross-system reads.
 - **Topics are invisible** outside the evidence browser (the descriptive layer added in P3).
 - **No opportunities page/detail** (schema-only; tied to #25/#26). The workspace "Opportunities"
   card shows `project_opportunities` (the older "suggested workspaces" concept), which is now

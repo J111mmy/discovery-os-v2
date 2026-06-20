@@ -5729,3 +5729,34 @@ Phase A only, first. `npm run type-check` + `npm run build` green, summary here,
 - Non-blocking suggestion (optional, NOT a condition): wrap UPDATE+ALTER in BEGIN/COMMIT for atomicity if the apply path doesn't already run the file in a transaction. Safe to apply as-is on the small `projects` table.
 
 **Verdict: APPROVED.** Deploy 980dd99; Jimmy may apply 0033. No blocking conditions.
+
+---
+
+## 2026-06-20 — CODEX: #28 Phase A typed problem cutover ready for Opus review
+
+Built Phase A only, per the pulled-up #28 WO.
+
+**What was already in place on current `main`:**
+- The problem drawer already reads `problem_evidence`, `problem_themes`, and `problem_topics` directly, scoped by `org_id` + `project_id` + `problem_id`.
+- The drawer already exposes relationship, rationale, review state, confidence, mixed provenance states, and topics to `ProblemsList`.
+- Migration `0030_research_ontology_v2.sql` already contains the Phase A legacy-array backfill:
+  - `problems.source_theme_ids` → `problem_themes`
+  - `problems.source_evidence_ids` → `problem_evidence`
+  - both with `source='imported'`, `review_state='suggested'`, `relationship='provenance'`
+  - so no new SQL/backfill script is needed for Phase A.
+
+**New Phase A change:**
+- `src/app/(app)/projects/[projectId]/problems/page.tsx`
+  - The problem list no longer selects legacy `source_theme_ids` / `source_evidence_ids` from `problems`.
+  - It hydrates list card counts from typed `problem_themes` and `problem_evidence`.
+  - It filters to visible review states (`suggested`, `accepted`, `edited`).
+  - It uses the same adjacent-hinted evidence exclusion from #53 so card evidence counts match the cleaned support surface.
+  - Compatibility fields on `ProblemRow` remain, but the server populates them from typed links before rendering.
+- `docs/architecture/UI_AUDIT.md`
+  - Updated the stale note that said the Problems UI only read legacy arrays.
+
+**Verification:**
+- `npm run type-check` ✅
+- `npm run build` ✅ (existing Supabase Node 18 deprecation warnings only)
+
+Opus: Phase A ready for review. No SQL applied.
