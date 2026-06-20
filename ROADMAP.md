@@ -14,9 +14,10 @@ Each item has a rough size: **S** (one session), **M** (2–3 sessions), **L** (
 
 **Order of work now:**
 1. **🔄 Ask track** (in flight, building on WO-1 ✅): WO-2 Continue-in-Ask · WO-3 Safari layout · WO-4 ontology-aware Ask · streaming backend.
-2. **🔜 Entity/trust quality cluster** (next epic, the north star made real): **#41 pre-ingest speaker/org scan** (keystone) → fixes **#39** junk people, **#40** company quality, **#36** internal-speaker leak. Honor inline identity/correction notes; preserve named entities verbatim.
-3. **🔜 Supporting quality/admin:** #42 admin org table bug, #38 claim-verification `created_at`, #35 Ask rendering polish, #33 staging environment (would have caught this week's prod-only 400s).
-4. **⏸ Billing epic + onboarding** — parked; revisit only by conscious decision once quality holds.
+2. **🔄 P3 ontology cutover (#28)** — **PULLED UP 2026-06-20 (Jimmy, conscious decision).** Cut the app off legacy arrays onto the typed ontology: problem drawer reads `problem_evidence` (relationship + rationale); backfill `evidence.themes` text[] → `topics`/`evidence_topics` and `problems.source_*_ids` → typed joins (all `review_state='suggested'`, never auto-accepted); reconcile `project_opportunities` ("Suggested workspaces", name locked) vs the `opportunities` table. Makes the structure honest in-app and unblocks #57 (Topics≠Themes UI) + #59 (tags). Governed by `docs/architecture/ONTOLOGY.md`. *Why pulled up: this session established the ontology anchor; the in-app cutover is the highest-leverage way to make that real and is foundational to the evidence/ontology UI backlog.* **L. Schema exists (0030); remaining migrations/backfills are §0-gated.**
+3. **🔜 Entity/trust quality cluster** (the north star made real, now follows #28): **#41 pre-ingest speaker/org scan** (keystone, landed) → close out **#39** junk people, **#40** company quality, **#36** internal-speaker leak. Honor inline identity/correction notes; preserve named entities verbatim.
+4. **🔜 Supporting quality/admin:** #42 admin org table bug, #38 claim-verification `created_at`, #35 Ask rendering polish, #33 staging environment (would have caught this week's prod-only 400s).
+5. **⏸ Billing epic + onboarding** — parked; revisit only by conscious decision once quality holds.
 
 Shipped since the last roadmap refresh (2026-06-04): #25 opportunities, #26 traceable compose, #30 JSON hardening, #32 invite-only sign-in gate, #35 Ask attribution (WO-1), WO-5 ingest cost fix (~40x cheaper, validated on prod). Mark older sections ✅ accordingly.
 

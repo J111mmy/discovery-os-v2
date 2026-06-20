@@ -14,10 +14,15 @@ The full specification is in `Discovery-OS-v2-PRD-final.docx` (in the parent Dis
 
 **Current focus (updated 2026-06-18):** **Quality before billing.** Billing/monetisation is consciously PARKED (Jimmy, 2026-06-18) until evidence + entity quality is trustworthy — you cannot charge for a tool that misspells a customer's name.
 - **In flight:** the Ask track — WO-1 attribution ✅ done; WO-2 Continue-in-Ask, WO-3 Safari layout, WO-4 ontology-aware Ask, streaming backend remain.
-- **Next epic:** the entity/trust quality cluster — #41 pre-ingest speaker/org scan (the keystone) which fixes #39 (junk people), #40 (company quality), #36 (internal-speaker leak). This is the north star made real.
+- **Active big chunk (Codex):** **#28 P3 ontology cutover** — PULLED UP 2026-06-20 (Jimmy, conscious decision) ahead of the entity cluster. Cut the app off legacy arrays onto the typed ontology (problem_evidence, topics, opportunities reconciliation), governed by `docs/architecture/ONTOLOGY.md`. Unblocks #57 + #59. Remaining migrations/backfills are §0-gated.
+- **Next epic (now follows #28):** the entity/trust quality cluster — #41 pre-ingest speaker/org scan (keystone, landed) → close out #39 (junk people), #40 (company quality), #36 (internal-speaker leak). This is the north star made real.
 - **Parked:** Stripe billing epic + self-serve onboarding (revisit only by conscious decision once quality holds).
 
+**Structure law:** the research ontology is DECIDED and canonical: `Source → Segment → Evidence → Topics → Themes → Problems → {Opportunities, Actions, Artifacts}`. Read `docs/architecture/ONTOLOGY.md` before touching anything that creates, labels, groups, or renders evidence, topics, themes, problems, opportunities, actions, or artifacts. The three hard rules: (1) Topic ≠ Theme ≠ Tag, never merge them; (2) Problems are evidence-backed and earned, never inherited or invented; (3) Opportunities/Actions/Artifacts are siblings, not a chain. If a layer looks redundant, you are missing context, re-read ONTOLOGY.md before acting.
+
 **Roadmap discipline:** the sequence changes ONLY by a conscious decision recorded here and in `ROADMAP.md`. New bugs/observations go to the backlog (GitHub Issues) and do NOT silently reorder the roadmap.
+
+**Question, then adhere (working principle, set by Jimmy 2026-06-20):** challenge anything that does not make sense and raise it for a decision. But the north star, the ontology, and the locked principles/rules are not silently overridden to "fix" a thing that looks off. Surface the conflict, propose the change, let Jimmy decide. Disagreement is welcome; quiet drift is not. Changing a locked decision requires the same conscious, recorded step as the roadmap.
 
 ---
 

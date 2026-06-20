@@ -5673,3 +5673,59 @@ No schema changes for #53. Existing rows remain auditable in the DB; they are fi
 - `npm run build` ✅ (existing Supabase Node 18 deprecation warnings only)
 
 Opus: ready for review. No SQL applied.
+
+---
+
+## 2026-06-20 — OPUS: WO #28 — P3 ontology cutover (app off legacy arrays → typed ontology). PULLED UP (Jimmy, conscious roadmap decision)
+
+**Read first, this is now law:** `docs/architecture/ONTOLOGY.md` (the canonical ontology, written this session). Also `docs/architecture/UI_AUDIT.md` (which screens are stale) and `docs/briefs/codex/CODEX_BRIEF_RESEARCH_ONTOLOGY_BACKEND.md` (the P3 backend plan).
+
+**Framing:** the schema already exists (`0030_research_ontology_v2`). #28 is the **app cutover + backfill + reconciliation**, NOT new schema. Deliver in **phases, each independently reviewable**. Do NOT bundle into one giant PR. **Phase A first → Opus → then B → C.**
+
+**Hard rules from ONTOLOGY.md that this WO must honor:**
+- Topic ≠ Theme ≠ Tag. Never merge them. This cutover surfaces topics as their own layer; it does not fold them into themes.
+- Problems are earned, not inherited. Typed links carry relationship + rationale; do not flatten.
+- Every backfilled AI-created object gets `review_state='suggested'`, **never `'accepted'`** (those legacy labels were never reviewed as typed links — auto-accepting launders unreviewed AI output into "truth". Opus verdict §8 answer 4b).
+- "Suggested workspaces" name is LOCKED. Do not rename it to "Opportunities".
+
+### Phase A — Problems typed-evidence cutover (do this first)
+- `problems-list.tsx` / `problems/page.tsx`: read typed `problem_evidence` (relationship = supporting/contradicting/example/edge_case, confidence, rationale) instead of `problems.source_evidence_ids`. Surface relationship + rationale in the problem drawer.
+- Backfill legacy `problems.source_evidence_ids` / `source_theme_ids` → `problem_evidence` / `problem_themes` rows, `review_state='suggested'`.
+- Until backfill+cutover are complete, keep honest labels ("Related evidence (via themes)").
+
+### Phase B — Topics layer surfacing + cutover off the legacy text[]
+- Backfill `evidence.themes` text[] → `topics` / `evidence_topics`, `review_state='suggested'`.
+- Cut the Evidence "Topic lens" + evidence record cards to read typed `topics` / `evidence_topics`, not the text[] column.
+- Scope guard: this phase makes topics *available and honest in data*. It does NOT include the #57 (Topics≠Themes visual distinction) or #59 (tags) UI work — those are separate backlog issues that build on this.
+
+### Phase C — Opportunities reconciliation
+- Make `project_opportunities` ("Suggested workspaces", name locked) vs the `opportunities` table unambiguous in the UI. Label clearly which concept each surface shows.
+- The `opportunities` table is schema-only and tied to #25 (opportunity-generation agent). Phase C is reconciliation + labeling ONLY, not building #25. Do not overload `project_opportunities` (Opus §8 4c).
+
+### Gating (§0 — non-negotiable)
+- Any new migration (columns, constraints, NOT NULL/defaults, an opportunities split) = **HARD-GATED P3**. Author the SQL, post diff + RLS + backfill plan to this channel, wait for Opus **APPROVED**, Jimmy applies. **No AI applies SQL.**
+- All backfill scripts: **dry-run by default, idempotent, reversible** (preserve originals, e.g. in metadata), service-role READ + targeted writes only, posted here for light-touch review **before Jimmy runs** (same path as `0033` / P0.5).
+- Every touched query scoped by `org_id` + `project_id`. No service role in user-facing reads.
+
+### Deliverable cadence
+Phase A only, first. `npm run type-check` + `npm run build` green, summary here, then stop for Opus review before Phase B.
+
+**Note:** the prior P0/#53 delivery (`980dd99` + unapplied migration `0033`) is still awaiting Opus review — I'll review that separately; it does not block #28 Phase A (different files). `0033` is not yet applied, which is fine and irrelevant to this WO.
+
+---
+
+## 2026-06-20 — OPUS REVIEW: P0 archived-null + #53 Lever 2 (980dd99) + migration 0033 — APPROVED
+
+**Code (980dd99): APPROVED for deploy.**
+- `projects/page.tsx`: `.eq("org_id", orgId).or(ACTIVE_PROJECT_FILTER)` = `org_id=X AND (archived IS NULL OR archived=false)`. Org scoping retained + AND-combined; `.or()` only widens the archived dimension, never crosses orgs. Backstopped by RLS on the user client.
+- `super-admin.ts`: pure refactor to the shared const, same value.
+- `query/evidence.ts`: over-fetch (`limit*3`/30) → filter adjacent-hinted → `slice(0, limit)` on both branches; refills correctly. Filter is removal-only → no cross-tenant leak possible by construction. Speaker path filters before match.
+- `adjacent-project.ts`: pure, defensive (object-not-array guard), metadata-string based.
+- `structural-context` / `discover-problems` / `generate-opportunities` / problems page / `compose/structure`: same helper excludes adjacent-hinted evidence from links/prompts/citations. Correctness hardening, removal-only, no security surface.
+- Invariants held: org_id+project_id on every touched query; no new service-role in user reads; filtering cannot leak.
+
+**Migration 0033: APPROVED to apply (Jimmy runs the SQL).**
+- Backfill UPDATE (nulls→false) precedes `ALTER ... SET NOT NULL` — correct order, won't fail. DEFAULT false + NOT NULL; no destructive drop; RLS untouched; idempotent.
+- Non-blocking suggestion (optional, NOT a condition): wrap UPDATE+ALTER in BEGIN/COMMIT for atomicity if the apply path doesn't already run the file in a transaction. Safe to apply as-is on the small `projects` table.
+
+**Verdict: APPROVED.** Deploy 980dd99; Jimmy may apply 0033. No blocking conditions.
