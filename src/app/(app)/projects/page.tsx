@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getActiveOrgId } from "@/lib/auth/org";
+import { ACTIVE_PROJECT_FILTER } from "@/lib/projects/active-projects";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
@@ -14,7 +15,7 @@ export default async function ProjectsPage() {
         .from("projects")
         .select("id, org_id, name, slug, description, updated_at, archived")
         .eq("org_id", orgId)
-        .eq("archived", false)
+        .or(ACTIVE_PROJECT_FILTER)
         .order("updated_at", { ascending: false })
     : { data: [] };
 

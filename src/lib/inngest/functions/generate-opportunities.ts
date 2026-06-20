@@ -11,6 +11,10 @@ import {
   OPPORTUNITY_GENERATION_PROMPT_VERSION,
 } from "@/lib/llm/prompts/opportunities";
 import { neutralizeUntrustedSourceContentFence } from "@/lib/llm/prompts/untrusted-content";
+import {
+  adjacentProjectHintedEvidenceIds,
+  filterAdjacentProjectHintedEvidence,
+} from "@/lib/evidence/adjacent-project";
 
 const OPPORTUNITY_DEDUPE_SIMILARITY_THRESHOLD = 0.88;
 const MAX_PROBLEMS_FOR_PROMPT = 16;
@@ -623,6 +627,7 @@ export const generateOpportunities = inngest.createFunction(
         }
 
         let evidence: EvidenceRow[] = [];
+        let adjacentEvidenceExcluded = 0;
         if (evidenceIds.length > 0) {
           const { data, error } = await supabase
             .from("evidence")
@@ -633,7 +638,11 @@ export const generateOpportunities = inngest.createFunction(
             .neq("trust_scope", "excluded");
 
           if (error) throw new Error(`Failed to fetch evidence: ${error.message}`);
-          evidence = (data ?? []) as EvidenceRow[];
+          const allEvidence = (data ?? []) as EvidenceRow[];
+          const adjacentEvidenceIds = adjacentProjectHintedEvidenceIds(allEvidence);
+          adjacentEvidenceExcluded = adjacentEvidenceIds.size;
+          evidence = filterAdjacentProjectHintedEvidence(allEvidence);
+          problemEvidence = problemEvidence.filter((link) => !adjacentEvidenceIds.has(link.evidence_id));
         }
 
         return {
@@ -644,6 +653,7 @@ export const generateOpportunities = inngest.createFunction(
           evidence,
           existingOpportunities: (existingOpportunitiesResult.data ?? []) as ExistingOpportunityRow[],
           frame: (projectResult.data?.frame as string | null) ?? "",
+          adjacentEvidenceExcluded,
         };
       });
 
@@ -662,6 +672,7 @@ export const generateOpportunities = inngest.createFunction(
                 problems: context.problems.length,
                 problem_evidence_links: context.problemEvidence.length,
                 evidence_supplied: context.evidence.length,
+                adjacent_evidence_excluded: context.adjacentEvidenceExcluded,
                 opportunities_written: 0,
               },
               completed_at: new Date().toISOString(),
@@ -882,6 +893,7 @@ export const generateOpportunities = inngest.createFunction(
           planned_locked_linked: plannedLockedLinked,
           planned_link_rows: plannedLinkRows,
           planned_writes: dryRun ? plannedInserted + plannedUpdated + plannedLockedLinked : 0,
+          adjacent_evidence_excluded: context.adjacentEvidenceExcluded,
         };
       });
 

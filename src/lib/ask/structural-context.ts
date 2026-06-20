@@ -1,4 +1,5 @@
 import type { EvidenceRecord, TrustScope } from "@/types/database";
+import { filterAdjacentProjectHintedEvidence } from "@/lib/evidence/adjacent-project";
 
 type SupabaseLike = {
   from: (table: string) => any;
@@ -235,7 +236,7 @@ async function loadEvidenceRecordsByIds(input: {
     }
   }
 
-  return records;
+  return filterAdjacentProjectHintedEvidence(records);
 }
 
 async function collectThemeEvidenceIds(input: {

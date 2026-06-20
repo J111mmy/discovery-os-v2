@@ -4,6 +4,7 @@
 
 import { createServiceClient } from "@/lib/supabase/server";
 import { cookies } from "next/headers";
+import { ACTIVE_PROJECT_FILTER } from "@/lib/projects/active-projects";
 
 export const IMPERSONATE_COOKIE = "disco_impersonate_org";
 
@@ -18,8 +19,6 @@ type AgentRunSummary = {
   started_at: string;
   status: string;
 };
-
-const ACTIVE_PROJECT_FILTER = "archived.is.null,archived.eq.false";
 
 export type OrgStats = OrgSummary & {
   member_count: number;

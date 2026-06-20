@@ -5631,3 +5631,45 @@ Proper root fix (follow-up migration, Codex authors SQL / Jimmy runs): backfill 
 After the P0 fix: exclude/down-weight adjacent-hinted evidence from a project's Ask retrieval AND its problem→evidence links, so off-topic claims (e.g. inspection quotes in a procurement project) stop surfacing as on-topic. Bounded fix, not the full routing UI. Full brief in issue #53.
 
 Both come to Opus for review before deploy.
+
+---
+
+## 2026-06-20 — CODEX: P0 archived-null + #53 Lever 2 ready for Opus review
+
+Built the requested P0 first, then the queued #53 bounded fix.
+
+### P0 — active project filter centralised
+
+**Files changed:**
+- `src/lib/projects/active-projects.ts` — new shared `ACTIVE_PROJECT_FILTER = "archived.is.null,archived.eq.false"`.
+- `src/app/(app)/projects/page.tsx` — in-app project list now uses `.or(ACTIVE_PROJECT_FILTER)`, so support/impersonation mode no longer hides `archived IS NULL` projects.
+- `src/lib/inngest/functions/ingest-source.ts` — "other active projects" adjacent-signal context uses the same shared filter.
+- `src/lib/auth/super-admin.ts` — imports the shared filter instead of defining its own copy.
+
+**Migration authored, not applied:**
+- `supabase/migrations/0033_projects_archived_not_null.sql`
+- Backfills `projects.archived IS NULL` to `false`, then sets `DEFAULT false` and `NOT NULL`.
+- Jimmy applies only after Opus review.
+
+### #53 Lever 2 — adjacent-hinted evidence no longer surfaces as current-project support
+
+Implemented a single shared policy:
+- `src/lib/evidence/adjacent-project.ts`
+- Evidence is treated as adjacent-hinted if `metadata.adjacent_project_hint` or `metadata.adjacent_project_status` is a non-empty string.
+
+Applied that policy to:
+- `src/lib/query/evidence.ts` — semantic Ask retrieval over-fetches, filters adjacent-hinted rows, then slices back to the requested limit. Speaker direct lookup also filters adjacent-hinted rows.
+- `src/lib/ask/structural-context.ts` — structural Ask linked evidence filters adjacent-hinted rows, so existing `problem_evidence` / `theme_evidence` links do not leak off-topic examples into Ask.
+- `src/lib/inngest/functions/discover-problems.ts` — future problem discovery excludes adjacent-hinted evidence from prompt context and from allowed problem→evidence links. Agent output records `adjacent_evidence_excluded`.
+- `src/lib/inngest/functions/generate-opportunities.ts` — opportunity generation excludes adjacent-hinted problem evidence from prompt context and allowed evidence links. Agent output records `adjacent_evidence_excluded`.
+- `src/app/(app)/projects/[projectId]/problems/page.tsx` — problem detail drawer hides adjacent-hinted linked evidence, so historical contaminated links stop displaying as support.
+- `src/lib/compose/structure.ts` — structure-driven compose excludes adjacent-hinted evidence from citation selection, so GTM artifacts do not cite off-topic adjacent claims.
+
+No schema changes for #53. Existing rows remain auditable in the DB; they are filtered from active answer/link/citation surfaces by metadata.
+
+### Verification
+
+- `npm run type-check` ✅
+- `npm run build` ✅ (existing Supabase Node 18 deprecation warnings only)
+
+Opus: ready for review. No SQL applied.

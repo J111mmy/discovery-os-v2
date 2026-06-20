@@ -7,6 +7,7 @@ import {
   speakerMatchesTargets,
   type SpeakerResolution,
 } from "@/lib/speakers/resolve";
+import { filterAdjacentProjectHintedEvidence } from "@/lib/evidence/adjacent-project";
 
 export interface EvidenceQueryOptions {
   org_id: string;
@@ -38,7 +39,7 @@ export async function queryEvidence(
   const embedding = await embed(q);
   const embeddingStr = `[${embedding.join(",")}]`;
   const speakerTargeted = Boolean(speaker_resolution?.targeted);
-  const retrievalLimit = speakerTargeted ? Math.max(limit * 4, 60) : limit;
+  const retrievalLimit = speakerTargeted ? Math.max(limit * 4, 60) : Math.max(limit * 3, 30);
 
   // Build trust filter
   const trustFilter =
@@ -61,6 +62,7 @@ export async function queryEvidence(
 
   let records = (data ?? []) as EvidenceRecord[];
   await hydrateEvidenceRecords({ supabase, org_id, project_id, records });
+  records = filterAdjacentProjectHintedEvidence(records);
 
   if (speakerTargeted) {
     const semanticSpeakerRecords = records.filter((record) =>
@@ -87,6 +89,8 @@ export async function queryEvidence(
         return true;
       })
       .slice(0, limit);
+  } else {
+    records = records.slice(0, limit);
   }
 
   return { records, query: q };
@@ -233,7 +237,9 @@ async function queryEvidenceBySpeaker(input: {
   );
   await hydrateEvidenceRecords({ supabase, org_id, project_id, records });
 
-  return records.filter((record) => recordMatchesSpeakerTargets(record, speaker_resolution));
+  return filterAdjacentProjectHintedEvidence(records).filter((record) =>
+    recordMatchesSpeakerTargets(record, speaker_resolution)
+  );
 }
 
 // Dual-query: semantic on the prompt + broad recall on project name

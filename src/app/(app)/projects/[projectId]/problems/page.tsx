@@ -1,4 +1,8 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import {
+  adjacentProjectHintedEvidenceIds,
+  filterAdjacentProjectHintedEvidence,
+} from "@/lib/evidence/adjacent-project";
 import { createClient } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
 import { PipelineRail } from "../PipelineRail";
@@ -213,7 +217,7 @@ async function getProblemDetail(input: {
   if (evidenceResult.error) throw new Error("Failed to load problem evidence");
   if (topicsResult.error) throw new Error("Failed to load problem topics");
 
-  const relatedEvidence = (evidenceResult.data ?? []) as Array<{
+  const fetchedEvidence = (evidenceResult.data ?? []) as Array<{
     id: string;
     source_id: string;
     segment_id: string | null;
@@ -226,6 +230,12 @@ async function getProblemDetail(input: {
     classification: string | null;
     sentiment: string | null;
   }>;
+  const adjacentEvidenceIds = adjacentProjectHintedEvidenceIds(fetchedEvidence);
+  const visibleEvidenceLinksForDisplay = visibleEvidenceLinks.filter(
+    (link) => !adjacentEvidenceIds.has(link.evidence_id)
+  );
+  const relatedEvidence = filterAdjacentProjectHintedEvidence(fetchedEvidence);
+  const visibleEvidenceIds = unique(visibleEvidenceLinksForDisplay.map((link) => link.evidence_id));
   const themes = (themesResult.data ?? []) as Array<{
     id: string;
     label: string;
@@ -258,13 +268,13 @@ async function getProblemDetail(input: {
           .in("source_id", sourceIds)
           .in("id", segmentIds)
       : Promise.resolve({ data: [], error: null }),
-    evidenceIds.length > 0
+    visibleEvidenceIds.length > 0
       ? supabase
           .from("evidence_entities")
           .select("id, evidence_id, entity_type, label, relationship, person_id, company_id, competitor_id")
           .eq("org_id", orgId)
           .eq("project_id", projectId)
-          .in("evidence_id", evidenceIds)
+          .in("evidence_id", visibleEvidenceIds)
       : Promise.resolve({ data: [], error: null }),
   ]);
 
@@ -326,7 +336,7 @@ async function getProblemDetail(input: {
   return {
     problem: {
       ...problem,
-      source_evidence_ids: evidenceIds,
+      source_evidence_ids: visibleEvidenceIds,
       source_theme_ids: themeIds,
     },
     themes: visibleThemeLinks
@@ -348,7 +358,7 @@ async function getProblemDetail(input: {
         };
       })
       .filter((theme): theme is ProblemDetail["themes"][number] => Boolean(theme)),
-    evidence: visibleEvidenceLinks
+    evidence: visibleEvidenceLinksForDisplay
       .map((link) => {
         const row = evidenceById.get(link.evidence_id);
         if (!row) return null;
@@ -405,8 +415,10 @@ async function getProblemDetail(input: {
         entity.label,
       relationship: entity.relationship,
     })),
-    removed_evidence_count: allEvidenceLinks.length - visibleEvidenceLinks.length,
-    evidence_provenance_state: provenanceState(visibleEvidenceLinks.map((link) => link.relationship)),
+    removed_evidence_count: allEvidenceLinks.length - visibleEvidenceLinksForDisplay.length,
+    evidence_provenance_state: provenanceState(
+      visibleEvidenceLinksForDisplay.map((link) => link.relationship)
+    ),
     theme_provenance_state: provenanceState(visibleThemeLinks.map((link) => link.relationship)),
   };
 }

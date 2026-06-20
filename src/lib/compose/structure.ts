@@ -2,6 +2,7 @@ import { callLLM } from "@/lib/llm/client";
 import { detectExpertPersona } from "@/lib/llm/persona";
 import { neutralizeUntrustedSourceContentFence } from "@/lib/llm/prompts/untrusted-content";
 import { createServiceClient } from "@/lib/supabase/server";
+import { filterAdjacentProjectHintedEvidence } from "@/lib/evidence/adjacent-project";
 import type { ComposeDraftSection, TaskTier } from "@/types/database";
 
 const VISIBLE_REVIEW_STATES = ["suggested", "accepted", "edited"] as const;
@@ -515,7 +516,7 @@ async function fetchStructureContext({
   }
 
   const themes = asRows<ThemeRow>(themesResult.data);
-  const evidence = asRows<EvidenceRow>(evidenceResult.data);
+  const evidence = filterAdjacentProjectHintedEvidence(asRows<EvidenceRow>(evidenceResult.data));
   const sourceIds = unique(evidence.map((row) => row.source_id));
   const segmentIds = unique(evidence.map((row) => row.segment_id));
   const [sourcesResult, segmentsResult] = await Promise.all([

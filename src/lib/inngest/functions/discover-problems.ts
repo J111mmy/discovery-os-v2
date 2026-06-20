@@ -9,6 +9,10 @@ import {
   buildProblemDiscoveryPrompt,
   PROBLEM_DISCOVERY_PROMPT_VERSION,
 } from "@/lib/llm/prompts/problems";
+import {
+  adjacentProjectHintedEvidenceIds,
+  filterAdjacentProjectHintedEvidence,
+} from "@/lib/evidence/adjacent-project";
 
 const PROBLEM_DEDUPE_SIMILARITY_THRESHOLD = 0.86;
 const MAX_THEMES_FOR_PROMPT = 24;
@@ -543,6 +547,7 @@ export const discoverProblems = inngest.createFunction(
 
         const evidenceIds = Array.from(new Set(themeEvidence.map((link) => link.evidence_id)));
         let evidence: EvidenceRow[] = [];
+        let adjacentEvidenceExcluded = 0;
         if (evidenceIds.length > 0) {
           const { data, error } = await supabase
             .from("evidence")
@@ -553,7 +558,11 @@ export const discoverProblems = inngest.createFunction(
             .neq("trust_scope", "excluded");
 
           if (error) throw new Error(`Failed to fetch evidence: ${error.message}`);
-          evidence = (data ?? []) as EvidenceRow[];
+          const allEvidence = (data ?? []) as EvidenceRow[];
+          const adjacentEvidenceIds = adjacentProjectHintedEvidenceIds(allEvidence);
+          adjacentEvidenceExcluded = adjacentEvidenceIds.size;
+          evidence = filterAdjacentProjectHintedEvidence(allEvidence);
+          themeEvidence = themeEvidence.filter((link) => !adjacentEvidenceIds.has(link.evidence_id));
         }
 
         let evidenceTopics: EvidenceTopicRow[] = [];
@@ -592,6 +601,7 @@ export const discoverProblems = inngest.createFunction(
           topics,
           existingProblems: (existingProblemsResult.data ?? []) as ExistingProblemRow[],
           frame: (projectResult.data?.frame as string | null) ?? "",
+          adjacentEvidenceExcluded,
         };
       });
 
@@ -605,6 +615,7 @@ export const discoverProblems = inngest.createFunction(
                 dry_run: dryRun,
                 themes: context.themes.length,
                 theme_evidence_links: context.themeEvidence.length,
+                adjacent_evidence_excluded: context.adjacentEvidenceExcluded,
                 problems_written: 0,
               },
               completed_at: new Date().toISOString(),
@@ -806,6 +817,7 @@ export const discoverProblems = inngest.createFunction(
           dedupe_methods: dedupeMethods,
           similarity_histogram: similarityHistogram,
           planned_writes: dryRun ? plans.length - skipped : 0,
+          adjacent_evidence_excluded: context.adjacentEvidenceExcluded,
         };
       });
 

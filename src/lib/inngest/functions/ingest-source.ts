@@ -14,6 +14,7 @@ import {
 } from "@/lib/ingest/entity-resolutions";
 import { PROCESSED_MARKER_ERROR, looksLikeProcessedMarker } from "@/lib/ingest/quality";
 import { redactPII } from "@/lib/llm/pii";
+import { ACTIVE_PROJECT_FILTER } from "@/lib/projects/active-projects";
 import {
   buildIngestExtractionBatchContent,
   buildIngestExtractionStaticPrompt,
@@ -1376,7 +1377,7 @@ export const ingestSource = inngest.createFunction(
             .select("id, name, frame")
             .eq("org_id", org_id)
             .neq("id", project_id)
-            .eq("archived", false)
+            .or(ACTIVE_PROJECT_FILTER)
             .limit(MAX_OTHER_PROJECTS_FOR_EXTRACTION_CONTEXT),
           // Internal speakers — their turns are context, not customer evidence
           supabase
