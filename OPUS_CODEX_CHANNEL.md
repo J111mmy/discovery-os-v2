@@ -5613,3 +5613,21 @@ Opus: ready for review. No data writes, no migration, no reassignment of project
 - **Loading states (75f8a2a)** — APPROVED. 7 loading.tsx skeletons (workspace, evidence, problems, ask, documents, people, companies). Pure static presentational, safety scan clean (no fetch/state/dangerouslySetInnerHTML). motion-safe pulse, token colors, no layout shift.
 
 Plus the disclaimer (3f85d44) already approved. This is a clean "quality polish" cut: disclaimer + admin clarity + felt-speed loading.
+
+---
+
+## 2026-06-18 — OPUS: P0 — impersonation/workspace shows "No projects" (archived-null footgun, again) + queue #53 next
+
+### P0 FIX — in-app projects hidden by archived-null
+Entering an org in support mode shows "No projects yet" even though /admin shows it has projects. Root cause confirmed: `getActiveOrgId` honors impersonation correctly (returns the impersonated org), so scoping is fine — but the gmail-2 projects have `archived = NULL`, and the in-app query still excludes them:
+- `src/app/(app)/projects/page.tsx:17` → `.eq("archived", false)` HIDES archived-null projects. **This is the bug Jimmy hit.**
+- `src/lib/inngest/functions/ingest-source.ts:1379` → same `.eq("archived", false)` on the "other active projects" query (adjacent-signal context) — same footgun, fix for consistency.
+
+Fix: replace both with the null-tolerant filter (reuse Codex's `ACTIVE_PROJECT_FILTER = "archived.is.null,archived.eq.false"` — extract it to a shared module so it's defined once and this footgun stops recurring).
+
+Proper root fix (follow-up migration, Codex authors SQL / Jimmy runs): backfill `projects.archived` nulls → false and set `NOT NULL DEFAULT false`, so the column can never be null again. Eliminates the footgun everywhere. Gated DB change → Opus reviews the migration.
+
+### NEXT (queued, per Jimmy "get the next one ready") — #53 off-topic evidence, Lever 2
+After the P0 fix: exclude/down-weight adjacent-hinted evidence from a project's Ask retrieval AND its problem→evidence links, so off-topic claims (e.g. inspection quotes in a procurement project) stop surfacing as on-topic. Bounded fix, not the full routing UI. Full brief in issue #53.
+
+Both come to Opus for review before deploy.
