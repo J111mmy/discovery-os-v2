@@ -356,7 +356,7 @@ export function OpportunitiesList({ projectId }: OpportunitiesListProps) {
   if (opportunities.length === 0) {
     return (
       <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-12 text-center text-sm text-[var(--ink-2)]">
-        No opportunities yet. Opportunities are surfaced from your problems once synthesis has run.
+        No product opportunities yet. These are surfaced from evidence-backed problems, not from suggested workspaces.
       </div>
     );
   }

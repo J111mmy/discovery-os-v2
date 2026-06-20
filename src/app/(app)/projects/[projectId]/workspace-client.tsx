@@ -6,7 +6,7 @@
  * Handles all animated / interactive elements:
  *   ConfRing           — 44px SVG donut that animates on mount
  *   EvidenceChart      — IntersectionObserver bar chart (theme evidence counts)
- *   TeaserCard         — lift-on-hover link card (Problems / Gaps / Opportunities)
+ *   TeaserCard         — lift-on-hover link card (Problems / Gaps / Suggested workspaces)
  *   ProjectContextCard — collapsible research context
  *
  * Server actions (runProjectSynthesisAction, etc.) are passed as props so they
@@ -31,7 +31,7 @@ type GapSignal = {
   suggested_action: string;
 };
 
-type OpportunityPreview = {
+type SuggestedWorkspacePreview = {
   id: string;
   title: string;
   description: string | null;
@@ -63,7 +63,7 @@ export interface WorkspaceViewProps {
   problemCount: number;
   problemPreviews: Array<{ id: string; title: string }>;
   gapSignals: GapSignal[] | null;
-  opportunityRows: OpportunityPreview[];
+  suggestedWorkspaceRows: SuggestedWorkspacePreview[];
   synthesisRunning: boolean;
   // Server actions passed in so this file stays "use client"
   onSynthesize: (formData: FormData) => Promise<void>;
@@ -700,7 +700,7 @@ export function WorkspaceView({
   problemCount,
   problemPreviews,
   gapSignals,
-  opportunityRows,
+  suggestedWorkspaceRows,
   synthesisRunning,
   onSynthesize,
   onOpportunityStatus,
@@ -1108,16 +1108,16 @@ export function WorkspaceView({
           />
           <TeaserCard
             label="Suggested workspaces"
-            count={opportunityRows.length}
+            count={suggestedWorkspaceRows.length}
             color="var(--info)"
-            items={opportunityRows.map((o) => o.title)}
-            href="#opportunities"
+            items={suggestedWorkspaceRows.map((workspace) => workspace.title)}
+            href="#suggested-workspaces"
           />
         </div>
 
-        {/* ── Opportunity detail rows (actions: create / watch / dismiss) ── */}
-        {opportunityRows.length > 0 && (
-          <div id="opportunities" style={cardStyle}>
+        {/* ── Suggested workspace rows from project_opportunities (create / watch / dismiss) ── */}
+        {suggestedWorkspaceRows.length > 0 && (
+          <div id="suggested-workspaces" style={cardStyle}>
             <div
               style={{
                 padding: "14px 20px",
@@ -1125,28 +1125,42 @@ export function WorkspaceView({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
+                flexWrap: "wrap",
                 gap: 12,
               }}
             >
-              <div>
+              <div style={{ flex: "1 1 260px", minWidth: 0 }}>
                 <div style={{ fontWeight: 620, fontSize: 14, color: "var(--ink)" }}>
                   Suggested workspaces
                 </div>
                 <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 2 }}>
-                  Evidence pointing at adjacent discovery areas
+                  Adjacent discovery areas you may turn into separate workspaces.
                 </div>
               </div>
-              <span
-                style={{
-                  padding: "3px 10px",
-                  borderRadius: 999,
-                  border: "1px solid var(--line)",
-                  fontSize: 12,
-                  color: "var(--ink-faint)",
-                }}
-              >
-                {opportunityRows.length} active
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                <Link
+                  href={`/projects/${project.id}/opportunities`}
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 560,
+                    color: "var(--accent)",
+                    textDecoration: "none",
+                  }}
+                >
+                  Product opportunities →
+                </Link>
+                <span
+                  style={{
+                    padding: "3px 10px",
+                    borderRadius: 999,
+                    border: "1px solid var(--line)",
+                    fontSize: 12,
+                    color: "var(--ink-faint)",
+                  }}
+                >
+                  {suggestedWorkspaceRows.length} active
+                </span>
+              </div>
             </div>
 
             <div
@@ -1156,15 +1170,15 @@ export function WorkspaceView({
                 gap: 0,
               }}
             >
-              {opportunityRows.map((opp, idx) => {
-                const frameLine = firstFrameLine(opp.suggested_frame);
+              {suggestedWorkspaceRows.map((workspace, idx) => {
+                const frameLine = firstFrameLine(workspace.suggested_frame);
                 return (
                   <div
-                    key={opp.id}
+                    key={workspace.id}
                     style={{
                       padding: "16px 20px",
                       borderBottom:
-                        idx < opportunityRows.length - 1
+                        idx < suggestedWorkspaceRows.length - 1
                           ? "1px solid var(--line)"
                           : "none",
                       display: "flex",
@@ -1191,7 +1205,7 @@ export function WorkspaceView({
                           color: "var(--ink-2)",
                         }}
                       >
-                        {opp.status === "watching" ? "Watching" : "Suggested"}
+                        {workspace.status === "watching" ? "Watching" : "Suggested workspace"}
                       </span>
                       <span
                         style={{
@@ -1199,17 +1213,17 @@ export function WorkspaceView({
                           borderRadius: 999,
                           fontSize: 11.5,
                           fontWeight: 500,
-                          ...confidenceBadgeStyle(opp.confidence),
+                          ...confidenceBadgeStyle(workspace.confidence),
                         }}
                       >
-                        {opp.confidence} confidence
+                        {workspace.confidence} confidence
                       </span>
                     </div>
 
                     <div style={{ fontWeight: 600, fontSize: 14, color: "var(--ink)" }}>
-                      {opp.title}
+                      {workspace.title}
                     </div>
-                    {opp.description && (
+                    {workspace.description && (
                       <p
                         style={{
                           fontSize: 13,
@@ -1218,7 +1232,7 @@ export function WorkspaceView({
                           margin: 0,
                         }}
                       >
-                        {opp.description}
+                        {workspace.description}
                       </p>
                     )}
                     {frameLine && (
@@ -1241,13 +1255,13 @@ export function WorkspaceView({
                       }}
                     >
                       <span>
-                        {opp.supporting_evidence_count} evidence record
-                        {opp.supporting_evidence_count !== 1 ? "s" : ""}
+                        {workspace.supporting_evidence_count} evidence record
+                        {workspace.supporting_evidence_count !== 1 ? "s" : ""}
                       </span>
                       <span>·</span>
                       <span>
-                        {opp.source_project_count} source project
-                        {opp.source_project_count !== 1 ? "s" : ""}
+                        {workspace.source_project_count} source project
+                        {workspace.source_project_count !== 1 ? "s" : ""}
                       </span>
                     </div>
 
@@ -1262,7 +1276,7 @@ export function WorkspaceView({
                         <input
                           type="hidden"
                           name="opportunity_id"
-                          value={opp.id}
+                          value={workspace.id}
                         />
                         <button
                           type="submit"
@@ -1282,7 +1296,7 @@ export function WorkspaceView({
                         </button>
                       </form>
 
-                      {opp.status !== "watching" && (
+                      {workspace.status !== "watching" && (
                         <form action={onOpportunityStatus}>
                           <input
                             type="hidden"
@@ -1292,7 +1306,7 @@ export function WorkspaceView({
                           <input
                             type="hidden"
                             name="opportunity_id"
-                            value={opp.id}
+                            value={workspace.id}
                           />
                           <input type="hidden" name="status" value="watching" />
                           <button
@@ -1323,7 +1337,7 @@ export function WorkspaceView({
                         <input
                           type="hidden"
                           name="opportunity_id"
-                          value={opp.id}
+                          value={workspace.id}
                         />
                         <input type="hidden" name="status" value="dismissed" />
                         <button

@@ -48,9 +48,10 @@ export default async function OpportunitiesPage({ params }: Props) {
         <div className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
           {project.name}
         </div>
-        <h1 className="text-2xl font-semibold text-[var(--ink)]">Opportunities</h1>
+        <h1 className="text-2xl font-semibold text-[var(--ink)]">Product opportunities</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-2)]">
-          Solution directions surfaced from your problems, traced back to the evidence and themes behind them.
+          Problem-linked solution directions, traced back to the evidence and themes behind them.
+          Suggested workspaces are managed separately on the workspace overview.
         </p>
       </div>
 

@@ -5799,3 +5799,42 @@ Built Phase B only, stacked on approved Phase A.
 - `npm run build` ✅ (existing Supabase Node 18 deprecation warnings only)
 
 Opus: Phase B ready for review. No SQL applied.
+
+---
+
+## 2026-06-20 — CODEX: #28 Phase C opportunities reconciliation ready for Opus review
+
+Built Phase C only, stacked on approved Phase B.
+
+**Scope held:**
+- No migration.
+- No changes to `project_opportunities` schema or semantics.
+- No #25 agent/UI build beyond labels already supported by the existing `/opportunities` read surface.
+- "Suggested workspaces" name remains locked for `project_opportunities`.
+
+**New Phase C change:**
+- `src/app/(app)/projects/[projectId]/workspace-client.tsx`
+  - Renamed the workspace data prop/type from `opportunityRows` / `OpportunityPreview` to
+    `suggestedWorkspaceRows` / `SuggestedWorkspacePreview`.
+  - Changed the internal anchor from `#opportunities` to `#suggested-workspaces`.
+  - Kept the workspace teaser and expanded section labelled "Suggested workspaces".
+  - Added explicit copy: "Adjacent discovery areas you may turn into separate workspaces."
+  - Added a clear cross-link from the suggested-workspaces section to "Product opportunities →".
+- `src/app/(app)/projects/[projectId]/page.tsx`
+  - Commented and named the `project_opportunities` query as suggested workspaces, with product
+    opportunities documented as the separate `opportunities` table / `/opportunities` route.
+- `src/app/(app)/projects/[projectId]/project-sidebar.tsx`
+  - Sidebar label is now "Product opportunities" for the `opportunities` table surface.
+- `src/app/(app)/projects/[projectId]/opportunities/page.tsx`
+  - Page heading is now "Product opportunities".
+  - Intro copy explicitly says suggested workspaces are managed separately on the workspace overview.
+- `src/app/(app)/projects/[projectId]/opportunities/opportunities-list.tsx`
+  - Empty state says "No product opportunities yet" and distinguishes them from suggested workspaces.
+- `docs/architecture/UI_AUDIT.md`
+  - Updated to reflect Phase C naming reconciliation.
+
+**Verification:**
+- `npm run type-check` ✅
+- `npm run build` ✅ (existing Supabase Node 18 deprecation warnings only)
+
+Opus: Phase C ready for review. No SQL applied.

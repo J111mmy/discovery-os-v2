@@ -51,9 +51,10 @@ Every other screen predates P3:
   legacy `?theme=` URL remains as a deprecated compatibility fallback; new Topic lens links use
   typed `topic_id`.
 - **Topics are invisible** outside the evidence browser (the descriptive layer added in P3).
-- **No opportunities page/detail** (schema-only; tied to #25/#26). The workspace "Opportunities"
-  card shows `project_opportunities` (the older "suggested workspaces" concept), which is now
-  ambiguous against the new `opportunities` table.
+- **Opportunity naming Phase C started.** The workspace overview labels `project_opportunities` as
+  "Suggested workspaces" and links separately to the `/opportunities` product-opportunity surface.
+  The sidebar and page title use "Product opportunities" for the problem-linked `opportunities`
+  table.
 - General: screens like "Review source-backed records" (evidence) still frame the model as
   Sources → Claims → Problems and don't surface topics/themes or the typed support chain.
 

@@ -36,7 +36,7 @@ type ActivityRun = {
   completed_at: string | null;
 };
 
-type OpportunityPreview = {
+type SuggestedWorkspacePreview = {
   id: string;
   title: string;
   description: string | null;
@@ -229,8 +229,9 @@ export default async function ProjectPage({ params }: Props) {
     problemCount: problemCount ?? 0,
   });
 
-  // Opportunities (suggested + watching, high confidence first, limit 3)
-  const opportunityRows = await (async (): Promise<OpportunityPreview[]> => {
+  // Suggested workspaces from project_opportunities (adjacent discovery/project areas).
+  // Product opportunities live separately in the opportunities table and /opportunities route.
+  const suggestedWorkspaceRows = await (async (): Promise<SuggestedWorkspacePreview[]> => {
     try {
       const { data } = await supabase
         .from("project_opportunity_projects")
@@ -245,7 +246,7 @@ export default async function ProjectPage({ params }: Props) {
         (
           data ?? []
         ) as Array<{
-          project_opportunities: OpportunityPreview | OpportunityPreview[] | null;
+          project_opportunities: SuggestedWorkspacePreview | SuggestedWorkspacePreview[] | null;
         }>
       )
         .flatMap((row) => {
@@ -255,7 +256,7 @@ export default async function ProjectPage({ params }: Props) {
             : [row.project_opportunities];
         })
         .filter(
-          (opp) => opp.status === "suggested" || opp.status === "watching"
+          (workspace) => workspace.status === "suggested" || workspace.status === "watching"
         )
         .sort((a, b) => {
           const score = { high: 3, medium: 2, low: 1 };
@@ -289,7 +290,7 @@ export default async function ProjectPage({ params }: Props) {
       problemCount={problemCount ?? 0}
       problemPreviews={(problemPreviews ?? []) as ProblemPreview[]}
       gapSignals={gapSignals}
-      opportunityRows={opportunityRows}
+      suggestedWorkspaceRows={suggestedWorkspaceRows}
       synthesisRunning={synthesisRunning}
       onSynthesize={runProjectSynthesisAction}
       onOpportunityStatus={updateProjectOpportunityStatusAction}

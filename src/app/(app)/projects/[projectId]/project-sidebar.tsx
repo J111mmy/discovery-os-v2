@@ -16,7 +16,7 @@ const navItems = [
   { href: "ask", label: "Ask" },
   { href: "problems", label: "Problems" },
   { href: "themes", label: "Themes" },
-  { href: "opportunities", label: "Opportunities" },
+  { href: "opportunities", label: "Product opportunities" },
   { href: "sources", label: "Sources" },
   { href: "compose", label: "Compose" },
   { href: "documents", label: "Documents" },
