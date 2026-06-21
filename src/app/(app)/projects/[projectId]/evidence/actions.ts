@@ -4,10 +4,35 @@ import { accessRedirectPath, requireActiveAccess } from "@/lib/auth/access";
 import { getProjectForUser } from "@/lib/auth/org";
 import { inngest } from "@/lib/inngest/client";
 import { hydrateEvidenceRecordsWithTypedTopics } from "@/lib/research-ontology/evidence-topics";
+import {
+  hydrateEvidenceRecordsWithTags,
+  loadProjectTags,
+  tagLabelKey,
+  type TagOption,
+} from "@/lib/research-ontology/evidence-tags";
 import { createClient } from "@/lib/supabase/server";
 import type { EvidenceRecord, TrustScope, TrustScopeSource } from "@/types/database";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+
+// Cycled deterministically by label so a given tag keeps the same color across
+// sessions without requiring a swatch picker in the create-tag UI.
+const TAG_COLOR_PALETTE = [
+  "#60a5fa", // info
+  "#f59e0b", // warn
+  "#34d399", // pos
+  "#f472b6",
+  "#a78bfa",
+  "#fb7185",
+];
+
+function colorForLabel(label: string): string {
+  let hash = 0;
+  for (let i = 0; i < label.length; i++) {
+    hash = (hash * 31 + label.charCodeAt(i)) | 0;
+  }
+  return TAG_COLOR_PALETTE[Math.abs(hash) % TAG_COLOR_PALETTE.length];
+}
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -363,6 +388,12 @@ export async function loadEvidenceRecordsAction({
     projectId: project.id,
     records: (evidence ?? []) as EvidenceRecord[],
   });
+  await hydrateEvidenceRecordsWithTags({
+    supabase,
+    orgId: project.org_id,
+    projectId: project.id,
+    records,
+  });
   const sourceIds = Array.from(new Set(records.map((record) => record.source_id)));
   const segmentIds = Array.from(
     new Set(records.map((record) => record.segment_id).filter(Boolean))
@@ -417,4 +448,132 @@ export async function loadEvidenceRecordsAction({
   }
 
   return records;
+}
+
+// ── Tags — the human's own workflow/organisational layer (ONTOLOGY.md: Tag ≠ Topic). ──
+// Tables `tags` / `evidence_tags` already exist with RLS (migration 0030); this is
+// app-level read/write only, no schema or policy change.
+
+async function authedProjectForTags(projectId: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) redirect("/login");
+  const access = await requireActiveAccess({ id: user.id, email: user.email });
+  if (!access.ok) redirect(accessRedirectPath(access.status));
+
+  const project = await getProjectForUser<{ id: string; org_id: string }>(
+    user.id,
+    projectId,
+    "id, org_id"
+  );
+
+  return { supabase, project };
+}
+
+export async function listProjectTagsAction(projectId: string): Promise<TagOption[]> {
+  const { supabase, project } = await authedProjectForTags(projectId);
+  if (!project) return [];
+
+  return loadProjectTags({ supabase, orgId: project.org_id, projectId: project.id });
+}
+
+export async function createTagAction({
+  projectId,
+  label,
+}: {
+  projectId: string;
+  label: string;
+}): Promise<{ ok: boolean; tag?: TagOption; error?: string }> {
+  const trimmed = label.trim();
+  if (!trimmed) return { ok: false, error: "Tag name can't be empty." };
+
+  const { supabase, project } = await authedProjectForTags(projectId);
+  if (!project) return { ok: false, error: "Project not found." };
+
+  const labelKey = tagLabelKey(trimmed);
+  if (!labelKey) return { ok: false, error: "Tag name can't be empty." };
+
+  // Idempotent: if this label already exists for the project, hand back the
+  // existing tag instead of erroring on the unique (org_id, project_id, label_key) index.
+  const { data: existing } = await supabase
+    .from("tags")
+    .select("id, label, color")
+    .eq("org_id", project.org_id)
+    .eq("project_id", project.id)
+    .eq("label_key", labelKey)
+    .maybeSingle();
+
+  if (existing) return { ok: true, tag: existing as TagOption };
+
+  const { data: inserted, error } = await supabase
+    .from("tags")
+    .insert({
+      org_id: project.org_id,
+      project_id: project.id,
+      label: trimmed,
+      label_key: labelKey,
+      color: colorForLabel(trimmed),
+    })
+    .select("id, label, color")
+    .single();
+
+  if (error || !inserted) return { ok: false, error: error?.message ?? "Could not create tag." };
+
+  revalidatePath(`/projects/${project.id}/evidence`);
+  return { ok: true, tag: inserted as TagOption };
+}
+
+export async function applyTagToEvidenceAction({
+  projectId,
+  evidenceId,
+  tagId,
+}: {
+  projectId: string;
+  evidenceId: string;
+  tagId: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const { supabase, project } = await authedProjectForTags(projectId);
+  if (!project) return { ok: false, error: "Project not found." };
+
+  const { error } = await supabase.from("evidence_tags").insert({
+    org_id: project.org_id,
+    project_id: project.id,
+    evidence_id: evidenceId,
+    tag_id: tagId,
+  });
+
+  // Already applied — treat as success, not an error the user needs to see.
+  if (error && error.code !== "23505") return { ok: false, error: error.message };
+
+  revalidatePath(`/projects/${project.id}/evidence`);
+  return { ok: true };
+}
+
+export async function removeTagFromEvidenceAction({
+  projectId,
+  evidenceId,
+  tagId,
+}: {
+  projectId: string;
+  evidenceId: string;
+  tagId: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const { supabase, project } = await authedProjectForTags(projectId);
+  if (!project) return { ok: false, error: "Project not found." };
+
+  const { error } = await supabase
+    .from("evidence_tags")
+    .delete()
+    .eq("org_id", project.org_id)
+    .eq("project_id", project.id)
+    .eq("evidence_id", evidenceId)
+    .eq("tag_id", tagId);
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/projects/${project.id}/evidence`);
+  return { ok: true };
 }
