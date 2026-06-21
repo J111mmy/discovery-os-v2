@@ -8,6 +8,11 @@ import {
   type SpeakerResolution,
 } from "@/lib/speakers/resolve";
 import { filterAdjacentProjectHintedEvidence } from "@/lib/evidence/adjacent-project";
+import {
+  filterInternalEvidence,
+  loadInternalEvidenceGuardContext,
+  type InternalEvidenceGuardContext,
+} from "@/lib/evidence/internal";
 import { hydrateEvidenceRecordsWithTypedTopics } from "@/lib/research-ontology/evidence-topics";
 
 export interface EvidenceQueryOptions {
@@ -63,7 +68,11 @@ export async function queryEvidence(
 
   let records = (data ?? []) as EvidenceRecord[];
   await hydrateEvidenceRecords({ supabase, org_id, project_id, records });
-  records = filterAdjacentProjectHintedEvidence(records);
+  const internalGuardContext = await loadInternalEvidenceGuardContext({ supabase, org_id });
+  records = filterInternalEvidence(
+    filterAdjacentProjectHintedEvidence(records),
+    internalGuardContext
+  );
 
   if (speakerTargeted) {
     const semanticSpeakerRecords = records.filter((record) =>
@@ -79,6 +88,7 @@ export async function queryEvidence(
             speaker_resolution,
             limit: Math.max(limit * 3, 40),
             excludeIds: new Set(semanticSpeakerRecords.map((record) => record.id)),
+            internalGuardContext,
           })
         : [];
 
@@ -196,8 +206,18 @@ async function queryEvidenceBySpeaker(input: {
   speaker_resolution: SpeakerResolution | null;
   limit: number;
   excludeIds: Set<string>;
+  internalGuardContext: InternalEvidenceGuardContext;
 }) {
-  const { supabase, org_id, project_id, trustFilter, speaker_resolution, limit, excludeIds } = input;
+  const {
+    supabase,
+    org_id,
+    project_id,
+    trustFilter,
+    speaker_resolution,
+    limit,
+    excludeIds,
+    internalGuardContext,
+  } = input;
   if (!speaker_resolution?.targeted) return [];
 
   const { data: sources, error: sourcesError } = await supabase
@@ -245,9 +265,10 @@ async function queryEvidenceBySpeaker(input: {
   );
   await hydrateEvidenceRecords({ supabase, org_id, project_id, records });
 
-  return filterAdjacentProjectHintedEvidence(records).filter((record) =>
-    recordMatchesSpeakerTargets(record, speaker_resolution)
-  );
+  return filterInternalEvidence(
+    filterAdjacentProjectHintedEvidence(records),
+    internalGuardContext
+  ).filter((record) => recordMatchesSpeakerTargets(record, speaker_resolution));
 }
 
 // Dual-query: semantic on the prompt + broad recall on project name
