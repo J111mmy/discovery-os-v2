@@ -11,7 +11,6 @@ interface ProjectSidebarProps {
 }
 
 const navItems = [
-  { href: "", label: "Workspace" },
   { href: "evidence", label: "Evidence" },
   { href: "ask", label: "Ask" },
   { href: "problems", label: "Problems" },
@@ -43,7 +42,15 @@ export function ProjectSidebar({
         >
           Back to all projects
         </Link>
-        <Link href={basePath} onClick={onNavigate} className="block">
+        <Link
+          href={basePath}
+          onClick={onNavigate}
+          className={`-mx-2 block rounded-lg px-2 py-1 transition-colors ${
+            pathname === basePath
+              ? "bg-[var(--sel)]"
+              : "hover:bg-[var(--surface-2)]"
+          }`}
+        >
           <div className="text-base font-semibold leading-6 text-[var(--ink)]">
             {projectName}
           </div>
