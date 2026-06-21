@@ -26,7 +26,7 @@ const STEPS = [
   },
   {
     id: "claims",
-    label: "Claims",
+    label: "Evidence",
     desc: "Extracted, source-backed",
     href: (id: string) => `/projects/${id}/evidence`,
     matches: (path: string, id: string) => path.startsWith(`/projects/${id}/evidence`),

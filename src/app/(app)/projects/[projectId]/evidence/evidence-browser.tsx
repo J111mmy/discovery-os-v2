@@ -128,7 +128,7 @@ const BUCKETS: {
   {
     key: "pending",
     label: "Needs review",
-    blurb: "AI wasn't sure — your call. Pull the keepers into Trusted.",
+    blurb: "AI wasn't sure. Your call. Pull the keepers into Trusted.",
     accent: "text-warn",
     activeAccent: "border-warn/60 bg-warn-bg text-warn",
   },
@@ -142,7 +142,7 @@ const BUCKETS: {
   {
     key: "excluded",
     label: "Excluded",
-    blurb: "Off-topic or weak. Kept out of drafts — restore anything we got wrong.",
+    blurb: "Off-topic or weak. Kept out of drafts. Restore anything we got wrong.",
     accent: "text-[var(--ink-2)]",
     activeAccent: "border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink)]",
   },
