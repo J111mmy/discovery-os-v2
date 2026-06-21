@@ -15,6 +15,10 @@ import {
   adjacentProjectHintedEvidenceIds,
   filterAdjacentProjectHintedEvidence,
 } from "@/lib/evidence/adjacent-project";
+import {
+  filterInternalEvidence,
+  loadInternalEvidenceGuardContext,
+} from "@/lib/evidence/internal";
 
 const OPPORTUNITY_DEDUPE_SIMILARITY_THRESHOLD = 0.88;
 const MAX_PROBLEMS_FOR_PROMPT = 16;
@@ -65,11 +69,15 @@ type ThemeRow = {
 
 type EvidenceRow = {
   id: string;
+  source_id: string | null;
+  segment_id: string | null;
   content: string;
   summary: string | null;
   trust_scope: string;
   metadata: Record<string, unknown> | null;
   created_at: string;
+  source_type?: string | null;
+  segment_speaker?: string | null;
 };
 
 type ExistingOpportunityRow = {
@@ -628,10 +636,11 @@ export const generateOpportunities = inngest.createFunction(
 
         let evidence: EvidenceRow[] = [];
         let adjacentEvidenceExcluded = 0;
+        let internalEvidenceExcluded = 0;
         if (evidenceIds.length > 0) {
           const { data, error } = await supabase
             .from("evidence")
-            .select("id, content, summary, trust_scope, metadata, created_at")
+            .select("id, source_id, segment_id, content, summary, trust_scope, metadata, created_at")
             .eq("org_id", org_id)
             .eq("project_id", project_id)
             .in("id", evidenceIds)
@@ -639,10 +648,63 @@ export const generateOpportunities = inngest.createFunction(
 
           if (error) throw new Error(`Failed to fetch evidence: ${error.message}`);
           const allEvidence = (data ?? []) as EvidenceRow[];
+          const sourceIds = Array.from(
+            new Set(allEvidence.map((row) => row.source_id).filter((id): id is string => Boolean(id)))
+          );
+          const segmentIds = Array.from(
+            new Set(allEvidence.map((row) => row.segment_id).filter((id): id is string => Boolean(id)))
+          );
+          const [sourcesResult, segmentsResult, internalGuardContext] = await Promise.all([
+            sourceIds.length > 0
+              ? supabase
+                  .from("sources")
+                  .select("id, type")
+                  .eq("org_id", org_id)
+                  .eq("project_id", project_id)
+                  .in("id", sourceIds)
+              : Promise.resolve({ data: [], error: null }),
+            segmentIds.length > 0
+              ? supabase
+                  .from("source_segments")
+                  .select("id, speaker")
+                  .eq("org_id", org_id)
+                  .in("id", segmentIds)
+              : Promise.resolve({ data: [], error: null }),
+            loadInternalEvidenceGuardContext({ supabase, org_id }),
+          ]);
+
+          if (sourcesResult.error) {
+            throw new Error(`Failed to fetch evidence sources: ${sourcesResult.error.message}`);
+          }
+          if (segmentsResult.error) {
+            throw new Error(`Failed to fetch evidence segments: ${segmentsResult.error.message}`);
+          }
+
+          const sourceTypeById = new Map(
+            ((sourcesResult.data ?? []) as Array<{ id: string; type: string | null }>).map((source) => [
+              source.id,
+              source.type,
+            ])
+          );
+          const segmentSpeakerById = new Map(
+            ((segmentsResult.data ?? []) as Array<{ id: string; speaker: string | null }>).map((segment) => [
+              segment.id,
+              segment.speaker,
+            ])
+          );
+
+          for (const row of allEvidence) {
+            row.source_type = row.source_id ? sourceTypeById.get(row.source_id) ?? null : null;
+            row.segment_speaker = row.segment_id ? segmentSpeakerById.get(row.segment_id) ?? null : null;
+          }
+
           const adjacentEvidenceIds = adjacentProjectHintedEvidenceIds(allEvidence);
           adjacentEvidenceExcluded = adjacentEvidenceIds.size;
-          evidence = filterAdjacentProjectHintedEvidence(allEvidence);
-          problemEvidence = problemEvidence.filter((link) => !adjacentEvidenceIds.has(link.evidence_id));
+          const adjacentFilteredEvidence = filterAdjacentProjectHintedEvidence(allEvidence);
+          evidence = filterInternalEvidence(adjacentFilteredEvidence, internalGuardContext);
+          internalEvidenceExcluded = adjacentFilteredEvidence.length - evidence.length;
+          const visibleEvidenceIds = new Set(evidence.map((row) => row.id));
+          problemEvidence = problemEvidence.filter((link) => visibleEvidenceIds.has(link.evidence_id));
         }
 
         return {
@@ -654,6 +716,7 @@ export const generateOpportunities = inngest.createFunction(
           existingOpportunities: (existingOpportunitiesResult.data ?? []) as ExistingOpportunityRow[],
           frame: (projectResult.data?.frame as string | null) ?? "",
           adjacentEvidenceExcluded,
+          internalEvidenceExcluded,
         };
       });
 
@@ -673,6 +736,7 @@ export const generateOpportunities = inngest.createFunction(
                 problem_evidence_links: context.problemEvidence.length,
                 evidence_supplied: context.evidence.length,
                 adjacent_evidence_excluded: context.adjacentEvidenceExcluded,
+                internal_evidence_excluded: context.internalEvidenceExcluded,
                 opportunities_written: 0,
               },
               completed_at: new Date().toISOString(),
@@ -894,6 +958,7 @@ export const generateOpportunities = inngest.createFunction(
           planned_link_rows: plannedLinkRows,
           planned_writes: dryRun ? plannedInserted + plannedUpdated + plannedLockedLinked : 0,
           adjacent_evidence_excluded: context.adjacentEvidenceExcluded,
+          internal_evidence_excluded: context.internalEvidenceExcluded,
         };
       });
 

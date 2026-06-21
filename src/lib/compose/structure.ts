@@ -3,6 +3,10 @@ import { detectExpertPersona } from "@/lib/llm/persona";
 import { neutralizeUntrustedSourceContentFence } from "@/lib/llm/prompts/untrusted-content";
 import { createServiceClient } from "@/lib/supabase/server";
 import { filterAdjacentProjectHintedEvidence } from "@/lib/evidence/adjacent-project";
+import {
+  filterInternalEvidence,
+  loadInternalEvidenceGuardContext,
+} from "@/lib/evidence/internal";
 import type { ComposeDraftSection, TaskTier } from "@/types/database";
 
 const VISIBLE_REVIEW_STATES = ["suggested", "accepted", "edited"] as const;
@@ -113,6 +117,8 @@ type EvidenceRow = {
   sentiment: string | null;
   metadata: Record<string, unknown> | null;
   created_at: string;
+  source_type?: string | null;
+  segment_speaker?: string | null;
 };
 
 type SourceRow = {
@@ -516,10 +522,16 @@ async function fetchStructureContext({
   }
 
   const themes = asRows<ThemeRow>(themesResult.data);
-  const evidence = filterAdjacentProjectHintedEvidence(asRows<EvidenceRow>(evidenceResult.data));
-  const sourceIds = unique(evidence.map((row) => row.source_id));
-  const segmentIds = unique(evidence.map((row) => row.segment_id));
-  const [sourcesResult, segmentsResult] = await Promise.all([
+  const adjacentFilteredEvidence = filterAdjacentProjectHintedEvidence(
+    asRows<EvidenceRow>(evidenceResult.data)
+  );
+  const sourceIds = unique(
+    adjacentFilteredEvidence.map((row) => row.source_id).filter((id): id is string => Boolean(id))
+  );
+  const segmentIds = unique(
+    adjacentFilteredEvidence.map((row) => row.segment_id).filter((id): id is string => Boolean(id))
+  );
+  const [sourcesResult, segmentsResult, internalGuardContext] = await Promise.all([
     sourceIds.length > 0
       ? supabase
           .from("sources")
@@ -536,6 +548,7 @@ async function fetchStructureContext({
           .in("source_id", sourceIds)
           .in("id", segmentIds)
       : Promise.resolve({ data: [], error: null }),
+    loadInternalEvidenceGuardContext({ supabase, org_id }),
   ]);
 
   if (sourcesResult.error) {
@@ -547,16 +560,32 @@ async function fetchStructureContext({
 
   const sourceById = new Map(asRows<SourceRow>(sourcesResult.data).map((source) => [source.id, source]));
   const segmentById = new Map(asRows<SegmentRow>(segmentsResult.data).map((segment) => [segment.id, segment]));
+  for (const row of adjacentFilteredEvidence) {
+    row.source_type = sourceById.get(row.source_id)?.type ?? null;
+    row.segment_speaker = row.segment_id ? segmentById.get(row.segment_id)?.speaker ?? null : null;
+  }
+
+  const evidence = filterInternalEvidence(adjacentFilteredEvidence, internalGuardContext);
+  const visibleEvidenceIds = new Set(evidence.map((row) => row.id));
+  const visibleOpportunityEvidenceLinks = opportunityEvidenceLinks.filter((link) =>
+    visibleEvidenceIds.has(link.evidence_id)
+  );
+  const visibleProblemEvidenceLinks = problemEvidenceLinks.filter((link) =>
+    visibleEvidenceIds.has(link.evidence_id)
+  );
+  const visibleThemeEvidenceLinks = themeEvidenceLinks.filter((link) =>
+    visibleEvidenceIds.has(link.evidence_id)
+  );
   const evidenceById = new Map(evidence.map((row) => [row.id, row]));
   const selectedEvidence = selectEvidenceForCompose({
     limit,
     opportunities,
     problemOpportunityLinks,
-    opportunityEvidenceLinks,
+    opportunityEvidenceLinks: visibleOpportunityEvidenceLinks,
     opportunityThemeLinks,
-    problemEvidenceLinks,
+    problemEvidenceLinks: visibleProblemEvidenceLinks,
     problemThemeLinks,
-    themeEvidenceLinks,
+    themeEvidenceLinks: visibleThemeEvidenceLinks,
     evidenceById,
     sourceById,
     segmentById,
@@ -572,11 +601,11 @@ async function fetchStructureContext({
     segments: asRows<SegmentRow>(segmentsResult.data),
     selectedEvidence,
     problemOpportunityLinks,
-    opportunityEvidenceLinks,
+    opportunityEvidenceLinks: visibleOpportunityEvidenceLinks,
     opportunityThemeLinks,
-    problemEvidenceLinks,
+    problemEvidenceLinks: visibleProblemEvidenceLinks,
     problemThemeLinks,
-    themeEvidenceLinks,
+    themeEvidenceLinks: visibleThemeEvidenceLinks,
   };
 }
 

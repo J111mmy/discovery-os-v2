@@ -1,9 +1,10 @@
-import type { EvidenceRecord } from "@/types/database";
-import { createServiceClient } from "@/lib/supabase/server";
-
 type InternalPersonRow = {
   id: string;
   name: string | null;
+};
+
+type InternalEvidenceSupabase = {
+  from: (table: string) => any;
 };
 
 export type InternalEvidenceGuardContext = {
@@ -11,7 +12,11 @@ export type InternalEvidenceGuardContext = {
   internalSpeakerNames: Set<string>;
 };
 
-type EvidenceLike = Pick<EvidenceRecord, "metadata" | "source_type" | "segment_speaker">;
+type EvidenceLike = {
+  metadata?: unknown;
+  source_type?: string | null;
+  segment_speaker?: string | null;
+};
 
 function metadataObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -27,7 +32,7 @@ function normalizeSpeakerName(value: string | null | undefined) {
 }
 
 export async function loadInternalEvidenceGuardContext(input: {
-  supabase: ReturnType<typeof createServiceClient>;
+  supabase: InternalEvidenceSupabase;
   org_id: string;
 }): Promise<InternalEvidenceGuardContext> {
   const { data, error } = await input.supabase

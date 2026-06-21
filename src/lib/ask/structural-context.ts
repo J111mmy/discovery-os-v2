@@ -1,5 +1,9 @@
 import type { EvidenceRecord, TrustScope } from "@/types/database";
 import { filterAdjacentProjectHintedEvidence } from "@/lib/evidence/adjacent-project";
+import {
+  filterInternalEvidence,
+  loadInternalEvidenceGuardContext,
+} from "@/lib/evidence/internal";
 
 type SupabaseLike = {
   from: (table: string) => any;
@@ -186,7 +190,7 @@ async function loadEvidenceRecordsByIds(input: {
     records.map((record) => record.segment_id).filter((id): id is string => Boolean(id))
   );
 
-  const [sourcesResult, segmentsResult] = await Promise.all([
+  const [sourcesResult, segmentsResult, internalGuardContext] = await Promise.all([
     sourceIds.length > 0
       ? supabase
           .from("sources")
@@ -202,6 +206,7 @@ async function loadEvidenceRecordsByIds(input: {
           .eq("org_id", org_id)
           .in("id", segmentIds)
       : Promise.resolve({ data: [], error: null }),
+    loadInternalEvidenceGuardContext({ supabase, org_id }),
   ]);
 
   if (sourcesResult.error) {
@@ -236,7 +241,10 @@ async function loadEvidenceRecordsByIds(input: {
     }
   }
 
-  return filterAdjacentProjectHintedEvidence(records);
+  return filterInternalEvidence(
+    filterAdjacentProjectHintedEvidence(records),
+    internalGuardContext
+  );
 }
 
 async function collectThemeEvidenceIds(input: {
