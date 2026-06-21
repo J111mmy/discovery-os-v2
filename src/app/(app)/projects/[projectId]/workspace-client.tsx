@@ -648,6 +648,155 @@ function ProjectContextCard({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ResearchGapsCard — collapsible inline gap signal detail
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ResearchGapsCard({ gapSignals }: { gapSignals: GapSignal[] }) {
+  const [open, setOpen] = useState(false);
+
+  const severityColor = (s: string) =>
+    s === "high" ? "var(--neg)" : s === "medium" ? "var(--warn)" : "var(--ink-2)";
+
+  return (
+    <div
+      id="research-gaps"
+      style={{
+        background: "var(--surface)",
+        border: "1px solid var(--line)",
+        borderRadius: "var(--r-lg)",
+        overflow: "hidden",
+      }}
+    >
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          width: "100%",
+          padding: "14px 18px",
+          textAlign: "left",
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+          fontFamily: "inherit",
+          color: "var(--ink)",
+          transition: ".14s",
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLElement).style.background = "var(--sel)";
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLElement).style.background = "transparent";
+        }}
+      >
+        <span style={{ flex: 1, fontWeight: 600, fontSize: 13.5 }}>
+          Research gaps
+          <span
+            style={{
+              marginLeft: 8,
+              fontSize: 12,
+              fontWeight: 500,
+              color: "var(--ink-2)",
+            }}
+          >
+            {gapSignals.length}
+          </span>
+        </span>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="var(--ink-faint)"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{
+            flexShrink: 0,
+            transform: open ? "rotate(180deg)" : "rotate(0deg)",
+            transition: "transform .18s",
+          }}
+          aria-hidden
+        >
+          <path d="M4 6l4 4 4-4" />
+        </svg>
+      </button>
+
+      {open && (
+        <div style={{ borderTop: "1px solid var(--line)" }}>
+          {gapSignals.map((gap, i) => (
+            <div
+              key={i}
+              style={{
+                padding: "14px 18px",
+                borderBottom: i < gapSignals.length - 1 ? "1px solid var(--line)" : "none",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  marginBottom: 6,
+                }}
+              >
+                <span
+                  style={{
+                    fontWeight: 600,
+                    fontSize: 13,
+                    color: "var(--ink)",
+                    flex: 1,
+                  }}
+                >
+                  {gap.area}
+                </span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    color: severityColor(gap.severity),
+                  }}
+                >
+                  {gap.severity}
+                </span>
+              </div>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 12.5,
+                  lineHeight: 1.6,
+                  color: "var(--ink-2)",
+                  marginBottom: gap.suggested_action ? 6 : 0,
+                }}
+              >
+                {gap.description}
+              </p>
+              {gap.suggested_action && (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                    color: "var(--ink-faint)",
+                    fontStyle: "italic",
+                  }}
+                >
+                  {gap.suggested_action}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1406,9 +1555,14 @@ export function WorkspaceView({
             count={gapSignals?.length ?? 0}
             color="var(--warn)"
             items={(gapSignals ?? []).map((g) => g.area)}
-            href={`/projects/${project.id}/sources`}
+            href="#research-gaps"
           />
         </div>
+
+        {/* ── Research gaps inline detail ── */}
+        {gapSignals && gapSignals.length > 0 && (
+          <ResearchGapsCard gapSignals={gapSignals} />
+        )}
 
         {/* ── Problems by evidence band ── */}
         {problemPreviews.length > 0 && (
