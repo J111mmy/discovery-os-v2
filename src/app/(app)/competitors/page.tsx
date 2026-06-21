@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getActiveOrgId } from "@/lib/auth/org";
+import { getOrgScopedReadForUser } from "@/lib/auth/support-read";
 import { redirect } from "next/navigation";
 import { DirectoryList, type DirectoryItem } from "@/app/(app)/components/DirectoryList";
 
@@ -33,15 +33,13 @@ export default async function CompetitorsPage() {
 
   if (!user) redirect("/login");
 
-  const orgId = await getActiveOrgId(user.id);
-
-  const { data: competitors } = orgId
-    ? await supabase
+  const read = await getOrgScopedReadForUser(user.id, supabase);
+  const { data: competitors } = read
+    ? await read
         .from("competitors")
         .select(
           "id, name, slug, website, positioning, known_strengths, known_gaps, last_researched, digest_updated_at"
         )
-        .eq("org_id", orgId)
         .order("name", { ascending: true })
     : { data: [] };
 
@@ -49,18 +47,17 @@ export default async function CompetitorsPage() {
   const competitorIds = competitorRows.map((c) => c.id);
 
   const { data: evidenceLinks } =
-    orgId && competitorIds.length > 0
-      ? await supabase
+    read && competitorIds.length > 0
+      ? await read
           .from("evidence_entities")
           .select("entity_id")
-          .eq("org_id", orgId)
           .eq("entity_type", "competitor")
           .in("entity_id", competitorIds)
       : { data: [] };
 
   const evidenceCounts = new Map<string, number>();
-  (evidenceLinks ?? []).forEach((link) => {
-    const entityId = (link as { entity_id: string | null }).entity_id;
+  ((evidenceLinks ?? []) as Array<{ entity_id: string | null }>).forEach((link) => {
+    const entityId = link.entity_id;
     if (!entityId) return;
     evidenceCounts.set(entityId, (evidenceCounts.get(entityId) ?? 0) + 1);
   });

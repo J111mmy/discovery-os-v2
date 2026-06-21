@@ -15,7 +15,7 @@
 //   output_summary — human-readable one-liner from output fields
 
 import { NextRequest, NextResponse } from "next/server";
-import { getActiveOrgId } from "@/lib/auth/org";
+import { getOrgScopedReadForUser } from "@/lib/auth/support-read";
 import { createClient } from "@/lib/supabase/server";
 import type { AgentRun } from "@/types/database";
 
@@ -135,9 +135,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const orgId = await getActiveOrgId(user.id);
+  const read = await getOrgScopedReadForUser(user.id, supabase);
 
-  if (!orgId) {
+  if (!read) {
     return NextResponse.json({ error: "No org" }, { status: 403 });
   }
 
@@ -147,10 +147,9 @@ export async function GET(req: NextRequest) {
   const rawLimit = parseInt(searchParams.get("limit") ?? String(DEFAULT_LIMIT), 10);
   const limit = Math.min(isNaN(rawLimit) ? DEFAULT_LIMIT : rawLimit, MAX_LIMIT);
 
-  let query = supabase
+  let query = read
     .from("agent_runs")
     .select("id, org_id, project_id, agent_type, status, input, output, error, model_used, started_at, completed_at")
-    .eq("org_id", orgId)
     .order("started_at", { ascending: false })
     .limit(limit);
 

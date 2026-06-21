@@ -1,4 +1,4 @@
-import { getActiveOrgId } from "@/lib/auth/org";
+import { getOrgScopedReadForUser } from "@/lib/auth/support-read";
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -43,16 +43,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Missing or invalid job_id" }, { status: 400 });
   }
 
-  const orgId = await getActiveOrgId(user.id);
-  if (!orgId) {
+  const read = await getOrgScopedReadForUser(user.id, supabase);
+  if (!read) {
     return NextResponse.json({ error: "Job not found" }, { status: 404 });
   }
 
-  const { data: job, error } = await supabase
+  const { data: job, error } = await read
     .from("ingest_jobs")
     .select("id, org_id, source_id, status, result, error, started_at, completed_at, created_at")
     .eq("id", parsed.data.job_id)
-    .eq("org_id", orgId)
     .single();
 
   if (error || !job) {

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getProjectForUser } from "@/lib/auth/org";
+import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
 import { createClient } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
 import {
@@ -136,11 +137,15 @@ export default async function ThemeDetailPage({ params }: Props) {
   }>(user.id, params.projectId, "id, org_id, name");
 
   if (!project) notFound();
+  const read = await getProjectOrgReadForUser({
+    userId: user.id,
+    orgId: project.org_id,
+    memberClient: supabase,
+  });
 
-  const themeResult = await supabase
+  const themeResult = await read
     .from("themes")
     .select("id, label, description, central_concept, interpretation, status, source, review_state, confidence, evidence_count, updated_at")
-    .eq("org_id", project.org_id)
     .eq("project_id", project.id)
     .eq("id", params.themeId)
     .maybeSingle();
@@ -175,22 +180,19 @@ export default async function ThemeDetailPage({ params }: Props) {
   if (!theme) notFound();
 
   const [themeEvidenceResult, themeTopicsResult, problemThemesResult] = await Promise.all([
-    supabase
+    read
       .from("theme_evidence")
       .select("evidence_id, relationship, rationale, review_state, confidence, source, agent_run_id, created_at")
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .eq("theme_id", theme.id),
-    supabase
+    read
       .from("theme_topics")
       .select("topic_id, relationship, rationale")
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .eq("theme_id", theme.id),
-    supabase
+    read
       .from("problem_themes")
       .select("problem_id, relationship")
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .eq("theme_id", theme.id),
   ]);
@@ -232,21 +234,19 @@ export default async function ThemeDetailPage({ params }: Props) {
 
   const [evidenceResult, topicsResult, problemsResult] = await Promise.all([
     evidenceIds.length > 0
-      ? supabase
+      ? read
           .from("evidence")
           .select("id, source_id, segment_id, content, summary, trust_scope, themes, metadata, created_at, classification, sentiment")
-          .eq("org_id", project.org_id)
           .eq("project_id", project.id)
           .in("id", evidenceIds)
       : Promise.resolve({ data: [], error: null }),
     topicIds.length > 0
-      ? supabase.from("topics").select("id, label").eq("org_id", project.org_id).eq("project_id", project.id).in("id", topicIds)
+      ? read.from("topics").select("id, label").eq("project_id", project.id).in("id", topicIds)
       : Promise.resolve({ data: [], error: null }),
     problemIds.length > 0
-      ? supabase
+      ? read
           .from("problems")
           .select("id, title, severity, status")
-          .eq("org_id", project.org_id)
           .eq("project_id", project.id)
           .in("id", problemIds)
       : Promise.resolve({ data: [], error: null }),
@@ -278,13 +278,12 @@ export default async function ThemeDetailPage({ params }: Props) {
 
   const [sourcesResult, segmentsResult] = await Promise.all([
     sourceIds.length > 0
-      ? supabase.from("sources").select("id, title, type").eq("org_id", project.org_id).eq("project_id", project.id).in("id", sourceIds)
+      ? read.from("sources").select("id, title, type").eq("project_id", project.id).in("id", sourceIds)
       : Promise.resolve({ data: [], error: null }),
     segmentIds.length > 0
-      ? supabase
+      ? read
           .from("source_segments")
           .select("id, source_id, segment_index, speaker, redacted_content")
-          .eq("org_id", project.org_id)
           .in("source_id", sourceIds)
           .in("id", segmentIds)
       : Promise.resolve({ data: [], error: null }),

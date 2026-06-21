@@ -1,4 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import { getProjectOrgReadForUser, type OrgScopedRead } from "@/lib/auth/support-read";
 import {
   hydrateEvidenceRecordsWithTypedTopics,
   loadVisibleProjectTopicGraph,
@@ -19,6 +20,8 @@ type EvidenceResult = {
   records: EvidenceRecord[];
   appliedFilterLabel?: string;
 };
+
+type ProjectReadClient = Awaited<ReturnType<typeof createClient>> | OrgScopedRead;
 
 type LensEvidenceRow = Pick<
   EvidenceRecord,
@@ -114,7 +117,7 @@ function stringArray(value: unknown): string[] {
 }
 
 async function resolveThemeEvidenceFilter(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: ProjectReadClient,
   orgId: string,
   projectId: string,
   themeId: string | undefined
@@ -141,12 +144,14 @@ async function resolveThemeEvidenceFilter(
 
   return {
     label: theme.label as string,
-    evidenceIds: Array.from(new Set((links ?? []).map((link) => link.evidence_id as string))),
+    evidenceIds: Array.from(
+      new Set(((links ?? []) as Array<{ evidence_id: string }>).map((link) => link.evidence_id))
+    ),
   };
 }
 
 async function resolveTopicEvidenceFilter(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: ProjectReadClient,
   orgId: string,
   projectId: string,
   topicId: string | undefined
@@ -183,7 +188,7 @@ async function resolveTopicEvidenceFilter(
 }
 
 async function getEvidenceLensData(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: ProjectReadClient,
   orgId: string,
   projectId: string
 ): Promise<EvidenceLensData> {
@@ -408,6 +413,7 @@ async function getEvidenceLensData(
 }
 
 async function getRecentEvidence(
+  supabase: ProjectReadClient,
   orgId: string,
   projectId: string,
   trustScope: EvidenceRecord["trust_scope"] | "all" = "all",
@@ -415,7 +421,6 @@ async function getRecentEvidence(
   themeIdFilter?: string,
   topicIdFilter?: string
 ): Promise<EvidenceResult> {
-  const supabase = await createClient();
   const topicEvidenceFilter = await resolveTopicEvidenceFilter(
     supabase,
     orgId,
@@ -479,7 +484,7 @@ async function getRecentEvidence(
       .in("id", sourceIds);
 
     const sourceById = new Map(
-      (sources ?? []).map((source: { id: string; title: string; type: string }) => [
+      ((sources ?? []) as Array<{ id: string; title: string; type: string }>).map((source) => [
         source.id,
         source,
       ])
@@ -503,7 +508,11 @@ async function getRecentEvidence(
       .in("id", segmentIds);
 
     const segmentById = new Map(
-      (segments ?? []).map((segment: { id: string; speaker: string | null; segment_index: number }) => [
+      ((segments ?? []) as Array<{
+        id: string;
+        speaker: string | null;
+        segment_index: number;
+      }>).map((segment) => [
         segment.id,
         segment,
       ])
@@ -556,6 +565,11 @@ export default async function EvidencePage({ params, searchParams }: Props) {
   );
 
   if (!project) notFound();
+  const read = await getProjectOrgReadForUser({
+    userId: user.id,
+    orgId: project.org_id,
+    memberClient: supabase,
+  });
 
   const themeFilter = searchParams?.theme ?? undefined;
   const themeIdFilter = searchParams?.theme_id ?? undefined;
@@ -571,42 +585,36 @@ export default async function EvidencePage({ params, searchParams }: Props) {
     { count: problemCount },
     { data: internalPeople },
   ] = await Promise.all([
-    supabase
+    read
       .from("evidence")
       .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .eq("trust_scope", "pending"),
-    supabase
+    read
       .from("evidence")
       .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .eq("trust_scope", "trusted"),
-    supabase
+    read
       .from("evidence")
       .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .eq("trust_scope", "excluded"),
     themeFilter || themeIdFilter || topicIdFilter
-      ? getRecentEvidence(project.org_id, project.id, "all", themeFilter, themeIdFilter, topicIdFilter)
-      : getRecentEvidence(project.org_id, project.id, "pending"),
-    getEvidenceLensData(supabase, project.org_id, project.id),
-    supabase
+      ? getRecentEvidence(read, project.org_id, project.id, "all", themeFilter, themeIdFilter, topicIdFilter)
+      : getRecentEvidence(read, project.org_id, project.id, "pending"),
+    getEvidenceLensData(read, project.org_id, project.id),
+    read
       .from("sources")
       .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id),
-    supabase
+    read
       .from("problems")
       .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id),
-    supabase
+    read
       .from("people")
       .select("display_name")
-      .eq("org_id", project.org_id)
       .eq("affiliation", "internal"),
   ]);
 

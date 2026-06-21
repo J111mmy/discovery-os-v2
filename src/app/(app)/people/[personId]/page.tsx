@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getActiveOrgId } from "@/lib/auth/org";
+import { getOrgScopedReadForUser } from "@/lib/auth/support-read";
 import type {
   Affiliation,
   EvidenceClassification,
@@ -155,20 +155,18 @@ export default async function PersonDetailPage({ params }: Props) {
 
   if (!user) redirect("/login");
 
-  const orgId = await getActiveOrgId(user.id);
+  const read = await getOrgScopedReadForUser(user.id, supabase);
 
-  if (!orgId) notFound();
+  if (!read) notFound();
   const [{ data: person }, { data: entityRows }] = await Promise.all([
-    supabase
+    read
       .from("people")
       .select("id, name, role, email, affiliation, status, company_id, companies(id, name), digest, digest_updated_at, person_projects(project_id, projects(name))")
-      .eq("org_id", orgId)
       .eq("id", params.personId)
       .single(),
-    supabase
+    read
       .from("evidence_entities")
       .select("evidence(id, content, summary, classification, sentiment, trust_scope, source_id)")
-      .eq("org_id", orgId)
       .eq("entity_type", "person")
       .eq("entity_id", params.personId),
   ]);

@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
+import { getOrgScopedReadForUser } from "@/lib/auth/support-read";
 import { getImpersonatedOrgName, isSuperAdmin } from "@/lib/auth/super-admin";
-import { getActiveOrgId } from "@/lib/auth/org";
+import { ACTIVE_PROJECT_FILTER } from "@/lib/projects/active-projects";
 import { redirect } from "next/navigation";
 import { Rail } from "./components/Rail";
 import type { RailProject } from "./components/Rail";
@@ -20,16 +21,16 @@ export default async function AppLayout({ children }: AppLayoutProps) {
 
   const superAdmin = await isSuperAdmin(user.id);
   const impersonation = superAdmin ? await getImpersonatedOrgName(user.id) : null;
+  const read = await getOrgScopedReadForUser(user.id, supabase);
 
   // ── Projects list for rail ─────────────────────────────────────
   let projects: RailProject[] = [];
   try {
-    const orgId = await getActiveOrgId(user.id);
-    if (orgId) {
-      const { data } = await supabase
+    if (read) {
+      const { data } = await read
         .from("projects")
         .select("id, name")
-        .eq("org_id", orgId)
+        .or(ACTIVE_PROJECT_FILTER)
         .order("created_at", { ascending: true });
       if (data) projects = data as RailProject[];
     }
@@ -40,17 +41,19 @@ export default async function AppLayout({ children }: AppLayoutProps) {
   // ── Directory counts for rail ──────────────────────────────────
   let dirCounts = { people: 0, companies: 0, competitors: 0 };
   try {
-    const [{ count: pCount }, { count: cCount }, { count: compCount }] =
-      await Promise.all([
-        supabase.from("people").select("*", { count: "exact", head: true }),
-        supabase.from("companies").select("*", { count: "exact", head: true }),
-        supabase.from("competitors").select("*", { count: "exact", head: true }),
-      ]);
-    dirCounts = {
-      people: pCount ?? 0,
-      companies: cCount ?? 0,
-      competitors: compCount ?? 0,
-    };
+    if (read) {
+      const [{ count: pCount }, { count: cCount }, { count: compCount }] =
+        await Promise.all([
+          read.from("people").select("*", { count: "exact", head: true }),
+          read.from("companies").select("*", { count: "exact", head: true }),
+          read.from("competitors").select("*", { count: "exact", head: true }),
+        ]);
+      dirCounts = {
+        people: pCount ?? 0,
+        companies: cCount ?? 0,
+        competitors: compCount ?? 0,
+      };
+    }
   } catch {
     // Graceful degradation — counts show as 0
   }

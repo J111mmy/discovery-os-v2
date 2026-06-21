@@ -1,4 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
 import { isStaleIngestJob } from "@/lib/ingest/quality";
 import { sourceTypeLabel, trustScopeLabel } from "@/lib/labels";
 import { createClient } from "@/lib/supabase/server";
@@ -57,11 +58,15 @@ export default async function SourcesPage({ params }: Props) {
   );
 
   if (!project) notFound();
+  const read = await getProjectOrgReadForUser({
+    userId: user.id,
+    orgId: project.org_id,
+    memberClient: supabase,
+  });
 
-  const { data: sourceData } = await supabase
+  const { data: sourceData } = await read
     .from("sources")
     .select("id, org_id, project_id, title, type, trust_scope, ingested_at, created_at")
-    .eq("org_id", project.org_id)
     .eq("project_id", project.id)
     .order("ingested_at", { ascending: false });
 
@@ -71,37 +76,32 @@ export default async function SourcesPage({ params }: Props) {
   const [jobsResult, evidenceResult, segmentsResult, totalEvidenceResult, totalProblemResult] =
     await Promise.all([
       sourceIds.length > 0
-        ? supabase
+        ? read
             .from("ingest_jobs")
             .select("id, org_id, source_id, status, error, result, created_at, completed_at")
-            .eq("org_id", project.org_id)
             .in("source_id", sourceIds)
             .order("created_at", { ascending: false })
         : { data: [] },
       sourceIds.length > 0
-        ? supabase
+        ? read
             .from("evidence")
             .select("id, org_id, project_id, source_id")
-            .eq("org_id", project.org_id)
             .eq("project_id", project.id)
             .in("source_id", sourceIds)
         : { data: [] },
       sourceIds.length > 0
-        ? supabase
+        ? read
             .from("source_segments")
             .select("id, org_id, source_id")
-            .eq("org_id", project.org_id)
             .in("source_id", sourceIds)
         : { data: [] },
-      supabase
+      read
         .from("evidence")
         .select("*", { count: "exact", head: true })
-        .eq("org_id", project.org_id)
         .eq("project_id", project.id),
-      supabase
+      read
         .from("problems")
         .select("*", { count: "exact", head: true })
-        .eq("org_id", project.org_id)
         .eq("project_id", project.id),
     ]);
 

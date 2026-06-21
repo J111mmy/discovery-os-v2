@@ -1,4 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -51,14 +52,18 @@ export default async function ComposePage({ params, searchParams }: Props) {
   );
 
   if (!project) notFound();
+  const read = await getProjectOrgReadForUser({
+    userId: user.id,
+    orgId: project.org_id,
+    memberClient: supabase,
+  });
 
   let initialDraft = null;
 
   if (searchParams?.artifactId) {
-    const { data: artifact } = await supabase
+    const { data: artifact } = await read
       .from("artifacts")
       .select("id, org_id, project_id, type, title, prompt, content_md, model_used, task_tier, metadata, verification_status, verification_run_at, verification_summary")
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .eq("id", searchParams.artifactId)
       .single();

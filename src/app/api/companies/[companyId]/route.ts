@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getActiveOrgId } from "@/lib/auth/org";
+import { getOrgScopedReadForUser } from "@/lib/auth/support-read";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -62,34 +63,30 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const orgId = await getActiveOrgId(user.id);
+  const read = await getOrgScopedReadForUser(user.id, supabase);
 
-  if (!orgId) {
+  if (!read) {
     return NextResponse.json({ error: "Org not found" }, { status: 404 });
   }
   const [companyResult, peopleResult, projectsResult, evidenceResult] = await Promise.all([
-    supabase
+    read
       .from("companies")
       .select("id, name, domain, industry, size, notes, digest, digest_updated_at")
-      .eq("org_id", orgId)
       .eq("id", params.companyId)
       .single(),
-    supabase
+    read
       .from("people")
       .select("id, name, role, status, email")
-      .eq("org_id", orgId)
       .eq("company_id", params.companyId)
       .order("name", { ascending: true }),
-    supabase
+    read
       .from("projects")
       .select("id, name, company_projects!inner(company_id)")
-      .eq("org_id", orgId)
       .eq("company_projects.company_id", params.companyId)
       .order("name", { ascending: true }),
-    supabase
+    read
       .from("evidence_entities")
       .select("evidence(id, content, summary, classification, sentiment, trust_scope, metadata, project_id, source_id, created_at)")
-      .eq("org_id", orgId)
       .eq("entity_type", "company")
       .eq("entity_id", params.companyId)
       .limit(20),
@@ -118,17 +115,15 @@ export async function GET(
 
   const [evidenceProjectsResult, sourcesResult] = await Promise.all([
     projectIds.length > 0
-      ? supabase
+      ? read
           .from("projects")
           .select("id, name")
-          .eq("org_id", orgId)
           .in("id", projectIds)
       : Promise.resolve({ data: [] }),
     sourceIds.length > 0
-      ? supabase
+      ? read
           .from("sources")
           .select("id, title")
-          .eq("org_id", orgId)
           .in("id", sourceIds)
       : Promise.resolve({ data: [] }),
   ]);
@@ -149,7 +144,7 @@ export async function GET(
   return NextResponse.json({
     company: companyResult.data,
     people: peopleResult.data ?? [],
-    projects: (projectsResult.data ?? []).map((project) => ({
+    projects: ((projectsResult.data ?? []) as ProjectJoinRow[]).map((project) => ({
       id: project.id,
       name: project.name,
     })),

@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getActiveOrgId } from "@/lib/auth/org";
+import { getOrgScopedReadForUser } from "@/lib/auth/support-read";
 import { NextRequest, NextResponse } from "next/server";
 
 interface Props {
@@ -14,40 +14,38 @@ async function getUserOrgId() {
   } = await supabase.auth.getUser();
 
   if (authError || !user) {
-    return { supabase, orgId: null, status: 401 as const };
+    return { read: null, status: 401 as const };
   }
 
-  const orgId = await getActiveOrgId(user.id);
+  const read = await getOrgScopedReadForUser(user.id, supabase);
 
-  if (!orgId) {
-    return { supabase, orgId: null, status: 403 as const };
+  if (!read) {
+    return { read: null, status: 403 as const };
   }
 
-  return { supabase, orgId, status: null };
+  return { read, status: null };
 }
 
 export async function GET(_req: NextRequest, { params }: Props) {
-  const { supabase, orgId, status } = await getUserOrgId();
+  const { read, status } = await getUserOrgId();
 
   if (status === 401) {
     return NextResponse.json({ error: "Unauthorized" }, { status });
   }
 
-  if (status === 403 || !orgId) {
+  if (status === 403 || !read) {
     return NextResponse.json({ error: "No org" }, { status: 403 });
   }
 
   const [actionsResult, requestsResult] = await Promise.all([
-    supabase
+    read
       .from("actions")
       .select("id, description, owner, due_note, status, created_at")
-      .eq("org_id", orgId)
       .eq("source_id", params.sourceId)
       .order("created_at", { ascending: true }),
-    supabase
+    read
       .from("product_requests")
       .select("id, description, requester_name, priority_signal, status, created_at")
-      .eq("org_id", orgId)
       .eq("source_id", params.sourceId)
       .order("created_at", { ascending: true }),
   ]);

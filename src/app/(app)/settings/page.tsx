@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getActiveOrgId } from "@/lib/auth/org";
+import { getOrgScopedReadForUser } from "@/lib/auth/support-read";
 import { redirect } from "next/navigation";
 import { SettingsClient } from "./SettingsClient";
 
@@ -12,7 +12,8 @@ export default async function SettingsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const orgId = await getActiveOrgId(user.id);
+  const read = await getOrgScopedReadForUser(user.id, supabase);
+  const orgId = read?.orgId ?? null;
 
   let orgName = "My Organization";
   let members: {
@@ -31,20 +32,17 @@ export default async function SettingsPage() {
   }[] = [];
   let currentUserRole: string | null = null;
 
-  if (orgId) {
+  if (read) {
     // Org name
-    const { data: orgData } = await supabase
-      .from("orgs")
-      .select("name")
-      .eq("id", orgId)
+    const { data: orgData } = await read
+      .org("name")
       .maybeSingle();
     if (orgData?.name) orgName = orgData.name;
 
     // Members — graceful degradation if RLS blocks
-    const { data: membersData } = await supabase
+    const { data: membersData } = await read
       .from("org_members")
       .select("id, user_id, display_name, role, joined_at")
-      .eq("org_id", orgId)
       .order("joined_at", { ascending: true });
     if (membersData) {
       members = membersData;
@@ -52,10 +50,9 @@ export default async function SettingsPage() {
     }
 
     // Pending invites
-    const { data: invitesData } = await supabase
+    const { data: invitesData } = await read
       .from("org_invites")
       .select("id, email, role, expires_at, accepted_at")
-      .eq("org_id", orgId)
       .is("accepted_at", null);
     if (invitesData) invites = invitesData;
   }

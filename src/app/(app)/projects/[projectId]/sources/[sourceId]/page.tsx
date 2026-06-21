@@ -1,4 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
 import { isStaleIngestJob, looksLikeProcessedMarker } from "@/lib/ingest/quality";
 import { createClient } from "@/lib/supabase/server";
 import type { JobStatus, SourceType, TrustScope } from "@/types/database";
@@ -120,11 +121,15 @@ export default async function SourceDetailPage({ params }: Props) {
   );
 
   if (!project) notFound();
+  const read = await getProjectOrgReadForUser({
+    userId: user.id,
+    orgId: project.org_id,
+    memberClient: supabase,
+  });
 
-  const { data: source } = await supabase
+  const { data: source } = await read
     .from("sources")
     .select("id, org_id, project_id, title, type, trust_scope, ingested_at, metadata")
-    .eq("org_id", project.org_id)
     .eq("project_id", project.id)
     .eq("id", params.sourceId)
     .single();
@@ -132,29 +137,25 @@ export default async function SourceDetailPage({ params }: Props) {
   if (!source) notFound();
 
   const [segmentsResult, evidenceResult, jobResult, briefResult] = await Promise.all([
-    supabase
+    read
       .from("source_segments")
       .select("id, org_id, source_id, segment_index, speaker, raw_content, redacted_content, word_count")
-      .eq("org_id", project.org_id)
       .eq("source_id", source.id)
       .order("segment_index", { ascending: true }),
-    supabase
+    read
       .from("evidence")
       .select("id, org_id, project_id, source_id, segment_id, trust_scope")
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .eq("source_id", source.id),
-    supabase
+    read
       .from("ingest_jobs")
       .select("id, org_id, source_id, status, error, result, created_at, completed_at")
-      .eq("org_id", project.org_id)
       .eq("source_id", source.id)
       .order("created_at", { ascending: false })
       .limit(1),
-    supabase
+    read
       .from("artifacts")
       .select("id, title, content_md, created_at, metadata")
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .eq("type", "report")
       .filter("metadata->>source_id", "eq", params.sourceId)

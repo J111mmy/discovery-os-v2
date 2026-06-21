@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getActiveOrgId } from "@/lib/auth/org";
+import { getOrgScopedReadForUser, type OrgScopedRead } from "@/lib/auth/support-read";
 import type {
   CompetitorBattleCard,
   EvidenceClassification,
@@ -221,22 +221,18 @@ function EvidenceCard({ evidence }: { evidence: EvidenceMention }) {
   );
 }
 
-async function loadCompetitorDetail(orgId: string, competitorId: string) {
-  const supabase = await createClient();
-
+async function loadCompetitorDetail(read: OrgScopedRead, competitorId: string) {
   const [competitorResult, evidenceResult] = await Promise.all([
-    supabase
+    read
       .from("competitors")
       .select("*")
-      .eq("org_id", orgId)
       .eq("id", competitorId)
       .single(),
-    supabase
+    read
       .from("evidence_entities")
       .select(
         "evidence(id, content, summary, classification, sentiment, trust_scope, metadata, project_id, source_id, created_at)"
       )
-      .eq("org_id", orgId)
       .eq("entity_type", "competitor")
       .eq("entity_id", competitorId)
       .order("created_at", { ascending: false }),
@@ -260,17 +256,15 @@ async function loadCompetitorDetail(orgId: string, competitorId: string) {
 
   const [projectsResult, sourcesResult] = await Promise.all([
     projectIds.length > 0
-      ? supabase
+      ? read
           .from("projects")
           .select("id, name")
-          .eq("org_id", orgId)
           .in("id", projectIds)
       : Promise.resolve({ data: [] }),
     sourceIds.length > 0
-      ? supabase
+      ? read
           .from("sources")
           .select("id, title")
-          .eq("org_id", orgId)
           .in("id", sourceIds)
       : Promise.resolve({ data: [] }),
   ]);
@@ -306,11 +300,11 @@ export default async function CompetitorDetailPage({ params }: Props) {
 
   if (!user) redirect("/login");
 
-  const orgId = await getActiveOrgId(user.id);
+  const read = await getOrgScopedReadForUser(user.id, supabase);
 
-  if (!orgId) notFound();
+  if (!read) notFound();
 
-  const detail = await loadCompetitorDetail(orgId, params.competitorId);
+  const detail = await loadCompetitorDetail(read, params.competitorId);
 
   if (!detail) notFound();
 

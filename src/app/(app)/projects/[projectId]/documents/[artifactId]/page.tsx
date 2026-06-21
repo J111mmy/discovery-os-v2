@@ -1,4 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
 import { ArtifactHtmlValidationError, sanitizeArtifactHtml } from "@/lib/sanitize/artifact-html";
 import { markdownToSanitizedArtifactHtml } from "@/lib/sanitize/artifact-markdown";
 import { createClient } from "@/lib/supabase/server";
@@ -56,11 +57,15 @@ export default async function ArtifactDetailPage({ params }: Props) {
   );
 
   if (!project) notFound();
+  const read = await getProjectOrgReadForUser({
+    userId: user.id,
+    orgId: project.org_id,
+    memberClient: supabase,
+  });
 
-  const { data: artifact } = await supabase
+  const { data: artifact } = await read
     .from("artifacts")
     .select("id, title, type, content_md, content_html, created_at, word_count, metadata")
-    .eq("org_id", project.org_id)
     .eq("project_id", project.id)
     .eq("id", params.artifactId)
     .single();

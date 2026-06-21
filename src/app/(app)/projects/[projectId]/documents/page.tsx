@@ -1,4 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
 import { createClient } from "@/lib/supabase/server";
 import type { ArtifactType, ArtifactVerificationStatus } from "@/types/database";
 import Link from "next/link";
@@ -107,11 +108,15 @@ export default async function DocumentsPage({ params }: Props) {
   );
 
   if (!project) notFound();
+  const read = await getProjectOrgReadForUser({
+    userId: user.id,
+    orgId: project.org_id,
+    memberClient: supabase,
+  });
 
-  const { data } = await supabase
+  const { data } = await read
     .from("artifacts")
     .select("id, org_id, project_id, type, title, prompt, word_count, version, verification_status, verification_summary, updated_at, created_at")
-    .eq("org_id", project.org_id)
     .eq("project_id", project.id)
     .order("updated_at", { ascending: false });
 

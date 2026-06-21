@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getActiveOrgId } from "@/lib/auth/org";
+import { getOrgScopedReadForUser } from "@/lib/auth/support-read";
 import type { Affiliation, PersonStatus } from "@/types/database";
 import { redirect } from "next/navigation";
 import { DirectoryList, type DirectoryItem } from "@/app/(app)/components/DirectoryList";
@@ -37,13 +37,11 @@ export default async function PeoplePage() {
 
   if (!user) redirect("/login");
 
-  const orgId = await getActiveOrgId(user.id);
-
-  const { data: people } = orgId
-    ? await supabase
+  const read = await getOrgScopedReadForUser(user.id, supabase);
+  const { data: people } = read
+    ? await read
         .from("people")
         .select("id, name, role, email, affiliation, status, person_projects(project_id, projects(name))")
-        .eq("org_id", orgId)
         .order("name", { ascending: true })
     : { data: [] };
 

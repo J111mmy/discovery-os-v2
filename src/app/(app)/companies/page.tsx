@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getActiveOrgId } from "@/lib/auth/org";
+import { getOrgScopedReadForUser } from "@/lib/auth/support-read";
 import { redirect } from "next/navigation";
 import { DirectoryList, type DirectoryItem } from "@/app/(app)/components/DirectoryList";
 
@@ -33,13 +33,11 @@ export default async function CompaniesPage() {
 
   if (!user) redirect("/login");
 
-  const orgId = await getActiveOrgId(user.id);
-
-  const { data: companies } = orgId
-    ? await supabase
+  const read = await getOrgScopedReadForUser(user.id, supabase);
+  const { data: companies } = read
+    ? await read
         .from("companies")
         .select("id, name, domain, company_projects(project_id, projects(name))")
-        .eq("org_id", orgId)
         .order("name", { ascending: true })
     : { data: [] };
 

@@ -1,4 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
 import { requireActiveAccess } from "@/lib/auth/access";
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
@@ -168,9 +169,14 @@ export async function GET(
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
+  const read = await getProjectOrgReadForUser({
+    userId: user.id,
+    orgId: project.org_id,
+    memberClient: supabase,
+  });
 
   const limit = parseLimit(req);
-  const opportunitiesResult = await supabase
+  const opportunitiesResult = await read
     .from("opportunities")
     .select(
       [
@@ -190,7 +196,6 @@ export async function GET(
         "updated_at",
       ].join(", ")
     )
-    .eq("org_id", project.org_id)
     .eq("project_id", project.id)
     .in("status", [...visibleOpportunityStatuses])
     .in("review_state", [...visibleReviewStates])
@@ -212,23 +217,20 @@ export async function GET(
   }
 
   const [problemLinksResult, evidenceLinksResult, themeLinksResult] = await Promise.all([
-    supabase
+    read
       .from("problem_opportunities")
       .select("problem_id, opportunity_id, relationship, source, review_state, rationale, created_at")
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .in("opportunity_id", opportunityIds)
       .in("review_state", [...visibleReviewStates]),
-    supabase
+    read
       .from("opportunity_evidence")
       .select("opportunity_id, evidence_id, relationship, rationale, created_at")
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .in("opportunity_id", opportunityIds),
-    supabase
+    read
       .from("opportunity_themes")
       .select("opportunity_id, theme_id, relationship, rationale, created_at")
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .in("opportunity_id", opportunityIds),
   ]);
@@ -262,7 +264,7 @@ export async function GET(
 
   const [problemsResult, evidenceResult, themesResult] = await Promise.all([
     problemIds.length > 0
-      ? supabase
+      ? read
           .from("problems")
           .select(
             [
@@ -283,27 +285,24 @@ export async function GET(
               "updated_at",
             ].join(", ")
           )
-          .eq("org_id", project.org_id)
           .eq("project_id", project.id)
           .in("id", problemIds)
       : Promise.resolve({ data: [], error: null }),
     evidenceIds.length > 0
-      ? supabase
+      ? read
           .from("evidence")
           .select(
             "id, source_id, segment_id, content, summary, trust_scope, classification, sentiment, metadata, created_at"
           )
-          .eq("org_id", project.org_id)
           .eq("project_id", project.id)
           .in("id", evidenceIds)
       : Promise.resolve({ data: [], error: null }),
     themeIds.length > 0
-      ? supabase
+      ? read
           .from("themes")
           .select(
             "id, label, description, evidence_count, central_concept, interpretation, status, review_state, confidence"
           )
-          .eq("org_id", project.org_id)
           .eq("project_id", project.id)
           .in("id", themeIds)
       : Promise.resolve({ data: [], error: null }),
@@ -336,18 +335,16 @@ export async function GET(
 
   const [sourcesResult, segmentsResult] = await Promise.all([
     sourceIds.length > 0
-      ? supabase
+      ? read
           .from("sources")
           .select("id, title, type")
-          .eq("org_id", project.org_id)
           .eq("project_id", project.id)
           .in("id", sourceIds)
       : Promise.resolve({ data: [], error: null }),
     segmentIds.length > 0
-      ? supabase
+      ? read
           .from("source_segments")
           .select("id, source_id, segment_index, speaker, redacted_content")
-          .eq("org_id", project.org_id)
           .in("source_id", sourceIds)
           .in("id", segmentIds)
       : Promise.resolve({ data: [], error: null }),

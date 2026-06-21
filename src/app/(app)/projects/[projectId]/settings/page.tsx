@@ -1,4 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
 import { createClient } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
 import { SettingsForms } from "./settings-forms";
@@ -45,17 +46,20 @@ export default async function SettingsPage({ params, searchParams }: Props) {
   );
 
   if (!project) notFound();
+  const read = await getProjectOrgReadForUser({
+    userId: user.id,
+    orgId: project.org_id,
+    memberClient: supabase,
+  });
 
   const [membersResult, invitesResult] = await Promise.all([
-    supabase
+    read
       .from("org_members")
       .select("id, org_id, user_id, role, display_name, joined_at")
-      .eq("org_id", project.org_id)
       .order("joined_at", { ascending: true }),
-    supabase
+    read
       .from("org_invites")
       .select("id, org_id, email, role, accepted_at, expires_at")
-      .eq("org_id", project.org_id)
       .order("created_at", { ascending: false }),
   ]);
 

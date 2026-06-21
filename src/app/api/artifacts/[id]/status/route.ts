@@ -3,7 +3,7 @@
 // Returns compose_status and parsed sections once the draft is ready.
 // Security: artifact query is scoped to the user's org_id — prevents cross-org access by UUID guessing.
 import { NextRequest, NextResponse } from "next/server";
-import { getActiveOrgId } from "@/lib/auth/org";
+import { getOrgScopedReadForUser } from "@/lib/auth/support-read";
 import { createClient } from "@/lib/supabase/server";
 
 function parseMarkdownSections(markdown: string): Array<{ heading: string; content: string }> {
@@ -42,17 +42,16 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const orgId = await getActiveOrgId(user.id);
+  const read = await getOrgScopedReadForUser(user.id, supabase);
 
-  if (!orgId) {
+  if (!read) {
     return NextResponse.json({ error: "No org" }, { status: 403 });
   }
 
-  const { data: artifact, error } = await supabase
+  const { data: artifact, error } = await read
     .from("artifacts")
     .select("id, org_id, project_id, title, content_md, model_used, task_tier, metadata")
     .eq("id", params.id)
-    .eq("org_id", orgId)
     .single();
 
   if (error || !artifact) {

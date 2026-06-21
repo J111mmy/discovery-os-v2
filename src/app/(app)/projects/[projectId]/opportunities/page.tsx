@@ -1,4 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
 import { createClient } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
 import { PipelineRail } from "../PipelineRail";
@@ -23,22 +24,24 @@ export default async function OpportunitiesPage({ params }: Props) {
   }>(user.id, params.projectId, "id, org_id, name");
 
   if (!project) notFound();
+  const read = await getProjectOrgReadForUser({
+    userId: user.id,
+    orgId: project.org_id,
+    memberClient: supabase,
+  });
 
   const [{ count: sourcesCount }, { count: evidenceCount }, { count: problemCount }] = await Promise.all([
-    supabase
+    read
       .from("sources")
       .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id),
-    supabase
+    read
       .from("evidence")
       .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id),
-    supabase
+    read
       .from("problems")
       .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id),
   ]);
 

@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getActiveOrgId } from "@/lib/auth/org";
+import { getOrgScopedReadForUser } from "@/lib/auth/support-read";
 import { ACTIVE_PROJECT_FILTER } from "@/lib/projects/active-projects";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -9,15 +9,20 @@ export default async function ProjectsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const orgId = await getActiveOrgId(user.id);
-  const { data: projects } = orgId
-    ? await supabase
+  const read = await getOrgScopedReadForUser(user.id, supabase);
+  const { data: projectData } = read
+    ? await read
         .from("projects")
         .select("id, org_id, name, slug, description, updated_at, archived")
-        .eq("org_id", orgId)
         .or(ACTIVE_PROJECT_FILTER)
         .order("updated_at", { ascending: false })
     : { data: [] };
+  const projects = (projectData ?? []) as Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    updated_at: string;
+  }>;
 
   return (
     <div className="min-h-screen bg-[var(--bg)] p-8">
@@ -35,7 +40,7 @@ export default async function ProjectsPage() {
           </Link>
         </div>
 
-        {(!projects || projects.length === 0) ? (
+        {projects.length === 0 ? (
           <div className="text-center py-24 text-[var(--ink-2)]">
             <p className="font-medium text-[var(--ink)]">No projects yet</p>
             <p className="text-sm mt-1">Create your first project to start ingesting evidence.</p>

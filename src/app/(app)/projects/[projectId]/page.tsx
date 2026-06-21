@@ -1,6 +1,7 @@
 // Project workspace — data fetching only; all render is delegated to WorkspaceView.
 import { createClient } from "@/lib/supabase/server";
 import { getProjectForUser } from "@/lib/auth/org";
+import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
 import { redirect, notFound } from "next/navigation";
 import { computeConfidence } from "@/lib/confidence";
 import {
@@ -116,12 +117,17 @@ export default async function ProjectPage({ params }: Props) {
   );
 
   if (!project) notFound();
+  const read = await getProjectOrgReadForUser({
+    userId: user.id,
+    orgId: project.org_id,
+    memberClient: supabase,
+  });
 
   // gap_signals added by migration 0011 — optional fetch so a missing migration
   // doesn't 404 the whole page
   const gapSignals = await (async (): Promise<GapSignal[] | null> => {
     try {
-      const { data } = await supabase
+      const { data } = await read
         .from("projects")
         .select("gap_signals")
         .eq("id", project.id)
@@ -144,68 +150,58 @@ export default async function ProjectPage({ params }: Props) {
     { data: trustedEvidenceMeta },
     { data: activityRuns },
   ] = await Promise.all([
-    supabase
+    read
       .from("evidence")
       .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id),
-    supabase
+    read
       .from("evidence")
       .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .eq("trust_scope", "trusted"),
-    supabase
+    read
       .from("evidence")
       .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .eq("trust_scope", "pending"),
-    supabase
+    read
       .from("artifacts")
       .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id),
-    supabase
+    read
       .from("themes")
       .select("id, label, evidence_count", { count: "exact" })
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .order("evidence_count", { ascending: false })
       .limit(8),
-    supabase
+    read
       .from("problems")
       .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .in("status", ["surfaced", "acknowledged", "active"]),
-    supabase
+    read
       .from("problems")
       .select("id, title, source_evidence_ids")
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .in("status", ["surfaced", "acknowledged", "active"])
       .order("created_at", { ascending: false })
       .limit(5),
-    supabase
+    read
       .from("agent_runs")
       .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .eq("agent_type", "project-synthesis")
       .eq("status", "running"),
     // Lightweight for confidence scoring: source diversity + recency
-    supabase
+    read
       .from("evidence")
       .select("source_id, created_at")
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .eq("trust_scope", "trusted")
       .order("created_at", { ascending: false }),
-    supabase
+    read
       .from("agent_runs")
       .select("id, status, started_at, completed_at")
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .order("started_at", { ascending: false })
       .limit(10),
@@ -234,12 +230,11 @@ export default async function ProjectPage({ params }: Props) {
   // Product opportunities live separately in the opportunities table and /opportunities route.
   const suggestedWorkspaceRows = await (async (): Promise<SuggestedWorkspacePreview[]> => {
     try {
-      const { data } = await supabase
+      const { data } = await read
         .from("project_opportunity_projects")
         .select(
           "project_opportunities(id, title, description, suggested_frame, confidence, status, supporting_evidence_count, source_project_count)"
         )
-        .eq("org_id", project.org_id)
         .eq("project_id", project.id)
         .eq("relationship", "source");
 
@@ -289,8 +284,11 @@ export default async function ProjectPage({ params }: Props) {
       themeRows={themeRows}
       hiddenThemeCount={hiddenThemeCount}
       problemCount={problemCount ?? 0}
-      problemPreviews={(problemPreviews ?? []).map((p) => {
-        const raw = p as { id: string; title: string; source_evidence_ids?: unknown };
+      problemPreviews={((problemPreviews ?? []) as Array<{
+        id: string;
+        title: string;
+        source_evidence_ids?: unknown;
+      }>).map((raw) => {
         return {
           id: raw.id,
           title: raw.title,

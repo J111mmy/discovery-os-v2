@@ -1,4 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import { getProjectOrgReadForUser, type OrgScopedRead } from "@/lib/auth/support-read";
 import {
   adjacentProjectHintedEvidenceIds,
   filterAdjacentProjectHintedEvidence,
@@ -7,6 +8,8 @@ import { createClient } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
 import { PipelineRail } from "../PipelineRail";
 import { ProblemsList, type ProblemDetail, type ProblemRow } from "./problems-list";
+
+type ProblemReadClient = Awaited<ReturnType<typeof createClient>> | OrgScopedRead;
 
 interface Props {
   params: { projectId: string };
@@ -147,7 +150,7 @@ function addProblemLink(
 }
 
 async function hydrateProblemRowsWithTypedLinks(input: {
-  supabase: Awaited<ReturnType<typeof createClient>>;
+  supabase: ProblemReadClient;
   orgId: string;
   projectId: string;
   rows: ProblemListRow[];
@@ -218,7 +221,7 @@ async function hydrateProblemRowsWithTypedLinks(input: {
 }
 
 async function getProblemDetail(input: {
-  supabase: Awaited<ReturnType<typeof createClient>>;
+  supabase: ProblemReadClient;
   orgId: string;
   projectId: string;
   problem: ProblemRow;
@@ -538,30 +541,32 @@ export default async function ProblemsPage({ params, searchParams }: Props) {
   );
 
   if (!project) notFound();
+  const read = await getProjectOrgReadForUser({
+    userId: user.id,
+    orgId: project.org_id,
+    memberClient: supabase,
+  });
 
   const [{ data }, { count: sourcesCount }, { count: evidenceCount }] = await Promise.all([
-    supabase
+    read
       .from("problems")
       .select("id, title, description, severity, status, created_at")
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id)
       .order("severity", { ascending: true })
       .order("created_at", { ascending: false }),
-    supabase
+    read
       .from("sources")
       .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id),
-    supabase
+    read
       .from("evidence")
       .select("*", { count: "exact", head: true })
-      .eq("org_id", project.org_id)
       .eq("project_id", project.id),
   ]);
 
   const problems = sortProblems(
     await hydrateProblemRowsWithTypedLinks({
-      supabase,
+      supabase: read,
       orgId: project.org_id,
       projectId: project.id,
       rows: (data ?? []) as ProblemListRow[],
@@ -578,7 +583,7 @@ export default async function ProblemsPage({ params, searchParams }: Props) {
     if (selectedProblem) {
       try {
         selectedProblemDetail = await getProblemDetail({
-          supabase,
+          supabase: read,
           orgId: project.org_id,
           projectId: project.id,
           problem: selectedProblem,
