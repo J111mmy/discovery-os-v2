@@ -197,7 +197,7 @@ All 18 tables have `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`. Every table used
 ### Finding 4 — CLEAN: Service-role separation
 
 `createServiceClient()` is used only in:
-- All 13 Inngest functions (correct — no user session available in background jobs)
+- All registered Inngest functions (correct — no user session available in background jobs)
 - `ingest/route.ts`, `ingest/retry/route.ts`, `compose/draft/route.ts`, `sources/[sourceId]/route.ts` — all of these authenticate the user first via `createClient()`, then use service role only for specific writes that require bypassing RLS (cascade deletes, job inserts)
 
 No route uses service role as a substitute for proper auth.
@@ -217,15 +217,15 @@ source/ingest.requested
       → competitor/digest.requested (synthesise-competitor)
   → source/review.requested    (session-review)
   → source/actions.requested   (extract-actions)
-  → project/synthesis.requested (synthesise-project)
-      → project/problems.requested (discover-problems)
-      → project/synthesis.completed (detect-gaps)
+  → projects.synthesis_stale = true (no project-wide LLM fan-out)
   → project/frame.requested    (draft-frame)
+
+project/synthesis.requested    (explicit Run synthesis action only)
+  → project/problems.requested (discover-problems)
+  → project/synthesis.completed (detect-gaps)
 
 artifact/compose.requested     (compose-artifact)
   → artifact/claim.verification.requested (verify-claims)
-
-project/synthesis.requested    (scheduled — weekly cron)
 ```
 
 Idempotency assessment:

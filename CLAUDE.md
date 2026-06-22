@@ -224,7 +224,7 @@ The agent layer is not locked to Anthropic. Anthropic (Claude) and OpenAI (GPT-4
 ```
 task_tier    | examples                                         | recommended default
 -------------|--------------------------------------------------|---------------------------
-cheap        | classify, theme_tag, entity_detect, pii_scan    | Claude Haiku 4.5
+cheap        | classify, theme_tag, entity_detect, pii_scan    | configured cheap tier (Anthropic default: claude-haiku-4-5-20251001)
 standard     | ingest, segment, entity_enrich, session review  | Claude Sonnet 4.6
 premium      | compose, synthesise, opportunity_detect         | Claude Sonnet 4.6 first; Opus/GPT-5.5 only for rare expensive jobs
 eval         | claim_verify, citation_check, evidence grading  | GPT-5.4

@@ -2,7 +2,6 @@
 
 import { accessRedirectPath, requireActiveAccess } from "@/lib/auth/access";
 import { getProjectForUser } from "@/lib/auth/org";
-import { inngest } from "@/lib/inngest/client";
 import { hydrateEvidenceRecordsWithTypedTopics } from "@/lib/research-ontology/evidence-topics";
 import { createClient } from "@/lib/supabase/server";
 import type { EvidenceRecord, TrustScope, TrustScopeSource } from "@/types/database";
@@ -223,13 +222,6 @@ export async function updateEvidenceTrustAction(formData: FormData) {
     .update({ synthesis_stale: true })
     .eq("org_id", project.org_id)
     .eq("id", project.id);
-
-  if (bulkTrustAll) {
-    await inngest.send({
-      name: "project/synthesis.requested",
-      data: { org_id: project.org_id, project_id: project.id },
-    });
-  }
 
   revalidatePath(`/projects/${project.id}/evidence`);
   revalidatePath(`/projects/${project.id}`);
