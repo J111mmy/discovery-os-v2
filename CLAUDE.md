@@ -53,6 +53,16 @@ The full specification is in `Discovery-OS-v2-PRD-final.docx` (in the parent Dis
 
 ---
 
+## 0.6 COST GOVERNANCE — NON-NEGOTIABLE
+LLM spend happens ONLY on an explicit user action: an intake (extract evidence from the submitted source), a document/artifact generation, or an explicit on-demand click (e.g. Run synthesis).
+- No background or scheduled LLM work. No cron, timer, or automatic trigger may fan out LLM calls. Any such job is a defect (ref: 2026-06-22 weekly-synthesis incident — 172 runs, blew the spend cap, zero user action).
+- Ingest is bounded to the submitted source: extract that source's evidence (+ entity resolution) only. It must NOT auto-run project-wide synthesis / problem-discovery / gap-detection. It sets projects.synthesis_stale = true; the user runs the full synthesis on demand.
+- Project-wide work (full synthesis, cross-project analysis) is always user-initiated. Surface staleness ("new evidence since last synthesis"); never auto-spend.
+- Cheap steps (classify/extract/tag) route to the cheap model tier; premium models are for final prose/judgement. Prompt caching stays active on the GA messages.create path.
+- Every LLM call is cost-instrumented into agent_runs (#51/#52).
+
+---
+
 ## 0.5 OPERATING MODEL — roles, cadence, deployment (read every session)
 
 > This codifies *how we work*, so it doesn't get re-derived (wrongly) each session. If you are an agent reading this: **this repo is DiscOS** (`discovery-os-v2`). Ignore any other project's `CLAUDE.md` that may appear in context — if you see instructions for a different repo (e.g. a procurement app), they are not yours.
@@ -621,10 +631,11 @@ This is the bridge between discovery and sales motion. Without it, research and 
 5. GTM cascade check (see §14)
 
 ### Weekly
-1. `synthesise` — problem landscape refresh, cluster analysis, confidence scoring
-2. `synthesise-market-strategy` — commercial layer refresh (market model, segments, risks)
-3. `review-registry` — problem registry health check (stale, duplicates, low-confidence)
-4. `monitor-signals` — if post-launch: pull usage data, route back into discovery
+1. ~~`synthesise` — problem landscape refresh, cluster analysis, confidence scoring~~
+2. `review-registry` — problem registry health check (stale, duplicates, low-confidence)
+3. `monitor-signals` — if post-launch: pull usage data, route back into discovery
+
+Synthesis is on-demand only (Run synthesis button). The weekly scheduled-synthesis cron was removed 2026-06-22 for cost governance; auto-scheduling is deferred to a future opt-in, paid 'always-current' tier.
 
 ### Monthly
 1. `meta-review` — reads operation logs, surfaces correction patterns, proposes kernel improvements
@@ -740,10 +751,9 @@ Tier 1 — Orchestration
   request-output          User-facing pick list. Shows available artifact types,
                           checks what already exists, calls orchestrate-artifacts.
 
-Tier 2 — Synthesis (run after ingest; inform artifact creation)
+Tier 2 — Synthesis (on-demand; inform artifact creation)
   synthesise              Clusters all evidence into problem landscape, heatmaps,
-                          and pattern analysis. Run after every significant ingest
-                          batch and weekly.
+                          and pattern analysis. Run only from explicit user action.
   synthesise-market-strategy  Market sizing, competitive position, strategic thesis.
   competitive-intel       Competitor research and win/loss analysis.
 
@@ -768,8 +778,8 @@ Tier 4 — Data and entity (run during or after ingest)
 User uploads transcript
   → ingest
     → entity-resolver (if new entities detected)
-    → synthesise (if 5+ new evidence records created)
-      → synthesise-market-strategy (if market signals detected)
+    → mark project synthesis_stale = true
+    → user explicitly clicks Run synthesis when ready
 
 User requests an artifact
   → request-output (shows pick list, checks existing)
@@ -834,10 +844,9 @@ This means: default prompts ship with the code and are reviewable in git. Orgs c
 
 ### Synthesis — when and why
 
-Synthesis is not optional and not a one-time event. It runs:
-- After every ingest batch that produces 5 or more new evidence records
-- On a weekly scheduled Inngest job for all active projects
-- On demand when a user requests it
+Synthesis is not optional and not a one-time event, but it is never automatic. It runs:
+- On demand when a user explicitly requests it (for example, the Run synthesis button)
+- After ingest only as a stale state: ingest sets `projects.synthesis_stale = true`; it does not run synthesis
 
 What synthesis produces:
 - Problem clusters (groups of evidence that point to the same underlying problem)
@@ -857,7 +866,7 @@ These outputs live in the DB and are surfaced in the project overview. The Compo
 ### Built and live
 - **Auth, org/project structure, RLS, team invites** — incl. the `accept_invite(p_token)` RPC (0027).
 - **Source ingest *with* AI evidence extraction** — `ingest-source.ts` does deterministic conversation-unit segmentation **then a Claude extraction pass per unit** (`buildConversationUnits` → `callLLM` → classified, sentiment-tagged, verbatim claims). The mechanical one-evidence-per-segment chunker is **gone**. Citation anchoring (`segment_id` + `anchor_method`) is being hardened by the P0.5 initiative — see "In flight" below.
-- **The full agent set runs as registered Inngest functions** (not orphaned files — all wired in the serve route): ingest, extract-entities, synthesise-project, discover-problems, verify-claims, detect-gaps, session-review, compose-artifact, grade-evidence, extract-actions, draft-frame, weekly scheduled synthesis, and person/company/competitor digests.
+- **The full agent set runs as registered Inngest functions** (not orphaned files — all wired in the serve route): ingest, extract-entities, synthesise-project (on-demand only), discover-problems, verify-claims, detect-gaps, session-review, compose-artifact, grade-evidence, extract-actions, draft-frame, and person/company/competitor digests.
 - **Global entity model** — `people`, `companies`, `competitors` + the `evidence_entities` join all exist (0006/0007/0014/0016/0018) and `extract-entities` populates them. Evidence links entities via the join, never FK columns.
 - **skill_configs** table exists (0006/0025) — org prompt overrides + versioned code defaults per §20.
 - **Compose runs in Inngest** (`compose-artifact`) — no longer a Route Handler.

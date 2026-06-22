@@ -8,7 +8,6 @@ import { discoverProblems } from "@/lib/inngest/functions/discover-problems";
 import { generateOpportunities } from "@/lib/inngest/functions/generate-opportunities";
 import { verifyClaims } from "@/lib/inngest/functions/verify-claims";
 import { detectGaps } from "@/lib/inngest/functions/detect-gaps";
-import { weeklyProjectSynthesis } from "@/lib/inngest/functions/scheduled-synthesis";
 import { sessionReview } from "@/lib/inngest/functions/session-review";
 import { composeArtifact } from "@/lib/inngest/functions/compose-artifact";
 import { synthesisePerson } from "@/lib/inngest/functions/synthesise-person";
@@ -28,7 +27,6 @@ export const { GET, POST, PUT } = serve({
     generateOpportunities,
     verifyClaims,
     detectGaps,
-    weeklyProjectSynthesis,
     sessionReview,
     composeArtifact,
     synthesisePerson,

@@ -1927,20 +1927,15 @@ export const ingestSource = inngest.createFunction(
         });
       }
 
-      // Auto-trigger synthesis when ingest produces enough new evidence (≥5 records)
-      // per CLAUDE.md §15: synthesis runs after every ingest batch with 5+ new records
-      if (evidenceRecords.length >= 5) {
-        await step.run("queue-synthesis", async () => {
+      // Mark project-wide synthesis stale, but do not auto-run it. Cost governance:
+      // full synthesis is explicit/on-demand only; ingest stays bounded to this source.
+      if (evidenceRecords.length > 0) {
+        await step.run("mark-synthesis-stale", async () => {
           await supabase
             .from("projects")
             .update({ synthesis_stale: true })
             .eq("org_id", org_id)
             .eq("id", project_id);
-
-          await inngest.send({
-            name: "project/synthesis.requested",
-            data: { org_id, project_id },
-          });
         });
       }
 
