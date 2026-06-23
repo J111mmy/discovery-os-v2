@@ -6281,3 +6281,53 @@ Direction locked with Jimmy: the document section becomes the showpiece. Audienc
 4. Manager-grade polish: a scannable trust summary at the top of the doc (how much is well-evidenced vs speculative), drill-down on demand. Match the existing design system (CSS vars). No em-dash.
 
 Post findings from step 1 + the plan before building the full thing. Opus reviews; Jimmy pulls and tests in the browser.
+
+### Design (Sonnet) — 2026-06-23 — #78 Slice 1 step-1 findings: STOP triggered, recon needs correcting
+
+Investigated before building, per instruction. The recon in the work order is half right — the disconnect is real but the cause and the data shape are different from what's described. Reporting before touching any code.
+
+**1. Why `ArtifactViewer` isn't live — confirmed, and it's closer to dead code than "disconnected."**
+
+`documents/[artifactId]/page.tsx` renders `ArtifactReader`, not `ArtifactViewer`, directly. But `ArtifactReader` only falls back to `ArtifactViewer` (markdown + `CitationPopover`) when `contentHtml` is null. `toSafeContentHtml()` in `page.tsx` converts `content_md` → HTML via `markdownToSanitizedArtifactHtml()` even when the `content_html` column is empty, so `contentHtml` is non-null for almost every artifact. The HTML path (`HtmlReader`) renders sanitized HTML through `dangerouslySetInnerHTML` with zero React state and zero click handlers. `ArtifactViewer`'s popover is reachable only when both `content_html` is empty AND the markdown sanitizer throws — an edge case, not the common path.
+
+Tell: `doc_kit.css` already has hover/`aria-expanded` styling for `cite[data-n]` chips with the comment "popover wired by #14" — CSS was built ahead of the JS that was supposed to wire it, and that JS never landed in `HtmlReader`.
+
+**2. There are two unrelated citation systems, not one chain. This is the part the recon conflates.**
+
+- **`citation_map`** (`artifact.metadata.citation_map`, a plain `{n: evidence_id}` map built at compose time): has a working API (`/api/artifacts/[id]/citations`) and a working popover (`CitationPopover` in `ArtifactViewer.tsx`). Keyed to `[n]` bracket markers in raw markdown. This is what's "already built" — but it only feeds the rarely-reached `ArtifactViewer` fallback, and it has no concept of claims, sections, or verification.
+- **`artifact_claims` + `artifact_claim_evidence`** (the table the WO wants confidence grading from): populated only by the `verify-claims` Inngest function, triggered by a manual "Verify" button in the compose editor (`POST /api/artifacts/[id]/verify`) — not automatic, not run for every artifact. Claims are auto-extracted by splitting `content_md` into sentences/list-items (`extractClaimsFromMarkdown`), each tagged with the nearest `## ` heading as `section_heading`. **No API route exists that reads these tables for the frontend at all** — the only consumers are the write-side Inngest function and `support-read.ts`'s read-scoping allowlist.
+
+These two systems share no keys. Porting the existing `CitationPopover`/citations API as-is gets you citations with no relevance to verification_status; the claims table that has verification_status has no API and wasn't built with bracket-citation positions in the text.
+
+**3. STOP condition is hit, but not exactly as anticipated — and one assumption in the WO is wrong.**
+
+Per instruction: confidence grading needs evidence count + verification_status per claim, and if the citations API doesn't return that, flag for a Codex split. Confirmed — no existing endpoint returns it. But also: **`artifact_claim_evidence.relevance` is hardcoded `null` on every insert** in `verify-claims.ts` (line ~356) — there is no cosine-relevance scoring actually happening today, despite the WO recon describing it as already computed. Evidence *count* per claim is real (one row per supporting evidence id), diversity (distinct source/org count) is derivable by joining to `sources`, but "relevance" as a ranking signal doesn't exist yet. Confidence grading should be built on verdict + count + diversity, not relevance, unless a real scoring pass gets added later (#79/#80 territory, not Slice 1).
+
+**Small backend add needed (splitting to Codex, per the WO's own contingency):** a new endpoint, e.g. `GET /api/artifacts/[id]/claims`, returning per claim: `claim_text`, `section_heading`, `verification_status`, `evidence_count`, `source_count` (distinct), and a few evidence previews (content/source_title/segment_speaker — same shape `CitationRecord` already uses, so Design can reuse `CitationPopover`'s rendering as-is). No new columns, no schema change — pure read query over `artifact_claims` + `artifact_claim_evidence` + `evidence` + `sources`. Not gated (read-only, RLS already covers these tables per `support-read.ts`).
+
+**4. One more thing the WO didn't anticipate: verification is opt-in per artifact.**
+
+Since `verify-claims` only runs when someone clicks "Verify" in compose, most existing artifacts likely have zero rows in `artifact_claims`. The manager-grade trust summary needs a real empty state — "not yet verified" rather than "0 of 0 claims backed" — otherwise every undue document looks broken or untrustworthy by default.
+
+**Plan for the actual build (pending Opus review of the above):**
+
+- Codex: ship the `GET /api/artifacts/[id]/claims` endpoint described above.
+- Design: once that lands, do confidence grading at **section granularity**, not per-sentence. `section_heading` already lines up with the `h2[data-section]` anchors `ArtifactReader`'s TOC extracts (`HtmlReader`'s `tocItems`) — rolling claims up to their section avoids fragile text-matching between auto-extracted sentences and the rendered HTML, and matches the "manager scans, doesn't edit" framing Jimmy locked in.
+- Trust summary: aggregate badge at the top ("X of Y claims backed by evidence" / "Not yet verified" when `artifact.verification_status` is null), plus a small badge per section heading and in the TOC, each opening a popover (port of `CitationPopover`) listing the supporting evidence quotes/people/sources for that section's claims.
+- Legacy `citation_map`/`ArtifactViewer` path left untouched — it's a separate, working fallback for the no-HTML edge case and shouldn't be merged with the claims system.
+
+Holding for Opus review before building. No code changed yet.
+
+### Opus — 2026-06-23 — #78 Slice 1: recon corrected (Design was right) + Codex read-endpoint WO
+
+I verified Design's findings against the code. Confirmed:
+- `verify-claims.ts:356` inserts `relevance: null` hardcoded — no cosine scoring exists. My earlier recon (relevance "already computed") was wrong.
+- `artifact_claim_evidence` is written ONLY by the on-demand verify flow (#67), so claims exist only for explicitly-verified artifacts. Most docs have zero claim rows.
+Confidence grading will use `verification_status` + evidence count + source diversity (distinct people/orgs), NOT relevance.
+
+**WO — CODEX lane (backend, read-only, NOT §0-gated by content but it's a new public route so confirm auth):**
+`GET /api/artifacts/[id]/claims` — returns, for one artifact, the claims with their grounding evidence so Design can render the citation + confidence layer.
+- Auth: `auth.getUser()` 401, `requireActiveAccess()`/project-access check (mirror the existing artifact routes), user-scoped client so RLS on artifact_claims/_evidence/evidence applies. No service-role.
+- Shape per claim: `claim_id, claim_text, section_heading, verification_status, evidence: [{ evidence_id, quote/snippet, person/speaker, source_title, source_type }], evidence_count`. Plus artifact-level `verification_status` + `verification_run_at` so the UI can show an honest "not yet verified" state when there are zero claims.
+- Read-only: no writes, no new tables, no schema change. Return shape documented for Design.
+Post the route diff for a quick Opus review (new route = I check the auth gate), then Jimmy pulls. Keep it lean — this is a small query, mind the token budget.
