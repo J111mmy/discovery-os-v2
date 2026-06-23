@@ -6186,3 +6186,80 @@ Before authoring, Codex: confirm no anon-evaluated RLS policy or anon code path 
 Also note for future migrations: any new SECURITY DEFINER admin function in the public schema should `revoke execute ... from anon` explicitly, since `revoke from public` is insufficient under Supabase default privileges.
 
 Post the migration for review; Jimmy applies. Low priority — schedule behind #77 provisioning.
+## 2026-06-23 — CODEX: GitHub #77 approve access request → provision new org ready for Opus review
+
+Built on branch `codex/access-request-org-provisioning` in clean sibling worktree `discovery-os-v2-org-provisioning`. **No commit, no push, no SQL applied.** This is §0-gated because it adds a `SECURITY DEFINER` provisioning RPC and changes the super-admin approve flow.
+
+Numbering note honored: the earlier access-request UI was informal; this packet is GitHub #77 provisioning.
+
+### 1. SQL / RPC
+
+File: `supabase/migrations/0036_access_request_org_provisioning.sql`
+
+Why `0036`: `0035` is already used by the #52 cost-dashboard packet now on main. #77 is the priority onboarding blocker, so this packet keeps the next migration number. The low-priority #52 anon-execute hardening note above should be renumbered when it is picked up after #77.
+
+Adds `public.provision_customer_org(p_org_name text, p_email text)` returning the new org and owner-invite details:
+- `org_id`, `org_name`, `org_slug`
+- `invite_id`, `invite_token`, `invite_email`, `invite_role`, `expires_at`
+
+Security/grant model:
+- `SECURITY DEFINER`
+- pinned `search_path = public, pg_temp`
+- explicit `coalesce(auth.role(), '') <> 'service_role'` guard
+- `revoke all ... from public, anon, authenticated`
+- `grant execute ... to service_role`
+- Route calls it through the existing service-role server client only after `requireSuperAdmin()`.
+
+Data behavior:
+- Validates org name length and invite email shape.
+- Slugifies the user-supplied org name with `regexp_replace`, trims dashes, falls back to `workspace`, and appends a numeric suffix on `orgs.slug` collision.
+- Inserts `orgs` and `org_invites(role='owner')` inside the same DB function call/transaction.
+- Does not add `access_requests.org_id`; traceability remains via `access_requests.invite_id -> org_invites.org_id`.
+- Does not touch `accept_invite`; existing `role::org_role` works because `org_role` already includes `owner`, and `org_invites.role` has no DB CHECK blocking owner.
+
+Rollback behavior:
+- Email send remains in the route. If sending fails after the RPC, the route deletes the newly created org; cascade removes the invite.
+- If the email succeeds but marking the access request approved fails, the route also deletes the org, mirroring the existing invite cleanup behavior.
+
+### 2. Approve route diff
+
+File: `src/app/api/admin/access-requests/[requestId]/approve/route.ts`
+
+Changes:
+- Super-admin gate remains first.
+- Request schema is now a union:
+  - `mode: "new_org"`, `org_name`, `role: "owner"` only
+  - `mode: "existing_org"`, `org_id`, `role: "admin" | "member"` only
+- Existing-org path keeps the old behavior exactly: existing org lookup, `org_invites` insert, branded email, mark request approved.
+- New-org path calls `provision_customer_org`, sends the branded owner invite, marks the request approved.
+- Non-super-admin cannot reach either path; forged body/cookie does not help because `requireSuperAdmin()` precedes service-role work.
+
+### 3. UI diff
+
+File: `src/app/(admin)/admin/access-requests/access-requests-client.tsx`
+
+Changes:
+- Pending requests default to **New workspace**.
+- Editable workspace name is prefilled from `request.company`; fallback is `"{name}'s workspace"`.
+- Owner role is shown as a fixed indicator for new workspaces; no role select there.
+- **Existing org** is a secondary toggle that reveals the existing org picker + `member/admin` role select.
+- Visible empty-value placeholders remain `--`.
+
+### 4. Supporting type/email changes
+
+Files:
+- `src/lib/email/invite.ts`
+- `src/types/database.ts`
+
+Changes:
+- Invite email and local `OrgInvite` type now allow `owner | admin | member`.
+- Email copy labels owner as `an owner`.
+
+### 5. Verification
+
+- `npm run type-check` ✅
+- `git diff --check` ✅
+- `npm run build` ✅
+  - Existing warnings only: Newsreader font override warning and Supabase Node 18 deprecation warnings.
+
+Opus: please review the SQL/RPC grant model, route branch/rollback behavior, and UI mode split before commit/apply. Jimmy applies `0036` only after approval.

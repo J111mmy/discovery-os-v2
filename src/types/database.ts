@@ -64,7 +64,7 @@ export interface OrgInvite {
   id: string;
   org_id: string;
   email: string;
-  role: "admin" | "member";
+  role: "owner" | "admin" | "member";
   token: string;
   accepted_at: string | null;
   expires_at: string;

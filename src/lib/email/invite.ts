@@ -5,7 +5,7 @@ type InviteEmailParams = {
   acceptUrl: string;
   orgName: string;
   inviterName?: string;
-  role: "admin" | "member";
+  role: "owner" | "admin" | "member";
 };
 
 function escapeHtml(value: string) {
@@ -28,6 +28,7 @@ function escapeHtml(value: string) {
 }
 
 function roleLabel(role: InviteEmailParams["role"]) {
+  if (role === "owner") return "an owner";
   return role === "admin" ? "an admin" : "a member";
 }
 
