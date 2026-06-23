@@ -6331,3 +6331,63 @@ Confidence grading will use `verification_status` + evidence count + source dive
 - Shape per claim: `claim_id, claim_text, section_heading, verification_status, evidence: [{ evidence_id, quote/snippet, person/speaker, source_title, source_type }], evidence_count`. Plus artifact-level `verification_status` + `verification_run_at` so the UI can show an honest "not yet verified" state when there are zero claims.
 - Read-only: no writes, no new tables, no schema change. Return shape documented for Design.
 Post the route diff for a quick Opus review (new route = I check the auth gate), then Jimmy pulls. Keep it lean — this is a small query, mind the token budget.
+
+## 2026-06-23 — CODEX: #78 Slice 1 claims read endpoint ready for Opus review
+
+Built the small backend endpoint requested for Design's living-citation layer. **No commit, no push, no SQL.** Read-only route only.
+
+File:
+- `src/app/api/artifacts/[id]/claims/route.ts`
+
+Route:
+- `GET /api/artifacts/[id]/claims`
+
+Auth/scoping:
+- `supabase.auth.getUser()` gates unauthenticated callers with 401.
+- `requireActiveAccess({ id, email })` gates pending/declined/suspended users with 403.
+- Uses `getOrgScopedReadForUser(user.id, supabase)` and the existing scoped read helper for every table read.
+- No service-role client in the route; no writes/mutations.
+- Artifact is read first via org-scoped `artifacts` query. Missing/out-of-scope artifact returns 404 before claims are read.
+
+Response shape:
+- Top level: `artifact_id`, artifact `verification_status`, artifact `verification_run_at`, `claims`.
+- Per claim: `claim_id`, `claim_text`, `section_heading`, `verification_status`, `evidence_count`, `evidence`.
+- Per evidence preview: `evidence_id`, `quote`, `snippet`, `person`, `speaker`, `source_title`, `source_type`.
+- If the artifact has no claim rows, returns `claims: []` plus artifact-level verification fields so Design can render "not yet verified" honestly.
+
+Query notes:
+- Reads `artifact_claims`, `artifact_claim_evidence`, `evidence`, `sources`, and `source_segments`.
+- Does not depend on relevance/cosine scores.
+- Evidence preview uses `summary` as the display quote when present, otherwise the evidence content, and includes a short snippet from content.
+
+Verification:
+- `npm run type-check` ✅
+- `npm run build` ✅
+- `git diff --check` ✅
+
+Opus: please review the new route's auth gate/scoping before Jimmy pulls.
+
+### Opus — 2026-06-23 — #78 Slice 1 CORRECTION: default trust layer is FREE; build on existing citations API; HOLD the Codex claims endpoint
+
+Further recon corrects the plan again (verified in code):
+- `compose-artifact.ts:139` INSERTS `artifact_evidence` at compose time; `citation_map` is stored in `artifacts.metadata`. So grounding/citation data exists on EVERY composed doc, already paid for at generation.
+- Existing `GET /api/artifacts/[id]/citations` already returns per-`[n]` evidence with content/source_title/source_type/segment_speaker/classification/sentiment, auth-gated + org-scoped. This is sufficient for the DEFAULT trust layer.
+
+**Revised plan — two tiers:**
+- **Default (free, universal, Slice 1):** build the trust/citation UI on the EXISTING `/citations` endpoint. Section-level grading derived from the `[n]` citations (count distinct sources/people per section; surface sections with ZERO citations as "ungrounded"). No new endpoint, no compose change, $0 incremental runtime. **DESIGN lane, no Codex needed.**
+- **Premium (paid, on-demand, later slice):** the "Verified" overlay from `artifact_claims`/`verification_status` (only present when a user runs #67 Verify). The Codex `GET /api/artifacts/[id]/claims` WO from my previous entry is **DEFERRED to this tier** — do NOT build it yet.
+
+**Action:** the Codex claims-endpoint relay is withdrawn for now (saves tokens). Design proceeds on `/api/artifacts/[id]/citations` for Slice 1. My earlier "born-cited needs a cost call" was based on a wrong assumption that grounding wasn't captured — it is; there is no meaningful incremental cost for the default layer.
+
+### Opus — 2026-06-23 — claims endpoint REVIEW: APPROVED (bank as verified-tier; not Slice 1 critical path)
+
+Note: my withdrawal of this WO didn't reach Codex before it finished (async). No harm — this is exactly the verified-tier endpoint we'll need, so banking it rather than discarding.
+
+`GET /api/artifacts/[id]/claims` — APPROVED.
+- Auth: `auth.getUser()` 401 → `requireActiveAccess()` 403 → `getOrgScopedReadForUser` 403; org-scoped read client (RLS-enforced); read-only, no service role, no schema change. ✓
+- Returns artifact `verification_status` + `verification_run_at` and per-claim evidence previews (quote/snippet/person/speaker/source). Empty-claims returns early with status → honest "not yet verified" state. ✓
+- Minor: `person` and `speaker` both map to `segment.speaker` (no people-table resolution) — acceptable for preview, not a blocker.
+
+**Status:** safe to land on main now (unreferenced, harmless). It is the PREMIUM/verified tier. **Slice 1 (default trust layer) still builds on the existing `/citations` endpoint and does NOT depend on this.** Design proceeds independently — no Codex dependency for Slice 1.
+
+**Codex availability:** out of credits for a few days; Jimmy spinning up a replacement. No backend work blocks Slice 1. Queue any further backend WOs until the replacement is live.
