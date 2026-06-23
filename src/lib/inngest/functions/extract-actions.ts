@@ -146,6 +146,13 @@ export const extractActions = inngest.createFunction(
             "You extract action items and product requests from research session notes. Be conservative — only include clear, explicit commitments and requests. Return only valid JSON.",
           messages: [{ role: "user", content: prompt }],
           timeoutMs: 30_000,
+          telemetry: {
+            orgId: org_id,
+            projectId: project_id,
+            agentRunId,
+            agentType: "action-extraction",
+            step: "extract",
+          },
         });
 
         const parsed = parseActionExtractionResult(llmResult.content);

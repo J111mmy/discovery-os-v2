@@ -281,6 +281,14 @@ export const verifyClaims = inngest.createFunction(
                 },
               ],
               timeoutMs: 120_000,
+              telemetry: {
+                orgId: org_id,
+                projectId: project_id,
+                artifactId: artifact_id,
+                agentRunId,
+                agentType: "claim-verification",
+                step: "verify-each-claim",
+              },
             });
 
             const parseResult = VerificationResultSchema.safeParse(

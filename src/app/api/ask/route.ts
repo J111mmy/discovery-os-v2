@@ -4,7 +4,7 @@
 // Never exposes model names, agent internals, or pipeline mechanics to the client.
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { requireActiveAccess } from "@/lib/auth/access";
 import { getProjectForUser } from "@/lib/auth/org";
 import { queryEvidence } from "@/lib/query/evidence";
@@ -61,6 +61,100 @@ const encoder = new TextEncoder();
 
 function encodeStreamEvent(event: AskStreamEvent) {
   return encoder.encode(`${JSON.stringify(event)}\n`);
+}
+
+async function startAskAgentRun(input: {
+  orgId: string;
+  projectId: string;
+  question: string;
+  trustScope: string;
+  limit: number;
+}) {
+  try {
+    const supabase = createServiceClient();
+    const { data, error } = await supabase
+      .from("agent_runs")
+      .insert({
+        org_id: input.orgId,
+        project_id: input.projectId,
+        agent_type: "ask-answer",
+        input: {
+          prompt_version: ASK_PROMPT_VERSION,
+          question_length: input.question.length,
+          trust_scope: input.trustScope,
+          limit: input.limit,
+        },
+      })
+      .select("id")
+      .single();
+
+    if (error || !data) {
+      console.error("[ask] failed to start agent run", error?.message);
+      return null;
+    }
+
+    return data.id as string;
+  } catch (error) {
+    console.error("[ask] failed to start agent run", error);
+    return null;
+  }
+}
+
+async function completeAskAgentRun(input: {
+  orgId: string;
+  agentRunId: string | null;
+  modelUsed: string;
+  output: Record<string, unknown>;
+}) {
+  if (!input.agentRunId) return;
+
+  try {
+    const supabase = createServiceClient();
+    const { error } = await supabase
+      .from("agent_runs")
+      .update({
+        status: "completed",
+        model_used: input.modelUsed,
+        output: input.output,
+        completed_at: new Date().toISOString(),
+      })
+      .eq("org_id", input.orgId)
+      .eq("id", input.agentRunId);
+
+    if (error) {
+      console.error("[ask] failed to complete agent run", error.message);
+    }
+  } catch (error) {
+    console.error("[ask] failed to complete agent run", error);
+  }
+}
+
+async function failAskAgentRun(input: {
+  orgId: string;
+  agentRunId: string | null;
+  error: unknown;
+}) {
+  if (!input.agentRunId) return;
+
+  try {
+    const message = input.error instanceof Error ? input.error.message : String(input.error);
+    const supabase = createServiceClient();
+    const { error } = await supabase
+      .from("agent_runs")
+      .update({
+        status: "failed",
+        error: message,
+        completed_at: new Date().toISOString(),
+      })
+      .eq("org_id", input.orgId)
+      .eq("id", input.agentRunId);
+
+    if (error) {
+      console.error("[ask] failed to mark agent run failed", error.message);
+    }
+  } catch (error) {
+    console.error("[ask] failed to mark agent run failed", error);
+  }
 }
 
 function mergeEvidenceRecords(...groups: EvidenceRecord[][]) {
@@ -238,6 +332,14 @@ export async function POST(req: NextRequest) {
         .join(". ")
     : null;
 
+  const agentRunId = await startAskAgentRun({
+    orgId: project.org_id,
+    projectId: project.id,
+    question,
+    trustScope: trust_scope,
+    limit,
+  });
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
@@ -261,6 +363,13 @@ export async function POST(req: NextRequest) {
               },
             ],
             timeoutMs: 60_000,
+            telemetry: {
+              orgId: project.org_id,
+              projectId: project.id,
+              agentRunId,
+              agentType: "ask-answer",
+              step: "stream-answer",
+            },
           },
           (delta) => {
             controller.enqueue(
@@ -276,6 +385,17 @@ export async function POST(req: NextRequest) {
           .map((i) => retrieved[i - 1])
           .filter(Boolean);
 
+        await completeAskAgentRun({
+          orgId: project.org_id,
+          agentRunId,
+          modelUsed: result.model,
+          output: {
+            answer_length: answer.length,
+            cited_source_count: citedSources.length,
+            retrieved_count: retrieved.length,
+          },
+        });
+
         controller.enqueue(
           encodeStreamEvent({
             type: "done",
@@ -288,6 +408,11 @@ export async function POST(req: NextRequest) {
         controller.close();
       } catch (err) {
         console.error("[ask] LLM synthesis failed:", err);
+        await failAskAgentRun({
+          orgId: project.org_id,
+          agentRunId,
+          error: err,
+        });
         controller.error(err);
       }
     },

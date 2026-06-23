@@ -1,4 +1,4 @@
-import { callLLM } from "@/lib/llm/client";
+import { callLLM, type LLMTelemetryContext } from "@/lib/llm/client";
 import { detectExpertPersona } from "@/lib/llm/persona";
 import { neutralizeUntrustedSourceContentFence } from "@/lib/llm/prompts/untrusted-content";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -1041,12 +1041,14 @@ export async function composeStructureDraft({
   prompt,
   limit = 18,
   dry_run = false,
+  telemetry,
 }: {
   org_id: string;
   project_id: string;
   prompt: string;
   limit?: number;
   dry_run?: boolean;
+  telemetry?: LLMTelemetryContext;
 }): Promise<StructureComposeDraft> {
   const supabase = createServiceClient();
   const context = await fetchStructureContext({ supabase, org_id, project_id, limit });
@@ -1065,6 +1067,7 @@ export async function composeStructureDraft({
     system,
     messages: [{ role: "user", content: userMessage }],
     timeoutMs: 240_000,
+    telemetry,
   });
 
   const { title, sections } = parseMarkdownSections(result.content);

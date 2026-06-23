@@ -397,6 +397,13 @@ export const extractEntities = inngest.createFunction(
             },
           ],
           timeoutMs: 120_000,
+          telemetry: {
+            orgId: org_id,
+            projectId: project_id,
+            agentRunId,
+            agentType: "entity-extraction",
+            step: "extract-entities",
+          },
         });
 
         // Resilient parse: a truncated/malformed people/companies/competitors

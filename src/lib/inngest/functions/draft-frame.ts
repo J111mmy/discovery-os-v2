@@ -185,6 +185,13 @@ export const draftFrame = inngest.createFunction(
             "You are a senior product researcher. Propose a concise, specific project frame based on the evidence provided. Return only valid JSON with the exact shape requested.",
           messages: [{ role: "user", content: prompt }],
           timeoutMs: 45_000,
+          telemetry: {
+            orgId: org_id,
+            projectId: project_id,
+            agentRunId,
+            agentType: "frame-draft",
+            step: "generate-draft",
+          },
         });
 
         const parsed = parseFrameDraft(result.content);

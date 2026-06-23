@@ -178,6 +178,12 @@ export const synthesisePerson = inngest.createFunction(
             "You write clear, direct intelligence profiles of research participants. Write in prose — no headings, no bullets. Return only the profile text.",
           messages: [{ role: "user", content: prompt }],
           timeoutMs: 60_000,
+          telemetry: {
+            orgId: org_id,
+            agentRunId,
+            agentType: "person-digest",
+            step: "generate-digest",
+          },
         });
 
         return { digest: result.content.trim(), modelUsed: result.model };

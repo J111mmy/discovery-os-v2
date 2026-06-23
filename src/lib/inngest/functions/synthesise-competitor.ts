@@ -196,6 +196,12 @@ export const synthesiseCompetitor = inngest.createFunction(
             "You are a competitive intelligence analyst. Extract structured competitive intelligence from customer evidence. Be specific and evidence-driven. Return only valid JSON.",
           messages: [{ role: "user", content: prompt }],
           timeoutMs: 60_000,
+          telemetry: {
+            orgId: org_id,
+            agentRunId,
+            agentType: "competitor-digest",
+            step: "generate-digest",
+          },
         });
 
         const parsed = parseCompetitorDigestResult(llmResult.content);

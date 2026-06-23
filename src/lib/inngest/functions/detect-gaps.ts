@@ -99,6 +99,12 @@ export const detectGaps = inngest.createFunction(
           },
         ],
         timeoutMs: 60_000,
+        telemetry: {
+          orgId: org_id,
+          projectId: project_id,
+          agentType: "gap-detection",
+          step: "call-llm",
+        },
       });
 
       const parsed = GapsSchema.safeParse(extractJsonArray(result.content));

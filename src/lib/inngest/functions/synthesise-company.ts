@@ -206,6 +206,12 @@ export const synthesiseCompany = inngest.createFunction(
             "You write clear, direct intelligence profiles of customer companies for a product team. Write in prose — no headings, no bullets. Return only the profile text.",
           messages: [{ role: "user", content: prompt }],
           timeoutMs: 60_000,
+          telemetry: {
+            orgId: org_id,
+            agentRunId,
+            agentType: "company-digest",
+            step: "generate-digest",
+          },
         });
 
         return { digest: result.content.trim(), modelUsed: result.model };

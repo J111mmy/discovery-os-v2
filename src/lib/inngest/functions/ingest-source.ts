@@ -1091,6 +1091,10 @@ function parseClaimsForUnits(
 }
 
 async function callIngestExtractionLLM(input: {
+  orgId: string;
+  projectId: string;
+  agentRunId: string | null;
+  batchIndex: number;
   staticPrompt: string;
   units: ConversationUnit[];
   tier: TaskTier;
@@ -1119,6 +1123,13 @@ async function callIngestExtractionLLM(input: {
     messages: [{ role: "user", content: contentBlocks }],
     timeoutMs: ingestExtractionTimeoutMs(),
     maxTokens: ingestExtractionMaxTokens(),
+    telemetry: {
+      orgId: input.orgId,
+      projectId: input.projectId,
+      agentRunId: input.agentRunId,
+      agentType: "ingest-extraction",
+      step: `extract-evidence-batch-${String(input.batchIndex).padStart(4, "0")}`,
+    },
   });
 
   return { result, durationMs: Date.now() - startedAt };
@@ -1126,6 +1137,9 @@ async function callIngestExtractionLLM(input: {
 
 async function extractClaimsForUnitBatch(input: {
   batchIndex: number;
+  orgId: string;
+  projectId: string;
+  agentRunId: string | null;
   units: ConversationUnit[];
   staticPrompt: string;
   tier: TaskTier;
@@ -1140,6 +1154,10 @@ async function extractClaimsForUnitBatch(input: {
   }
 
   const { result, durationMs } = await callIngestExtractionLLM({
+    orgId: input.orgId,
+    projectId: input.projectId,
+    agentRunId: input.agentRunId,
+    batchIndex: input.batchIndex,
     staticPrompt: input.staticPrompt,
     units: input.units,
     tier: input.tier,
@@ -1174,6 +1192,9 @@ async function extractClaimsForUnitBatch(input: {
       input.units.map((unit, offset) =>
         extractClaimsForUnitBatch({
           batchIndex: input.batchIndex * 1000 + offset + 1,
+          orgId: input.orgId,
+          projectId: input.projectId,
+          agentRunId: input.agentRunId,
           units: [unit],
           staticPrompt: input.staticPrompt,
           tier: input.tier,
@@ -1543,6 +1564,9 @@ export const ingestSource = inngest.createFunction(
               async () =>
                 extractClaimsForUnitBatch({
                   batchIndex,
+                  orgId: org_id,
+                  projectId: project_id,
+                  agentRunId: extractionAgentRunId,
                   units: batch,
                   staticPrompt: extractionStaticPrompt,
                   tier: extractionTier,

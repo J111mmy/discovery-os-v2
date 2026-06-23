@@ -1,5 +1,5 @@
 // Compose pipeline — evidence-grounded document drafting
-import { callLLM } from "@/lib/llm/client";
+import { callLLM, type LLMTelemetryContext } from "@/lib/llm/client";
 import { detectExpertPersona } from "@/lib/llm/persona";
 import { dualQueryEvidence } from "@/lib/query/evidence";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -196,7 +196,8 @@ function parseMarkdownSections(markdown: string): {
 }
 
 export async function composeDraft(
-  req: ComposeDraftRequest
+  req: ComposeDraftRequest,
+  telemetry?: LLMTelemetryContext
 ): Promise<ComposeDraftResponse> {
   const { org_id, project_id, prompt, limit = 18 } = req;
 
@@ -225,6 +226,7 @@ export async function composeDraft(
     system: systemPrompt,
     messages: [{ role: "user", content: userMessage }],
     timeoutMs: 120_000,
+    telemetry,
   });
 
   const { title, sections } = parseMarkdownSections(result.content);

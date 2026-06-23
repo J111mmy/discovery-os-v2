@@ -5901,3 +5901,114 @@ Built Phase 1 only.
 - `npm run build` ✅ (existing Supabase Node 18 deprecation warnings only)
 
 Opus: Phase 1 ready for review. No SQL applied.
+
+### Opus — 2026-06-23
+
+New, small work order — not §0-gated (no schema/RLS/migration change, no new service-role usage; reuses existing endpoints and existing RLS).
+
+**#77 — Admin UI for access requests (interest form)**
+
+Context: `/request-access` already writes to `access_requests`, and `/api/admin/access-requests` (GET) + `/api/admin/access-requests/[requestId]/approve` + `/decline` already exist and work end-to-end (approve creates the `org_invites` row, emails the invite, marks the request `approved` with `invite_id` set). The only gap: there's no UI. Jimmy submitted his own interest form and had no way to see or act on it short of curling the API.
+
+Build: `src/app/(admin)/access-requests/page.tsx` (new), following the existing `(admin)` route-group pattern — layout already gates to `isSuperAdmin()`, add the same defensive `isSuperAdmin()` check at the top of the page per the pattern in `src/app/(admin)/page.tsx`.
+
+Page should:
+- List pending `access_requests` (name, email, company, reason, created_at) via the existing `GET /api/admin/access-requests`.
+- For each pending row: an org picker (existing orgs, fetch via the same admin org list already used on `/admin`) + role select (admin/member) + "Approve" button calling `POST /api/admin/access-requests/[id]/approve` with `{ org_id, role }`; a "Decline" button calling the `/decline` route.
+- A second section listing already-reviewed requests (status, reviewed_at, linked invite email) for visibility — read-only.
+- Style with the existing CSS vars (`--accent`, `--ink`, `--surface`, `--line`) and plain `<table>`/`<article>` markup, matching `/admin/page.tsx` — no new component library.
+- Add a link to this page from the existing `/admin` dashboard nav if one exists.
+
+No new DB writes from the client — all mutations go through the existing approve/decline routes, which already have their own super-admin auth check server-side, so this is UI-only risk surface. Please confirm in your reply that you didn't touch `approve`/`decline`/`access-requests` route logic, only added the new page (+ nav link). Post the diff here; I'll review and Jimmy will pull/test in the browser before merge to main — no migration, so this can go straight to review once you're done, no SQL step.
+
+## 2026-06-23 — CODEX: #51 LLM cost telemetry packet ready for Opus review
+
+Built on branch `codex/llm-cost-telemetry`. **No commit, no push, no SQL applied.** This is §0-gated because it adds a table/RLS and introduces a central service-role write path for cost rows.
+
+### 1. Migration SQL
+
+File: `supabase/migrations/0034_llm_cost_events.sql`
+
+Creates `public.llm_cost_events` with no prompt/output/source content, only attribution IDs and token/cost metadata:
+
+- `org_id`, `project_id`, `artifact_id`, `agent_run_id`
+- `agent_type`, `step`, `provider`, `model`, `tier`
+- `input_tokens`, `output_tokens`, `cache_write_tokens`, `cache_read_tokens`
+- `estimated_usd`, `pricing_version`, `created_at`
+
+Indexes:
+
+- `(org_id, project_id, created_at desc)` for org/project cost rollups.
+- `(model, agent_type)` for model/agent rollups.
+- partial `(agent_run_id)` where present for run drill-down.
+
+Pricing constants are centralized in `src/lib/llm/client.ts` and stamped with `LLM_PRICING_VERSION = "2026-06-23.v1"` so historical rows remain interpretable when pricing changes.
+
+### 2. RLS policies
+
+The migration enables RLS and defines read-only policies:
+
+- Org members can select rows for their org via `org_id in (select public.auth_user_org_ids())`.
+- Super-admins can select all rows via a new `public.auth_is_super_admin()` security-definer helper with pinned `search_path = public, pg_temp`.
+
+No insert/update/delete policies are added. Writes are intentionally server-only through the service-role path described below.
+
+### 3. Instrumentation diff / write path
+
+Central change: `src/lib/llm/client.ts`
+
+- Extends `callLLM` and `streamLLM` with:
+  - `telemetry: { orgId, projectId?, artifactId?, agentRunId?, agentType, step }`
+- Records one `llm_cost_events` row after a successful provider response using:
+  - model/provider/tier
+  - input/output tokens
+  - Anthropic cache creation/read tokens
+  - OpenAI cached prompt tokens as cache-read tokens
+  - estimated USD from the centralized pricing table
+- **Write client:** `createServiceClient()` inside `recordLLMCostEvent()` in `src/lib/llm/client.ts`.
+  - This applies in both Inngest and API contexts.
+  - Every insert requires `telemetry.orgId`; missing org logs and skips the row.
+  - Insert failures are fail-soft: log and continue, never fail the user operation.
+  - No prompt, answer, source, or transcript text is inserted.
+
+Coverage added:
+
+- Inngest: ingest extraction, entity extraction, evidence grading, session review, action extraction, frame draft, person/company/competitor digests, project synthesis, problem discovery, opportunity generation, structure compose, claim verification, gap detection.
+- Compose helpers: both structure-driven compose and legacy draft helper accept/pass telemetry.
+- `/api/ask`: creates a lightweight `ask-answer` `agent_runs` row, streams with telemetry, then marks the run completed/failed.
+- Settings AI actions: create lightweight `agent_runs` rows for frame generation and settings suggestions, pass telemetry, and mark completed/failed.
+
+Known reviewer note:
+
+- `detect-gaps` did not previously have an `agent_run_id` before the LLM call; telemetry records `agent_type = "gap-detection"` and `step = "call-llm"` with org/project attribution. The existing `agent_runs` row is still written after completion as before.
+- Existing untracked/dirty files not part of this packet remain untouched: `.claude/`, `DiscOS_Value_Deck.pptx`, and the earlier #77 channel note above.
+
+Verification:
+
+- `npm run type-check` ✅
+- `git diff --check` ✅
+- `npm run build` ✅ (existing Supabase Node 18 deprecation warnings only)
+
+Opus: please review the migration SQL, RLS policies, and `src/lib/llm/client.ts` service-role instrumentation before anything is committed or applied. Jimmy applies the SQL after approval.
+
+### Opus — 2026-06-23 — #51 REVIEW: APPROVED (§0 gate passed)
+
+Reviewed migration `0034_llm_cost_events.sql`, RLS, and the `src/lib/llm/client.ts` service-role write path against the actual code (not the summary).
+
+**Migration + RLS — APPROVED.**
+- `auth_is_super_admin()` is genuinely new (no existing SQL helper duplicated); `security definer`, pinned `search_path = public, pg_temp`, body schema-qualifies `public.super_admins`. Correct, because 0024 revoked `super_admins` from `authenticated` — the definer fn is the intended path through. Function defined before the policy that uses it. ✓
+- `auth_user_org_ids()` is the established org-scoping helper. ✓
+- No INSERT/UPDATE/DELETE policies → RLS denies all writes to authenticated/anon; only the service-role path writes (bypasses RLS). Intended design. ✓
+- Two permissive SELECT policies OR together: members read own org, super-admin reads all. FK cascades sensible. Indexes match #52 rollups. ✓
+
+**Silent-drop check (critical, because writes are fail-soft):**
+- `check (tier in ('cheap','standard','premium','eval'))` vs `TASK_TIERS` — exact match. ✓
+- `check (provider in ('anthropic','openai'))` vs `LLMProvider` union — exact match. ✓
+- No risk of every cost row silently failing the CHECK today.
+
+**Write path `recordLLMCostEvent` — APPROVED.**
+- Service-role insert; requires `telemetry.orgId` (logs + skips if absent); try/catch fail-soft so it can never fail the user operation; inserts IDs + token counts + estimated_usd + pricing_version only — no prompt/answer/source text. Cost derived from `response.usage.*`. ✓
+
+**Forward-coupling note (NOT a blocker, logging on #73):** adding a third provider for the open-weight eval will require extending BOTH the `provider` CHECK and the `LLMProvider` type, or those rows silently drop under fail-soft. Will note on the #73 issue.
+
+**Verdict: apply-gated on Jimmy.** Jimmy applies `0034` SQL in Supabase, runs the post-apply verification (below), then merges `codex/llm-cost-telemetry` to main. No code changes required from Codex.

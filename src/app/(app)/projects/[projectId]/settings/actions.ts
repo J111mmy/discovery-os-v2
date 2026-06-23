@@ -3,7 +3,7 @@
 import { accessRedirectPath, requireActiveAccess } from "@/lib/auth/access";
 import { getProjectForUser } from "@/lib/auth/org";
 import { callLLM } from "@/lib/llm/client";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -34,6 +34,94 @@ type EntityContext = {
   label: string;
   entity_type: string;
 };
+
+async function startSettingsAgentRun(input: {
+  orgId: string;
+  projectId: string;
+  agentType: string;
+  payload: Record<string, unknown>;
+}) {
+  try {
+    const supabase = createServiceClient();
+    const { data, error } = await supabase
+      .from("agent_runs")
+      .insert({
+        org_id: input.orgId,
+        project_id: input.projectId,
+        agent_type: input.agentType,
+        input: input.payload,
+      })
+      .select("id")
+      .single();
+
+    if (error || !data) {
+      console.error("[settings-ai] failed to start agent run", error?.message);
+      return null;
+    }
+
+    return data.id as string;
+  } catch (error) {
+    console.error("[settings-ai] failed to start agent run", error);
+    return null;
+  }
+}
+
+async function completeSettingsAgentRun(input: {
+  orgId: string;
+  agentRunId: string | null;
+  output: Record<string, unknown>;
+  modelUsed: string;
+}) {
+  if (!input.agentRunId) return;
+
+  try {
+    const supabase = createServiceClient();
+    const { error } = await supabase
+      .from("agent_runs")
+      .update({
+        status: "completed",
+        output: input.output,
+        model_used: input.modelUsed,
+        completed_at: new Date().toISOString(),
+      })
+      .eq("org_id", input.orgId)
+      .eq("id", input.agentRunId);
+
+    if (error) {
+      console.error("[settings-ai] failed to complete agent run", error.message);
+    }
+  } catch (error) {
+    console.error("[settings-ai] failed to complete agent run", error);
+  }
+}
+
+async function failSettingsAgentRun(input: {
+  orgId: string;
+  agentRunId: string | null;
+  error: unknown;
+}) {
+  if (!input.agentRunId) return;
+
+  try {
+    const message = input.error instanceof Error ? input.error.message : String(input.error);
+    const supabase = createServiceClient();
+    const { error } = await supabase
+      .from("agent_runs")
+      .update({
+        status: "failed",
+        error: message,
+        completed_at: new Date().toISOString(),
+      })
+      .eq("org_id", input.orgId)
+      .eq("id", input.agentRunId);
+
+    if (error) {
+      console.error("[settings-ai] failed to mark agent run failed", error.message);
+    }
+  } catch (error) {
+    console.error("[settings-ai] failed to mark agent run failed", error);
+  }
+}
 
 const SuggestedSettingsSchema = z.object({
   research_context: z.object({
@@ -265,39 +353,69 @@ export async function generateFrameAction(formData: FormData): Promise<string> {
     throw new Error(`Could not load problems: ${problemsResult.error.message}`);
   }
 
-  const result = await callLLM({
-    tier: "standard",
-    system:
-      "You draft concise, editable product discovery project frames from trusted research context.",
-    messages: [
-      {
-        role: "user",
-        content: buildFramePrompt({
-          projectName: project.name,
-          evidence: (evidenceResult.data ?? []) as EvidenceContext[],
-          themes: (themesResult.data ?? []) as ThemeContext[],
-          problems: (problemsResult.data ?? []) as ProblemContext[],
-        }),
-      },
-    ],
-    timeoutMs: 120_000,
+  const agentRunId = await startSettingsAgentRun({
+    orgId: project.org_id,
+    projectId: project.id,
+    agentType: "settings-frame-generation",
+    payload: { action: "generate_frame" },
   });
 
-  const frame = result.content.trim();
-  if (!frame) throw new Error("Frame generation returned no text.");
+  try {
+    const result = await callLLM({
+      tier: "standard",
+      system:
+        "You draft concise, editable product discovery project frames from trusted research context.",
+      messages: [
+        {
+          role: "user",
+          content: buildFramePrompt({
+            projectName: project.name,
+            evidence: (evidenceResult.data ?? []) as EvidenceContext[],
+            themes: (themesResult.data ?? []) as ThemeContext[],
+            problems: (problemsResult.data ?? []) as ProblemContext[],
+          }),
+        },
+      ],
+      timeoutMs: 120_000,
+      telemetry: {
+        orgId: project.org_id,
+        projectId: project.id,
+        agentRunId,
+        agentType: "settings-frame-generation",
+        step: "generate-frame",
+      },
+    });
 
-  const { error } = await supabase
-    .from("projects")
-    .update({ frame })
-    .eq("org_id", project.org_id)
-    .eq("id", project.id);
+    const frame = result.content.trim();
+    if (!frame) throw new Error("Frame generation returned no text.");
 
-  if (error) throw new Error(`Could not save generated frame: ${error.message}`);
+    const { error } = await supabase
+      .from("projects")
+      .update({ frame })
+      .eq("org_id", project.org_id)
+      .eq("id", project.id);
 
-  revalidatePath(`/projects/${project.id}/settings`);
-  revalidatePath(`/projects/${project.id}`);
+    if (error) throw new Error(`Could not save generated frame: ${error.message}`);
 
-  return frame;
+    await completeSettingsAgentRun({
+      orgId: project.org_id,
+      agentRunId,
+      output: { frame_length: frame.length },
+      modelUsed: result.model,
+    });
+
+    revalidatePath(`/projects/${project.id}/settings`);
+    revalidatePath(`/projects/${project.id}`);
+
+    return frame;
+  } catch (error) {
+    await failSettingsAgentRun({
+      orgId: project.org_id,
+      agentRunId,
+      error,
+    });
+    throw error;
+  }
 }
 
 export async function suggestProjectSettingsAction(
@@ -382,50 +500,80 @@ export async function suggestProjectSettingsAction(
     throw new Error("Add evidence before asking AI to suggest project settings.");
   }
 
-  const result = await callLLM({
-    tier: "standard",
-    system:
-      "You draft concise, editable product discovery project settings from evidence. You are careful about uncertainty and never invent unsupported customer facts.",
-    messages: [
-      {
-        role: "user",
-        content: buildSettingsSuggestionPrompt({
-          projectName: project.name,
-          existing: {
-            frame: project.frame,
-            research_context: project.research_context,
-            operating_style: project.operating_style,
-            gtm_context: project.gtm_context,
-          },
-          evidence,
-          themes: (themesResult.data ?? []) as ThemeContext[],
-          problems: (problemsResult.data ?? []) as ProblemContext[],
-          entities: (entitiesResult.data ?? []) as EntityContext[],
-        }),
-      },
-    ],
-    timeoutMs: 120_000,
+  const agentRunId = await startSettingsAgentRun({
+    orgId: project.org_id,
+    projectId: project.id,
+    agentType: "settings-suggestion",
+    payload: { action: "suggest_project_settings" },
   });
 
-  const parsed = SuggestedSettingsSchema.safeParse(extractJsonObject(result.content));
-  if (!parsed.success) {
-    throw new Error("Settings suggestion returned an unexpected shape.");
-  }
+  try {
+    const result = await callLLM({
+      tier: "standard",
+      system:
+        "You draft concise, editable product discovery project settings from evidence. You are careful about uncertainty and never invent unsupported customer facts.",
+      messages: [
+        {
+          role: "user",
+          content: buildSettingsSuggestionPrompt({
+            projectName: project.name,
+            existing: {
+              frame: project.frame,
+              research_context: project.research_context,
+              operating_style: project.operating_style,
+              gtm_context: project.gtm_context,
+            },
+            evidence,
+            themes: (themesResult.data ?? []) as ThemeContext[],
+            problems: (problemsResult.data ?? []) as ProblemContext[],
+            entities: (entitiesResult.data ?? []) as EntityContext[],
+          }),
+        },
+      ],
+      timeoutMs: 120_000,
+      telemetry: {
+        orgId: project.org_id,
+        projectId: project.id,
+        agentRunId,
+        agentType: "settings-suggestion",
+        step: "suggest-settings",
+      },
+    });
 
-  return {
-    research_context: {
-      goals: parsed.data.research_context.goals.trim(),
-      outcomes: parsed.data.research_context.outcomes.trim(),
-      buyers: parsed.data.research_context.buyers.trim(),
-      scope_in: parsed.data.research_context.scope_in.trim(),
-      scope_out: parsed.data.research_context.scope_out.trim(),
-      research_questions: parsed.data.research_context.research_questions
-        .map((question) => question.trim())
-        .filter(Boolean)
-        .slice(0, 6),
-    },
-    frame: parsed.data.frame.trim(),
-    operating_style: parsed.data.operating_style.trim(),
-    gtm_context: parsed.data.gtm_context.trim(),
-  };
+    const parsed = SuggestedSettingsSchema.safeParse(extractJsonObject(result.content));
+    if (!parsed.success) {
+      throw new Error("Settings suggestion returned an unexpected shape.");
+    }
+
+    await completeSettingsAgentRun({
+      orgId: project.org_id,
+      agentRunId,
+      output: { suggested: true },
+      modelUsed: result.model,
+    });
+
+    return {
+      research_context: {
+        goals: parsed.data.research_context.goals.trim(),
+        outcomes: parsed.data.research_context.outcomes.trim(),
+        buyers: parsed.data.research_context.buyers.trim(),
+        scope_in: parsed.data.research_context.scope_in.trim(),
+        scope_out: parsed.data.research_context.scope_out.trim(),
+        research_questions: parsed.data.research_context.research_questions
+          .map((question) => question.trim())
+          .filter(Boolean)
+          .slice(0, 6),
+      },
+      frame: parsed.data.frame.trim(),
+      operating_style: parsed.data.operating_style.trim(),
+      gtm_context: parsed.data.gtm_context.trim(),
+    };
+  } catch (error) {
+    await failSettingsAgentRun({
+      orgId: project.org_id,
+      agentRunId,
+      error,
+    });
+    throw error;
+  }
 }

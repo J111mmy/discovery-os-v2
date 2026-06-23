@@ -721,6 +721,13 @@ export const discoverProblems = inngest.createFunction(
             },
           ],
           timeoutMs: 120_000,
+          telemetry: {
+            orgId: org_id,
+            projectId: project_id,
+            agentRunId,
+            agentType: dryRun ? "problem-discovery-dry-run" : "problem-discovery",
+            step: "call-llm",
+          },
         });
 
         // Resilient parse: extractJsonArray still throws if the response is not a

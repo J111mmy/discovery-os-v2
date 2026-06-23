@@ -212,6 +212,14 @@ export const composeArtifact = inngest.createFunction(
           prompt,
           limit: limit ?? 18,
           dry_run: dryRun,
+          telemetry: {
+            orgId: org_id,
+            projectId: project_id,
+            artifactId: artifact_id ?? null,
+            agentRunId,
+            agentType: dryRun ? "structure-compose-dry-run" : "structure-compose",
+            step: "generate-draft",
+          },
         });
       });
 

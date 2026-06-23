@@ -154,6 +154,13 @@ export const sessionReview = inngest.createFunction(
             "You write clear, human-readable research briefs. Write in prose. Return only the brief — no preamble, no meta-commentary.",
           messages: [{ role: "user", content: prompt }],
           timeoutMs: 120_000,
+          telemetry: {
+            orgId: org_id,
+            projectId: project_id,
+            agentRunId,
+            agentType: "session-review",
+            step: "generate-brief",
+          },
         });
 
         return {

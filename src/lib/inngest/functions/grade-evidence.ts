@@ -193,6 +193,13 @@ export const gradeEvidence = inngest.createFunction(
               "You are a research analyst grading evidence relevance. Return only valid JSON as specified.",
             messages: [{ role: "user", content: prompt }],
             timeoutMs: 30_000,
+            telemetry: {
+              orgId: org_id,
+              projectId: project_id,
+              agentRunId,
+              agentType: "evidence-grading",
+              step: `grade-batch-${String(batchIdx + 1).padStart(4, "0")}`,
+            },
           });
 
           const grades = parseGradeResults(llmResult.content);

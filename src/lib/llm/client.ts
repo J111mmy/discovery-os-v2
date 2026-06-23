@@ -1,6 +1,7 @@
 // LLM client — wraps Anthropic SDK with task_tier abstraction
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
+import { createServiceClient } from "@/lib/supabase/server";
 import { EMBEDDING_MODEL } from "./models";
 import { getAIModelConfig } from "./settings";
 import type { TaskTier } from "@/types/database";
@@ -54,6 +55,7 @@ export interface LLMCallOptions {
   // Use this to raise the budget for callers prone to truncation (e.g. JSON list
   // outputs) without bumping the shared tier default for every other caller.
   maxTokens?: number;
+  telemetry?: LLMTelemetryContext;
 }
 
 export interface LLMCallResult {
@@ -68,39 +70,93 @@ export interface LLMCallResult {
 
 export type LLMDeltaHandler = (delta: string) => void;
 
+export type LLMTelemetryContext = {
+  orgId: string;
+  projectId?: string | null;
+  artifactId?: string | null;
+  agentRunId?: string | null;
+  agentType: string;
+  step: string;
+};
+
 function contentToText(content: LLMMessageContent) {
   if (typeof content === "string") return content;
   return content.map((block) => block.text).join("\n\n");
 }
 
+export const LLM_PRICING_VERSION = "2026-06-23.v1";
+
+const MODEL_PRICING_PER_MILLION_USD = {
+  anthropic_haiku_3_5: { input: 0.8, output: 4, cacheWrite: 1, cacheRead: 0.08 },
+  anthropic_haiku_4_5: { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 },
+  anthropic_sonnet: { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 },
+  anthropic_opus_current: { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
+  anthropic_opus_legacy: { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 },
+  openai_mini: { input: 0.15, output: 0.6, cacheWrite: 0.15, cacheRead: 0.075 },
+  openai_gpt4o: { input: 2.5, output: 10, cacheWrite: 2.5, cacheRead: 1.25 },
+  openai_gpt54_mini: { input: 0.75, output: 4.5, cacheWrite: 0.75, cacheRead: 0.075 },
+  openai_gpt54: { input: 2.5, output: 15, cacheWrite: 2.5, cacheRead: 0.25 },
+  openai_gpt55: { input: 5, output: 30, cacheWrite: 5, cacheRead: 0.5 },
+  openai_gpt5: { input: 1.25, output: 10, cacheWrite: 1.25, cacheRead: 0.125 },
+  default_standard: { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 },
+} as const;
+
 function modelPricingPerMillion(model: string) {
   const normalized = model.toLowerCase();
 
+  if (normalized.includes("haiku-4-5") || normalized.includes("haiku-4.5")) {
+    return MODEL_PRICING_PER_MILLION_USD.anthropic_haiku_4_5;
+  }
+
   if (normalized.includes("haiku")) {
-    return { input: 0.8, output: 4, cacheWrite: 1, cacheRead: 0.08 };
+    return MODEL_PRICING_PER_MILLION_USD.anthropic_haiku_3_5;
   }
 
   if (normalized.includes("opus")) {
-    return { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 };
+    if (
+      normalized.includes("opus-4-5") ||
+      normalized.includes("opus-4-6") ||
+      normalized.includes("opus-4-7") ||
+      normalized.includes("opus-4-8")
+    ) {
+      return MODEL_PRICING_PER_MILLION_USD.anthropic_opus_current;
+    }
+    return MODEL_PRICING_PER_MILLION_USD.anthropic_opus_legacy;
   }
 
   if (normalized.includes("sonnet") || normalized.includes("claude")) {
-    return { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 };
+    return MODEL_PRICING_PER_MILLION_USD.anthropic_sonnet;
   }
 
-  if (normalized.includes("mini")) {
-    return { input: 0.15, output: 0.6, cacheWrite: 0.15, cacheRead: 0.075 };
+  if (normalized.includes("gpt-5.5")) {
+    return MODEL_PRICING_PER_MILLION_USD.openai_gpt55;
+  }
+
+  if (normalized.includes("gpt-5.4") && normalized.includes("mini")) {
+    return MODEL_PRICING_PER_MILLION_USD.openai_gpt54_mini;
+  }
+
+  if (normalized.includes("gpt-5.4")) {
+    return MODEL_PRICING_PER_MILLION_USD.openai_gpt54;
+  }
+
+  if (normalized.includes("gpt-4o-mini")) {
+    return MODEL_PRICING_PER_MILLION_USD.openai_mini;
   }
 
   if (normalized.includes("gpt-4o")) {
-    return { input: 2.5, output: 10, cacheWrite: 2.5, cacheRead: 1.25 };
+    return MODEL_PRICING_PER_MILLION_USD.openai_gpt4o;
   }
 
   if (normalized.includes("gpt-5")) {
-    return { input: 1.25, output: 10, cacheWrite: 1.25, cacheRead: 0.125 };
+    return MODEL_PRICING_PER_MILLION_USD.openai_gpt5;
   }
 
-  return { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 };
+  if (normalized.includes("mini")) {
+    return MODEL_PRICING_PER_MILLION_USD.openai_mini;
+  }
+
+  return MODEL_PRICING_PER_MILLION_USD.default_standard;
 }
 
 export function estimateLLMCostUsd(input: {
@@ -141,6 +197,61 @@ type OpenAIUsageWithCache = NonNullable<
     cached_tokens?: number | null;
   } | null;
 };
+
+async function recordLLMCostEvent(input: {
+  telemetry: LLMTelemetryContext | undefined;
+  provider: "anthropic" | "openai";
+  model: string;
+  tier: TaskTier;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens?: number | null;
+  cacheReadInputTokens?: number | null;
+  estimatedCostUsd?: number | null;
+}) {
+  if (!input.telemetry) return;
+
+  if (!input.telemetry.orgId) {
+    console.error("[llm-cost] missing orgId; cost event not recorded", {
+      agentType: input.telemetry.agentType,
+      step: input.telemetry.step,
+      model: input.model,
+    });
+    return;
+  }
+
+  try {
+    const supabase = createServiceClient();
+    const { error } = await supabase.from("llm_cost_events").insert({
+      org_id: input.telemetry.orgId,
+      project_id: input.telemetry.projectId ?? null,
+      artifact_id: input.telemetry.artifactId ?? null,
+      agent_run_id: input.telemetry.agentRunId ?? null,
+      agent_type: input.telemetry.agentType,
+      step: input.telemetry.step,
+      provider: input.provider,
+      model: input.model,
+      tier: input.tier,
+      input_tokens: input.inputTokens,
+      output_tokens: input.outputTokens,
+      cache_write_tokens: input.cacheCreationInputTokens ?? 0,
+      cache_read_tokens: input.cacheReadInputTokens ?? 0,
+      estimated_usd: input.estimatedCostUsd ?? 0,
+      pricing_version: LLM_PRICING_VERSION,
+    });
+
+    if (error) {
+      console.error("[llm-cost] failed to record cost event", {
+        message: error.message,
+        agentType: input.telemetry.agentType,
+        step: input.telemetry.step,
+        model: input.model,
+      });
+    }
+  } catch (error) {
+    console.error("[llm-cost] failed to record cost event", error);
+  }
+}
 
 function parseProviderBodyFromMessage(message: unknown) {
   if (typeof message !== "string") return null;
@@ -251,7 +362,7 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
         ? response.usage.cache_read_input_tokens ?? 0
         : 0;
 
-    return {
+    const result = {
       content,
       model: config.model,
       inputTokens: response.usage.input_tokens,
@@ -266,6 +377,18 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
         cacheReadInputTokens,
       }),
     };
+    await recordLLMCostEvent({
+      telemetry: opts.telemetry,
+      provider: config.provider,
+      model: result.model,
+      tier: opts.tier,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      cacheCreationInputTokens: result.cacheCreationInputTokens,
+      cacheReadInputTokens: result.cacheReadInputTokens,
+      estimatedCostUsd: result.estimatedCostUsd,
+    });
+    return result;
   }
 
   if (config.provider === "openai") {
@@ -312,7 +435,7 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
     // shape Anthropic reports: inputTokens are uncached prompt tokens.
     const inputTokens = Math.max(promptTokens - cacheReadInputTokens, 0);
 
-    return {
+    const result = {
       content: response.choices[0]?.message?.content ?? "",
       model: config.model,
       inputTokens,
@@ -326,6 +449,18 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
         cacheReadInputTokens,
       }),
     };
+    await recordLLMCostEvent({
+      telemetry: opts.telemetry,
+      provider: config.provider,
+      model: result.model,
+      tier: opts.tier,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      cacheCreationInputTokens: result.cacheCreationInputTokens,
+      cacheReadInputTokens: result.cacheReadInputTokens,
+      estimatedCostUsd: result.estimatedCostUsd,
+    });
+    return result;
   }
 
   throw new Error(`Provider ${config.provider} not yet implemented`);
@@ -387,7 +522,7 @@ export async function streamLLM(
         ? response.usage.cache_read_input_tokens ?? 0
         : 0;
 
-    return {
+    const result = {
       content,
       model: config.model,
       inputTokens: response.usage.input_tokens,
@@ -402,6 +537,18 @@ export async function streamLLM(
         cacheReadInputTokens,
       }),
     };
+    await recordLLMCostEvent({
+      telemetry: opts.telemetry,
+      provider: config.provider,
+      model: result.model,
+      tier: opts.tier,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      cacheCreationInputTokens: result.cacheCreationInputTokens,
+      cacheReadInputTokens: result.cacheReadInputTokens,
+      estimatedCostUsd: result.estimatedCostUsd,
+    });
+    return result;
   }
 
   if (config.provider === "openai") {
@@ -457,7 +604,7 @@ export async function streamLLM(
       usage?.prompt_tokens_details?.cached_tokens ?? 0;
     const inputTokens = Math.max(promptTokens - cacheReadInputTokens, 0);
 
-    return {
+    const result = {
       content,
       model: config.model,
       inputTokens,
@@ -471,6 +618,18 @@ export async function streamLLM(
         cacheReadInputTokens,
       }),
     };
+    await recordLLMCostEvent({
+      telemetry: opts.telemetry,
+      provider: config.provider,
+      model: result.model,
+      tier: opts.tier,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      cacheCreationInputTokens: result.cacheCreationInputTokens,
+      cacheReadInputTokens: result.cacheReadInputTokens,
+      estimatedCostUsd: result.estimatedCostUsd,
+    });
+    return result;
   }
 
   throw new Error(`Provider ${config.provider} not yet implemented`);

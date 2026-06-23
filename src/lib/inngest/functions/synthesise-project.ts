@@ -233,7 +233,8 @@ export const synthesiseProject = inngest.createFunction(
         const models = new Set<string>();
         let droppedThemes = 0;
 
-        for (const batch of batches) {
+        for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+          const batch = batches[batchIndex];
           const result = await callLLM({
             tier: "premium",
             system:
@@ -248,6 +249,13 @@ export const synthesiseProject = inngest.createFunction(
               },
             ],
             timeoutMs: 180_000,
+            telemetry: {
+              orgId: org_id,
+              projectId: project_id,
+              agentRunId,
+              agentType: "project-synthesis",
+              step: `synthesise-batch-${String(batchIndex + 1).padStart(4, "0")}`,
+            },
           });
 
           models.add(result.model);

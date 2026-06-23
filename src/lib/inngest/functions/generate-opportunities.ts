@@ -773,6 +773,13 @@ export const generateOpportunities = inngest.createFunction(
             },
           ],
           timeoutMs: 240_000,
+          telemetry: {
+            orgId: org_id,
+            projectId: project_id,
+            agentRunId,
+            agentType: dryRun ? "opportunity-generation-dry-run" : "opportunity-generation",
+            step: "call-llm",
+          },
         });
 
         const rawArray = extractJsonArray(result.content);
