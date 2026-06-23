@@ -1004,7 +1004,7 @@ function buildReport({
       artifact_opportunities: linkPlan.opportunities.length,
       artifact_problems: linkPlan.problems.length,
       artifact_themes: linkPlan.themes.length,
-      verification_queued: !dryRun,
+      verification_queued: false,
     },
     mechanical_gates: {
       unmapped_citation_markers: unmapped,

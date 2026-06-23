@@ -137,6 +137,7 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
   const [isDrafting, setIsDrafting] = useState(false);
   const [isPollingDraft, setIsPollingDraft] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isStartingVerification, setIsStartingVerification] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -298,13 +299,40 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
       runAt: null,
       summary: null,
     });
-    setVerificationPending(payload.verification_queued !== false);
-    setVerificationQueueError(
-      payload.verification_queued === false
-        ? "Saved, but verification could not start yet."
-        : null
-    );
+    setVerificationPending(false);
+    setVerificationQueueError(null);
     setMessage(`Saved version ${payload.artifact.version}.`);
+  }
+
+  async function verifyClaims() {
+    if (!artifactId) return;
+
+    setError(null);
+    setMessage(null);
+    setVerificationQueueError(null);
+    setIsStartingVerification(true);
+
+    const response = await fetch(`/api/artifacts/${artifactId}/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project_id: projectId }),
+    });
+
+    const payload = await response.json();
+    setIsStartingVerification(false);
+
+    if (!response.ok) {
+      setVerificationQueueError(payload.error ?? "Could not start claim verification.");
+      return;
+    }
+
+    setVerification({
+      status: "unverified",
+      runAt: null,
+      summary: null,
+    });
+    setVerificationPending(true);
+    setMessage("Claim verification started.");
   }
 
   function updateSection(id: string, patch: Partial<Section>) {
@@ -431,11 +459,23 @@ export function ComposeEditor({ projectId, initialDraft = null }: ComposeEditorP
               </div>
             </div>
             {artifactId && (
-              <VerificationBanner
-                state={verification}
-                pending={verificationPending}
-                queueError={verificationQueueError}
-              />
+              <div>
+                <VerificationBanner
+                  state={verification}
+                  pending={verificationPending}
+                  queueError={verificationQueueError}
+                />
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={verifyClaims}
+                    disabled={verificationPending || isStartingVerification || isSaving}
+                    className="rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-medium text-[var(--ink)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isStartingVerification ? "Starting..." : "Verify claims"}
+                  </button>
+                </div>
+              </div>
             )}
           </div>
 

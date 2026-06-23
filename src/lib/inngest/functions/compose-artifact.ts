@@ -291,17 +291,6 @@ export const composeArtifact = inngest.createFunction(
           .eq("id", agentRunId!);
       });
 
-      await step.run("queue-verification", async () => {
-        await inngest.send({
-          name: "artifact/claim.verification.requested",
-          data: {
-            org_id,
-            project_id,
-            artifact_id: artifact_id!,
-          },
-        });
-      });
-
       return { artifact_id, title: draft.title, evidence_count: draft.evidence_ids.length };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown compose error";
