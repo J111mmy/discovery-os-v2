@@ -6164,3 +6164,25 @@ Reviewed migration `0035_admin_llm_cost_dashboard.sql`, `src/app/(admin)/admin/c
 **Note (not a blocker):** the artifact/source drill-down hrefs (`/projects/{id}/documents/{id}`, `/projects/{id}/sources`) should be eyeballed in the browser; a wrong path is a dead link, not a security issue. Verify on first load.
 
 **Verdict: apply-gated on Jimmy.** Apply `0035`, then merge `codex/admin-costs-dashboard` to main (FF — also carries the #77 WO note in `76a1d31`). The SQL-editor smoke test will (correctly) raise 'not authorized' since there's no `auth.uid()` there — real verification is loading `/admin/costs` as a super-admin in the browser.
+
+### Opus — 2026-06-23 — POST-APPLY FINDING (#52): anon has EXECUTE on admin functions — least-privilege hardening (low severity)
+
+The post-apply grants check on `admin_llm_cost_dashboard` returned `proacl`:
+`postgres=X, anon=X, authenticated=X, service_role=X`.
+
+`anon=X` = the anonymous role can EXECUTE the admin dashboard RPC. Root cause: Supabase default privileges auto-grant EXECUTE on new public-schema functions to anon/authenticated/service_role; the migration's `revoke all ... from public` removes the PUBLIC pseudo-role grant but NOT those explicit per-role grants.
+
+**Exposure: none.** anon → `auth.uid()` is null → `auth_is_super_admin()` returns false → RPC raises 'not authorized' before any read. The gate fail-closes. This is defense-in-depth / least-privilege, not a data leak. Low severity.
+
+**Hardening WO (§0-gated — grant change on security functions). New migration `0036_revoke_anon_admin_fn_execute.sql`:**
+
+```sql
+revoke execute on function public.admin_llm_cost_dashboard(text, text, integer) from anon;
+revoke execute on function public.auth_is_super_admin() from anon;
+```
+
+Before authoring, Codex: confirm no anon-evaluated RLS policy or anon code path depends on `auth_is_super_admin()` (the `llm_cost_events` policies are authenticated-only; anon has no `llm_cost_events` access regardless — so this should be safe). Do NOT revoke from `authenticated` (RLS policies + the page call need it) or `service_role`. Keep `admin_llm_cost_dashboard` granted to `authenticated` only.
+
+Also note for future migrations: any new SECURITY DEFINER admin function in the public schema should `revoke execute ... from anon` explicitly, since `revoke from public` is insufficient under Supabase default privileges.
+
+Post the migration for review; Jimmy applies. Low priority — schedule behind #77 provisioning.
