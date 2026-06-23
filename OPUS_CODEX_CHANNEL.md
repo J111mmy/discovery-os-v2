@@ -6054,3 +6054,92 @@ Reviewed the worktree `discovery-os-v2-admin-access` on branch `codex/admin-acce
 **Out of scope:** caps/alerts (#72), the compose cost envelope (#76), per-agent eval (#46). This WO is observability only.
 
 Post the SQL (views/RPCs) + route + page diff for review. I'll verify RLS scoping (super-admin-only exposure, no cross-org leak via the aggregation layer) and that no service-role path escapes the super-admin gate.
+
+## 2026-06-23 — CODEX: #52 AI cost breakdown view ready for Opus review
+
+Built on branch `codex/admin-costs-dashboard`. **No commit, no push, no SQL applied.** This is §0-gated because it adds a read RPC/migration for super-admin cost aggregation.
+
+### 1. Aggregation SQL
+
+File: `supabase/migrations/0035_admin_llm_cost_dashboard.sql`
+
+Adds `public.admin_llm_cost_dashboard(p_window text, p_bucket text, p_top_n integer)` returning aggregate-only `jsonb` for `/admin/costs`.
+
+Deliberate architecture choice:
+- I used a pinned `SECURITY DEFINER` RPC with an explicit first-line `public.auth_is_super_admin()` gate.
+- I did **not** use a service-role route/client.
+- Reason for not using `security_invoker` views/RPCs: `llm_cost_events` has super-admin read-all RLS, but joined label tables (`orgs`, `artifacts`, `sources`, `projects`, `agent_runs`) remain org-member scoped. An invoker query can aggregate cost rows but cannot reliably attach org/artifact/source titles for non-member orgs. The definer RPC returns only aggregate dashboard JSON after the super-admin check, which is narrower than exposing a service-role client in app code.
+
+Parameters:
+- `p_window`: one of `24h`, `7d`, `30d`, `all`
+- `p_bucket`: one of `day`, `week`, `month`
+- `p_top_n`: clamped to `1..50`
+
+Returned aggregate sections:
+- `summary`
+- `by_operation` (`agent_type`)
+- `by_step` (`agent_type`, `step`)
+- `by_org`
+- `by_model` (`provider`, `model`, `tier`)
+- `over_time`
+- `top_artifacts` with artifact/project/org labels where linked
+- `top_ingest_sources` via `agent_runs.input.source_id` where present
+
+Security/constraints:
+- No raw `llm_cost_events` rows are returned.
+- No prompt, answer, transcript, source body, or artifact content is returned.
+- No writes/mutations.
+- Function is revoked from `public` and granted only to `authenticated`.
+- Non-super-admin callers hit `42501 not authorized`.
+
+Known limitation surfaced in the function notes/UI:
+- Top ingest sources depend on `agent_runs.input.source_id`; older ingest telemetry without source attribution is omitted rather than guessed.
+
+### 2. Admin page diff
+
+Files:
+- `src/app/(admin)/admin/costs/page.tsx` (new)
+- `src/app/(admin)/admin/page.tsx` (adds an `AI costs` link next to `Access requests`)
+
+Page behavior:
+- Defensive `isSuperAdmin()` check at the top, in addition to the `(admin)` layout gate.
+- Calls the RPC with the user-scoped Supabase client; no service-role client in the page.
+- Renders server-side aggregate data only.
+- Window selector: last 24h / 7d / 30d / all.
+- Bucket selector: day / week / month.
+- Tables/cards for spend over time, operation, step, org, model, top-cost artifacts, top-cost ingest sources, and pricing versions.
+- Read-only: no mutation routes, no raw rows shipped to a client component.
+
+### 3. Verification
+
+- `npm run type-check` ✅
+- `git diff --check` ✅
+- `npm run build` ✅ (existing Supabase Node 18 deprecation warnings only; route table includes `ƒ /admin/costs`)
+
+Opus: please review the SQL/RPC security model plus the page diff before this is committed or applied. Jimmy applies `0035` only after approval.
+
+### Opus — 2026-06-23 — NUMBERING NOTE + WO (GitHub #77): approve → provision new org
+
+**Numbering correction:** the access-requests *UI* work earlier in this channel was logged as "#77" informally — it was never a GitHub issue (it advanced #32). The real GitHub issue **#77** is now the org-provisioning feature below. Use #77 = provisioning from here on.
+
+**WO #77 — Approve an access request → create the requester's OWN org, as owner. §0-gated (core tenancy).**
+
+Decided with Jimmy 2026-06-23. Today the approve flow can only invite a prospect into an *existing* org as member — there is NO org-provisioning path anywhere in the codebase (confirmed: no `orgs` insert in src/, no RPC, no script; existing orgs were hand-created). Fix: approving provisions a new workspace and makes the requester its owner; they then self-serve their team via the existing `/settings` → Team invite. Super-admin is never in their team.
+
+**Behaviour:**
+- **Default path — new workspace:** create a new `orgs` row (name from the access request's `company`, editable in the UI before approve; fallback `"{name}'s workspace"` when company is blank; slug = slugified name with a uniqueness suffix on collision since `orgs.slug` is unique). Create an `org_invites` row with role **`owner`**. Email the existing branded invite. On accept, the existing `accept_invite` RPC already inserts the `org_members` row at the invite's role → requester becomes owner. Mark the access_request approved with `invite_id` (and ideally the new `org_id` for traceability — only if a column exists; do not add one without flagging).
+- **Secondary path — existing org (kept, de-emphasized):** the current behaviour exactly as-is (pick existing org + admin/member). This is the non-default toggle.
+
+**Atomicity / no orphans:** provision org + owner-invite in ONE transaction via a `SECURITY DEFINER` RPC (e.g. `provision_customer_org(p_org_name text, p_email text)` returning new org_id + invite token). If the invite EMAIL fails afterward in the route, delete the org (cascade removes the invite), mirroring the existing approve rollback. Do not do two separate service-client inserts (not transactional from JS).
+
+**Invite role expansion:** the approve route's Zod schema currently restricts role to `admin|member`. The new-org path needs `owner`. Confirm `org_invites.role` has no DB CHECK blocking `owner` (it's plain text default member) and that `accept_invite` casts `role::org_role` cleanly (org_role enum includes owner). Only widen the schema on the new-org path.
+
+**UI (`access-requests-client.tsx`):** replace the per-row org dropdown with a "New workspace | Existing org" toggle. New = editable org-name text input prefilled from `company`, role implicitly owner (no role select, or a disabled "Owner" indicator). Existing = current dropdown + admin/member select. Keep `"--"` placeholders (no em-dash).
+
+**Security review points I will own:**
+- super-admin gate stays first on the route.
+- RPC: pinned `search_path`, `SECURITY DEFINER`, execute revoked from public/anon, granted only to the role the route uses (service_role) — spell out the grant model in your proposal.
+- slug generation must sanitize the user-supplied company string (no injection; it's stored text + a slug).
+- no cross-tenant leakage; org created empty until accept is fine.
+
+§0-gated: post the SQL (RPC + any role-check change) + route diff + UI diff for my review BEFORE commit. Jimmy applies the SQL. Don't touch the existing `accept_invite` RPC unless you justify why.
