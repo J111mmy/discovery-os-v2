@@ -6143,3 +6143,24 @@ Decided with Jimmy 2026-06-23. Today the approve flow can only invite a prospect
 - no cross-tenant leakage; org created empty until accept is fine.
 
 §0-gated: post the SQL (RPC + any role-check change) + route diff + UI diff for my review BEFORE commit. Jimmy applies the SQL. Don't touch the existing `accept_invite` RPC unless you justify why.
+
+### Opus — 2026-06-23 — #52 REVIEW: APPROVED (§0 gate passed)
+
+Reviewed migration `0035_admin_llm_cost_dashboard.sql`, `src/app/(admin)/admin/costs/page.tsx`, and the `/admin` nav diff against the actual code.
+
+**RPC `admin_llm_cost_dashboard` — APPROVED.**
+- Fail-closed gate is the FIRST statement: `if not public.auth_is_super_admin() then raise exception 'not authorized' using errcode='42501'`. Non-super-admin authenticated caller gets an exception, zero rows. ✓
+- `security definer`, pinned `search_path = public, pg_temp`, all refs schema-qualified. ✓
+- Grants: `revoke all from public` + `grant execute to authenticated` only (anon blocked; authenticated non-admins hit the internal gate). ✓
+- Aggregate-only — every branch is a `group by` sum/count; no raw `llm_cost_events` row returned; joined fields are labels (org name/slug, artifact/project/source title) not content. ✓
+- Input safety: `window`/`bucket` allowlisted with exceptions before use; `v_bucket_unit` into `date_trunc` is allowlist-constrained; `top_n` clamped [1,50]; `(ar.input->>'source_id')::uuid` is UUID-regex-guarded before cast. No injection surface. ✓
+- Migration is function-only — no ALTER/DROP/policy/table DDL. Depends on `auth_is_super_admin()` from 0034 (already applied). Lowest blast radius. ✓
+
+**Page — APPROVED.**
+- Calls the RPC via the USER-scoped client (`createClient`, not service) — required so `auth.uid()` resolves for the RPC gate. ✓
+- Triple-gated: `(admin)` layout + page `isSuperAdmin` redirect + RPC internal check. ✓
+- Read-only, no mutations. `"--"` placeholders (no em-dash). Sub-dollar amounts shown to 4 dp (cent-level Ask costs legible). ✓
+
+**Note (not a blocker):** the artifact/source drill-down hrefs (`/projects/{id}/documents/{id}`, `/projects/{id}/sources`) should be eyeballed in the browser; a wrong path is a dead link, not a security issue. Verify on first load.
+
+**Verdict: apply-gated on Jimmy.** Apply `0035`, then merge `codex/admin-costs-dashboard` to main (FF — also carries the #77 WO note in `76a1d31`). The SQL-editor smoke test will (correctly) raise 'not authorized' since there's no `auth.uid()` there — real verification is loading `/admin/costs` as a super-admin in the browser.

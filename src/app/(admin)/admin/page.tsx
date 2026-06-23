@@ -38,12 +38,20 @@ export default async function AdminPage() {
               {orgs.length} organisation{orgs.length === 1 ? "" : "s"} · Enter any workspace to browse as support
             </p>
           </div>
-          <a
-            href="/admin/access-requests"
-            className="rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 py-2 text-sm font-medium text-[var(--ink-2)] transition-colors hover:text-[var(--ink)]"
-          >
-            Access requests
-          </a>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href="/admin/costs"
+              className="rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 py-2 text-sm font-medium text-[var(--ink-2)] transition-colors hover:text-[var(--ink)]"
+            >
+              AI costs
+            </a>
+            <a
+              href="/admin/access-requests"
+              className="rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 py-2 text-sm font-medium text-[var(--ink-2)] transition-colors hover:text-[var(--ink)]"
+            >
+              Access requests
+            </a>
+          </div>
         </div>
       </div>
 
