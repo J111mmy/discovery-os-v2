@@ -31,10 +31,20 @@ export default async function AdminPage() {
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-[var(--ink)]">All organisations</h1>
-        <p className="mt-2 text-sm text-[var(--ink-2)]">
-          {orgs.length} organisation{orgs.length === 1 ? "" : "s"} · Enter any workspace to browse as support
-        </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-[var(--ink)]">All organisations</h1>
+            <p className="mt-2 text-sm text-[var(--ink-2)]">
+              {orgs.length} organisation{orgs.length === 1 ? "" : "s"} · Enter any workspace to browse as support
+            </p>
+          </div>
+          <a
+            href="/admin/access-requests"
+            className="rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 py-2 text-sm font-medium text-[var(--ink-2)] transition-colors hover:text-[var(--ink)]"
+          >
+            Access requests
+          </a>
+        </div>
       </div>
 
       <AIProviderSettingsPanel initialSettings={aiSettings} />

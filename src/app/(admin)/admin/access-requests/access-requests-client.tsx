@@ -1,0 +1,396 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+
+type OrgOption = {
+  id: string;
+  name: string;
+  slug: string | null;
+};
+
+type AccessRequest = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  company: string | null;
+  reason: string | null;
+  status: "pending" | "approved" | "declined" | string;
+  created_at: string;
+  reviewed_at?: string | null;
+  reviewed_by?: string | null;
+  invite_id?: string | null;
+};
+
+type AccessRequestsResponse = {
+  pending: AccessRequest[];
+  reviewed: AccessRequest[];
+};
+
+type RowState = {
+  orgId: string;
+  role: "admin" | "member";
+  busy?: "approve" | "decline" | null;
+  error?: string | null;
+};
+
+type Props = {
+  orgs: OrgOption[];
+};
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "--";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function statusTone(status: string) {
+  if (status === "approved") return "border-green-500/30 bg-green-500/10 text-green-300";
+  if (status === "declined") return "border-red-500/30 bg-red-500/10 text-red-300";
+  return "border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink-2)]";
+}
+
+async function readError(response: Response) {
+  try {
+    const body = (await response.json()) as { error?: unknown };
+    return typeof body.error === "string" ? body.error : response.statusText;
+  } catch {
+    return response.statusText;
+  }
+}
+
+export function AccessRequestsClient({ orgs }: Props) {
+  const [pending, setPending] = useState<AccessRequest[]>([]);
+  const [reviewed, setReviewed] = useState<AccessRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [rowState, setRowState] = useState<Record<string, RowState>>({});
+
+  const defaultOrgId = orgs[0]?.id ?? "";
+
+  const orgNameById = useMemo(
+    () => new Map(orgs.map((org) => [org.id, org.name])),
+    [orgs]
+  );
+
+  async function loadRequests() {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const response = await fetch("/api/admin/access-requests", {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error(await readError(response));
+      }
+
+      const body = (await response.json()) as AccessRequestsResponse;
+      setPending(body.pending ?? []);
+      setReviewed(body.reviewed ?? []);
+      setRowState((current) => {
+        const next = { ...current };
+        for (const request of body.pending ?? []) {
+          next[request.id] ??= {
+            orgId: defaultOrgId,
+            role: "member",
+            busy: null,
+            error: null,
+          };
+        }
+        return next;
+      });
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Could not load access requests.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadRequests();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function patchRow(id: string, patch: Partial<RowState>) {
+    setRowState((current) => ({
+      ...current,
+      [id]: {
+        orgId: current[id]?.orgId ?? defaultOrgId,
+        role: current[id]?.role ?? "member",
+        busy: current[id]?.busy ?? null,
+        error: current[id]?.error ?? null,
+        ...patch,
+      },
+    }));
+  }
+
+  async function approve(request: AccessRequest) {
+    const state = rowState[request.id] ?? { orgId: defaultOrgId, role: "member" as const };
+    if (!state.orgId) {
+      patchRow(request.id, { error: "Choose an organisation first." });
+      return;
+    }
+
+    patchRow(request.id, { busy: "approve", error: null });
+    try {
+      const response = await fetch(`/api/admin/access-requests/${request.id}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ org_id: state.orgId, role: state.role }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readError(response));
+      }
+
+      await loadRequests();
+    } catch (error) {
+      patchRow(request.id, {
+        busy: null,
+        error: error instanceof Error ? error.message : "Could not approve request.",
+      });
+    }
+  }
+
+  async function decline(request: AccessRequest) {
+    patchRow(request.id, { busy: "decline", error: null });
+    try {
+      const response = await fetch(`/api/admin/access-requests/${request.id}/decline`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: null }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readError(response));
+      }
+
+      await loadRequests();
+    } catch (error) {
+      patchRow(request.id, {
+        busy: null,
+        error: error instanceof Error ? error.message : "Could not decline request.",
+      });
+    }
+  }
+
+  return (
+    <div className="space-y-8">
+      <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
+        <div className="flex items-center justify-between border-b border-[var(--line)] px-5 py-4">
+          <div>
+            <h2 className="text-sm font-semibold text-[var(--ink)]">
+              Pending requests · {pending.length}
+            </h2>
+            <p className="mt-1 text-xs text-[var(--ink-2)]">
+              Approving creates an org invite and sends the existing branded email.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadRequests()}
+            className="rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-medium text-[var(--ink-2)] transition-colors hover:text-[var(--ink)]"
+          >
+            Refresh
+          </button>
+        </div>
+
+        {loading ? (
+          <p className="px-5 py-8 text-sm text-[var(--ink-2)]">Loading requests…</p>
+        ) : loadError ? (
+          <div className="px-5 py-8">
+            <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              {loadError}
+            </p>
+          </div>
+        ) : pending.length === 0 ? (
+          <p className="px-5 py-8 text-sm text-[var(--ink-2)]">No pending access requests.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--line)]">
+                  <th className="px-5 py-3 font-semibold text-[var(--ink)]">Requester</th>
+                  <th className="px-5 py-3 font-semibold text-[var(--ink)]">Company</th>
+                  <th className="px-5 py-3 font-semibold text-[var(--ink)]">Reason</th>
+                  <th className="px-5 py-3 font-semibold text-[var(--ink)]">Submitted</th>
+                  <th className="px-5 py-3 font-semibold text-[var(--ink)]">Invite target</th>
+                  <th className="px-5 py-3"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--line)]">
+                {pending.map((request) => {
+                  const state = rowState[request.id] ?? {
+                    orgId: defaultOrgId,
+                    role: "member" as const,
+                    busy: null,
+                    error: null,
+                  };
+                  const busy = Boolean(state.busy);
+
+                  return (
+                    <tr key={request.id} className="align-top hover:bg-[var(--surface-2)]">
+                      <td className="px-5 py-4">
+                        <div className="font-medium text-[var(--ink)]">{request.name}</div>
+                        <div className="mt-1 text-xs text-[var(--ink-2)]">{request.email}</div>
+                        {request.phone && (
+                          <div className="mt-1 text-xs text-[var(--ink-faint)]">
+                            {request.phone}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-5 py-4 text-[var(--ink-2)]">
+                        {request.company || "--"}
+                      </td>
+                      <td className="max-w-xs px-5 py-4 text-[var(--ink-2)]">
+                        <p className="line-clamp-4 whitespace-pre-wrap">
+                          {request.reason || "--"}
+                        </p>
+                      </td>
+                      <td className="px-5 py-4 text-xs text-[var(--ink-faint)]">
+                        {formatDate(request.created_at)}
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="space-y-2">
+                          <select
+                            value={state.orgId}
+                            onChange={(event) =>
+                              patchRow(request.id, { orgId: event.target.value, error: null })
+                            }
+                            disabled={busy || orgs.length === 0}
+                            className="w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-xs text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)] disabled:opacity-50"
+                          >
+                            {orgs.length === 0 ? (
+                              <option value="">No organisations</option>
+                            ) : (
+                              orgs.map((org) => (
+                                <option key={org.id} value={org.id}>
+                                  {org.name}
+                                  {org.slug ? ` (${org.slug})` : ""}
+                                </option>
+                              ))
+                            )}
+                          </select>
+                          <select
+                            value={state.role}
+                            onChange={(event) =>
+                              patchRow(request.id, {
+                                role: event.target.value as RowState["role"],
+                                error: null,
+                              })
+                            }
+                            disabled={busy}
+                            className="w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-xs text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)] disabled:opacity-50"
+                          >
+                            <option value="member">Member</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                          {state.error && (
+                            <p className="text-xs text-red-300">{state.error}</p>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="flex flex-col gap-2">
+                          <button
+                            type="button"
+                            disabled={busy || orgs.length === 0}
+                            onClick={() => void approve(request)}
+                            className="rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {state.busy === "approve" ? "Approving…" : "Approve"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void decline(request)}
+                            className="rounded-lg border border-red-400/40 px-3 py-2 text-xs font-medium text-red-200 transition-colors hover:border-red-200 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {state.busy === "decline" ? "Declining…" : "Decline"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
+        <div className="border-b border-[var(--line)] px-5 py-4">
+          <h2 className="text-sm font-semibold text-[var(--ink)]">
+            Reviewed requests · {reviewed.length}
+          </h2>
+          <p className="mt-1 text-xs text-[var(--ink-2)]">
+            Recently approved or declined submissions.
+          </p>
+        </div>
+
+        {loading ? (
+          <p className="px-5 py-8 text-sm text-[var(--ink-2)]">Loading reviewed requests…</p>
+        ) : reviewed.length === 0 ? (
+          <p className="px-5 py-8 text-sm text-[var(--ink-2)]">No reviewed requests yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--line)]">
+                  <th className="px-5 py-3 font-semibold text-[var(--ink)]">Requester</th>
+                  <th className="px-5 py-3 font-semibold text-[var(--ink)]">Status</th>
+                  <th className="px-5 py-3 font-semibold text-[var(--ink)]">Reviewed</th>
+                  <th className="px-5 py-3 font-semibold text-[var(--ink)]">Invite</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--line)]">
+                {reviewed.map((request) => (
+                  <tr key={request.id} className="hover:bg-[var(--surface-2)]">
+                    <td className="px-5 py-4">
+                      <div className="font-medium text-[var(--ink)]">{request.name}</div>
+                      <div className="mt-1 text-xs text-[var(--ink-2)]">{request.email}</div>
+                      {request.company && (
+                        <div className="mt-1 text-xs text-[var(--ink-faint)]">
+                          {request.company}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-5 py-4">
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-xs font-medium ${statusTone(
+                          request.status
+                        )}`}
+                      >
+                        {request.status}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 text-xs text-[var(--ink-faint)]">
+                      {formatDate(request.reviewed_at)}
+                    </td>
+                    <td className="px-5 py-4 text-xs text-[var(--ink-2)]">
+                      {request.invite_id ? (
+                        <div>
+                          <div>{request.email}</div>
+                          <div className="mt-1 font-mono text-[var(--ink-faint)]">
+                            {request.invite_id}
+                          </div>
+                        </div>
+                      ) : (
+                        "--"
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
