@@ -6012,3 +6012,45 @@ Reviewed migration `0034_llm_cost_events.sql`, RLS, and the `src/lib/llm/client.
 **Forward-coupling note (NOT a blocker, logging on #73):** adding a third provider for the open-weight eval will require extending BOTH the `provider` CHECK and the `LLMProvider` type, or those rows silently drop under fail-soft. Will note on the #73 issue.
 
 **Verdict: apply-gated on Jimmy.** Jimmy applies `0034` SQL in Supabase, runs the post-apply verification (below), then merges `codex/llm-cost-telemetry` to main. No code changes required from Codex.
+
+### Opus — 2026-06-23 — #77 REVIEW: APPROVED (not §0-gated; one cosmetic nit)
+
+Reviewed the worktree `discovery-os-v2-admin-access` on branch `codex/admin-access-requests-ui`.
+
+- Scope held: only `src/app/(admin)/admin/access-requests/` (new page + client), `src/app/(admin)/admin/page.tsx` (nav link), and channel. API routes (GET/approve/decline) byte-for-byte unchanged — confirmed via `git diff main --stat -- src/app/api/admin/access-requests/` (empty). ✓
+- Auth: page has defensive `isSuperAdmin` redirect on top of the `(admin)` layout gate; both called endpoints are independently super-admin gated. ✓
+- Contract: approve posts `{ org_id, role }` (matches ApproveSchema); decline posts `{ note: null }` (DeclineSchema note is optional+nullable → passes). ✓
+- Route path correction (`(admin)/admin/access-requests` → `/admin/access-requests`) is correct. ✓
+
+**Nit (non-blocking, cosmetic):** `access-requests-client.tsx` uses em-dash `"—"` as the empty-value placeholder. Jimmy's standing preference is no em-dashes in user-facing content; only ~1 existing file uses it, so it's not a convention to match. Recommend swapping `"—"` → `"--"`. Not a merge blocker — Jimmy's call.
+
+**Verdict:** clear to land. No SQL. Suggested merge flow recorded in the channel handoff to Jimmy.
+
+### Opus — 2026-06-23 — WO #52: AI cost breakdown view (§0-gated if it adds SQL)
+
+#51 is live on main (`7587e87`): `llm_cost_events` is recording, RLS is org-member-read-own + super-admin-read-all. #52 makes that data visible.
+
+**Goal (MVP, this WO):** a super-admin cost dashboard at `/admin/costs` that answers "where is the money going" — by operation, by org, by model, over time — and lets Jimmy drill to the expensive single artifacts (the $5-doc problem, #76).
+
+**Scope this cut to the super-admin admin view only.** A per-org self-serve cost view (for #72 caps) is a follow-on, not this WO. Follow the `(admin)` route-group pattern just used for #77: page under `src/app/(admin)/admin/costs/`, defensive `isSuperAdmin()` on top of the layout gate, add an "AI costs" nav link on `/admin`.
+
+**Aggregation architecture — important, propose before building:**
+- Do NOT ship raw `llm_cost_events` rows to the client and sum in JS — volume grows fast (the incident was 172 runs in 46 min). Aggregate server-side in SQL.
+- Prefer `security_invoker = on` views (or RLS-respecting RPCs) over service-role-bypass, so the existing base-table RLS does the scoping. If you instead gate via a super-admin API route using the service client, the super-admin check must be explicit and first, and you must justify why over an invoker-view. Either path that adds SQL (view/RPC/migration) is **§0-gated**: post the SQL + the route/page diff for my review BEFORE commit; Jimmy applies the SQL.
+- Time bucketing via `date_trunc` with a day/week/month parameter.
+
+**Dimensions/rollups the page must surface (from issue #52):**
+1. **By operation** — group by `agent_type` (and drill into `step`): total estimated_usd, total input/output/cache tokens, call count. This is the headline: "is ingest or compose the expensive part?"
+2. **By org** — total spend per org over the selected window (super-admin sees all orgs).
+3. **By model** — which model is burning the most (`model`, `tier`).
+4. **Over time** — spend per day/week/month bucket (selectable).
+5. **Top-cost artifacts** — the N most expensive `artifact_id`s (sum of their cost rows) so Jimmy can click straight to a $5 doc. Join to artifacts for a title where available.
+6. **Top-cost ingest sources** — same idea keyed by the ingest runs (agent_type ingest), if source attribution is reachable via agent_run/project; if source_id isn't on the cost row, do it at run/project granularity and note the limitation rather than inventing a join.
+
+**Display:** plain `<table>`/`<article>` markup, existing CSS vars, money formatted as USD. A window selector (last 24h / 7d / 30d / all) and a bucket selector (day/week/month). No new component library.
+
+**Constraints:** read-only — no writes, no mutation routes. estimated_usd is already on the row (don't recompute). Show `pricing_version` somewhere subtle so stale-pricing rows are explainable. Don't display prompt/answer content (none is stored anyway).
+
+**Out of scope:** caps/alerts (#72), the compose cost envelope (#76), per-agent eval (#46). This WO is observability only.
+
+Post the SQL (views/RPCs) + route + page diff for review. I'll verify RLS scoping (super-admin-only exposure, no cross-org leak via the aggregation layer) and that no service-role path escapes the super-admin gate.
