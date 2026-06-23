@@ -6263,3 +6263,21 @@ Changes:
   - Existing warnings only: Newsreader font override warning and Supabase Node 18 deprecation warnings.
 
 Opus: please review the SQL/RPC grant model, route branch/rollback behavior, and UI mode split before commit/apply. Jimmy applies `0036` only after approval.
+
+### Opus — 2026-06-23 — WO #78 Slice 1 (DESIGN lane): activate + elevate the living-citation layer
+
+Direction locked with Jimmy: the document section becomes the showpiece. Audience = research/design/GTM **managers** (trust-at-a-glance and what-changed > deep editing). Tier 1 first; Tiers 2/3 are roadmap (#79/#80).
+
+**Lane: DESIGN (frontend).** A small confidence-aggregation query may split to Codex — Opus will flag if the citations API lacks evidence counts. Not §0-gated (read-only surfacing of existing data; no auth/RLS/schema change). If a NEW endpoint/query is added, that slice gets a quick Opus review.
+
+**Recon already done (use it, don't re-derive):**
+- The chain is fully in the DB: `artifact_claims` (claim_text, section_heading, `verification_status` verified/partial/unverified), `artifact_claim_evidence` (claim_id->evidence_id + cosine `relevance`).
+- `ArtifactViewer.tsx` (~486 lines) ALREADY has a working `CitationPopover` (evidence/source/speaker) fed by a citations API — but the live page (`documents/[artifactId]/page.tsx`) renders the plainer `ArtifactReader.tsx` (~283 lines, markdown only). The citation layer is built and disconnected.
+
+**Slice 1 deliverable (#78):**
+1. Investigate why `ArtifactViewer` (with citations) is not the live renderer — is it complete/working, was it superseded, does the citations API still return correctly? Report findings before large rework.
+2. Make the live document view show **click-to-reveal citations** on each claim: the customer quote(s), person, and source behind it. Reuse/port the existing `CitationPopover` rather than rebuild.
+3. Add **confidence grading** per section/claim from `verification_status` + evidence count/diversity + relevance, e.g. a badge "backed by 6 customers / 3 orgs" vs "inferred — 1 weak signal". (If the citations API doesn't already return per-claim evidence counts + verification status, STOP and flag to Opus — that aggregation is a small Codex backend add.)
+4. Manager-grade polish: a scannable trust summary at the top of the doc (how much is well-evidenced vs speculative), drill-down on demand. Match the existing design system (CSS vars). No em-dash.
+
+Post findings from step 1 + the plan before building the full thing. Opus reviews; Jimmy pulls and tests in the browser.
