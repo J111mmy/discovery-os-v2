@@ -6,8 +6,13 @@
  * Renders sanitized content_html with:
  *   • Sticky toolbar (back nav, title, type badge, word count)
  *   • Reading progress bar keyed to .app-content scroll
- *   • Sticky TOC extracted from h2[data-section] headings
- *   • cite[data-n] chips styled by doc_kit.css (popover wired by #14)
+ *   • Sticky TOC extracted from h2[data-section] headings, annotated with a
+ *     per-section citation-density dot (#78)
+ *   • cite[data-n] chips wired to a click-to-reveal CitationDetailPortal,
+ *     attributed to their enclosing section by walking the rendered DOM
+ *     (no markdown/text-position parsing — see #78 channel notes)
+ *   • A trust summary above the doc body when citation markup is present;
+ *     a neutral "unavailable" notice when it isn't (older artifacts)
  *
  * Sanitisation contract: contentHtml is produced by toSafeContentHtml()
  * in page.tsx (server component) which runs sanitize-html before this
@@ -20,10 +25,11 @@
 
 import "../doc.css";
 import "../doc_kit.css";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArtifactViewer } from "./ArtifactViewer";
 import { AiDisclaimer } from "../../../../components/AiDisclaimer";
+import { CitationDetailPortal, type CitationRecord } from "./CitationDetailPortal";
 
 // ── Types ──────────────────────────────────────────────────────
 export interface ArtifactReaderProps {
@@ -42,6 +48,16 @@ export interface ArtifactReaderProps {
 }
 
 type TocItem = { id: string; label: string };
+
+type SectionConfidence = {
+  id: string;
+  citationCount: number;
+  sourceCount: number;
+  speakerCount: number;
+  density: "well" | "light" | "none";
+};
+
+type CitationsState = "loading" | "available" | "unavailable";
 
 // ── Helpers ────────────────────────────────────────────────────
 function dateLabel(iso: string) {
@@ -98,6 +114,8 @@ export function ArtifactReader({
   // Full HTML reader — split into inner component to avoid conditional hook calls
   return (
     <HtmlReader
+      artifactId={artifactId}
+      projectId={projectId}
       contentHtml={contentHtml}
       title={title}
       type={type}
@@ -110,12 +128,13 @@ export function ArtifactReader({
 }
 
 // ── HtmlReader ─────────────────────────────────────────────────
-type HtmlReaderProps = Omit<
-  ArtifactReaderProps,
-  "artifactId" | "projectId" | "contentMd" | "contentHtml"
-> & { contentHtml: string };
+type HtmlReaderProps = Omit<ArtifactReaderProps, "contentMd" | "contentHtml"> & {
+  contentHtml: string;
+};
 
 function HtmlReader({
+  artifactId,
+  projectId,
   contentHtml,
   title,
   type,
@@ -128,6 +147,183 @@ function HtmlReader({
   const [tocItems, setTocItems] = useState<TocItem[]>([]);
   const [activeSec, setActiveSec] = useState<string | null>(null);
   const articleRef = useRef<HTMLDivElement>(null);
+
+  // ── #78: citation trust layer ─────────────────────────────────
+  const [citations, setCitations] = useState<CitationRecord[]>([]);
+  const [citationsState, setCitationsState] = useState<CitationsState>("loading");
+  const [sectionConfidence, setSectionConfidence] = useState<SectionConfidence[]>([]);
+  const [openCitation, setOpenCitation] = useState<{ n: number; rect: DOMRect } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadCitations() {
+      try {
+        const response = await fetch(`/api/artifacts/${artifactId}/citations`, {
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          if (active) setCitationsState("unavailable");
+          return;
+        }
+
+        const payload = (await response.json()) as { citations?: CitationRecord[] };
+        const list = payload.citations ?? [];
+        if (!active) return;
+
+        if (list.length === 0) {
+          setCitationsState("unavailable");
+          return;
+        }
+
+        setCitations(list);
+      } catch {
+        if (active) setCitationsState("unavailable");
+      }
+    }
+
+    void loadCitations();
+
+    return () => {
+      active = false;
+    };
+  }, [artifactId]);
+
+  const citationsByNumber = useMemo(
+    () => new Map(citations.map((citation) => [citation.n, citation])),
+    [citations]
+  );
+
+  // Attribute each <cite data-n> / <span class="ev" data-n> chip to its
+  // enclosing <section class="sec" id> marker by walking sibling blocks in
+  // document order (the markup artifact-markdown.ts actually emits — see
+  // #78 channel notes). Falls back to "unavailable" if the citation map has
+  // entries but none of them are actually present in the rendered HTML
+  // (older artifacts authored before this markup convention existed).
+  useEffect(() => {
+    if (citations.length === 0) return;
+    const el = articleRef.current;
+    if (!el) return;
+
+    let currentSection: { id: string; ns: Set<number> } | null = null;
+    const sections: SectionConfidence[] = [];
+    let totalCitesInDom = 0;
+
+    function flush() {
+      if (!currentSection) return;
+      const ns = Array.from(currentSection.ns);
+      const sourceCount = new Set(
+        ns.map((n) => citationsByNumber.get(n)?.source_id ?? citationsByNumber.get(n)?.source_title)
+      ).size;
+      const speakerCount = new Set(
+        ns.map((n) => citationsByNumber.get(n)?.segment_speaker).filter(Boolean)
+      ).size;
+      const citationCount = ns.length;
+      const density: SectionConfidence["density"] =
+        citationCount === 0 ? "none" : citationCount >= 2 && sourceCount >= 2 ? "well" : "light";
+      sections.push({ id: currentSection.id, citationCount, sourceCount, speakerCount, density });
+    }
+
+    Array.from(el.children).forEach((child) => {
+      if (!(child instanceof HTMLElement)) return;
+
+      if (child.matches("section.sec[id]")) {
+        flush();
+        currentSection = { id: child.id, ns: new Set() };
+        return;
+      }
+
+      child.querySelectorAll("cite[data-n], span.ev[data-n]").forEach((node) => {
+        const n = Number(node.getAttribute("data-n"));
+        if (!Number.isFinite(n)) return;
+        totalCitesInDom += 1;
+        currentSection?.ns.add(n);
+      });
+    });
+    flush();
+
+    if (totalCitesInDom === 0) {
+      setCitationsState("unavailable");
+      return;
+    }
+
+    setSectionConfidence(sections);
+    setCitationsState("available");
+  }, [citations, citationsByNumber, contentHtml]);
+
+  // Toggle a citation popover on click via event delegation — the chips
+  // live inside dangerouslySetInnerHTML output, not React-rendered nodes.
+  useEffect(() => {
+    const el = articleRef.current;
+    if (!el || citationsState !== "available") return;
+
+    function onClick(event: MouseEvent) {
+      const target = event.target as HTMLElement | null;
+      const cite = target?.closest("cite[data-n], span.ev[data-n]") as HTMLElement | null;
+      if (!cite) return;
+      const n = Number(cite.getAttribute("data-n"));
+      if (!Number.isFinite(n) || !citationsByNumber.has(n)) return;
+      const rect = cite.getBoundingClientRect();
+      setOpenCitation((prev) => (prev?.n === n ? null : { n, rect }));
+    }
+
+    el.addEventListener("click", onClick);
+    return () => el.removeEventListener("click", onClick);
+  }, [citationsState, citationsByNumber]);
+
+  // Reflect open state onto the chip DOM nodes — doc_kit.css already styles
+  // cite[data-n][aria-expanded="true"].
+  useEffect(() => {
+    const el = articleRef.current;
+    if (!el) return;
+    el.querySelectorAll("cite[data-n], span.ev[data-n]").forEach((node) => {
+      const n = Number(node.getAttribute("data-n"));
+      node.setAttribute("aria-expanded", String(openCitation?.n === n));
+    });
+  }, [openCitation]);
+
+  // Close on Escape, outside click, or scroll (doc body scrolls — a stale
+  // anchored popover is worse than a closed one).
+  useEffect(() => {
+    if (!openCitation) return;
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpenCitation(null);
+    }
+
+    function onPointerDown(event: MouseEvent) {
+      const target = event.target as HTMLElement | null;
+      if (
+        !target?.closest("[data-citation-detail-portal]") &&
+        !target?.closest("cite[data-n], span.ev[data-n]")
+      ) {
+        setOpenCitation(null);
+      }
+    }
+
+    function onScrollOrResize() {
+      setOpenCitation(null);
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("mousedown", onPointerDown);
+    const scrollEl = document.querySelector(".app-content");
+    scrollEl?.addEventListener("scroll", onScrollOrResize, { passive: true });
+    window.addEventListener("resize", onScrollOrResize);
+
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("mousedown", onPointerDown);
+      scrollEl?.removeEventListener("scroll", onScrollOrResize);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [openCitation]);
+
+  const sectionConfidenceById = useMemo(
+    () => new Map(sectionConfidence.map((section) => [section.id, section])),
+    [sectionConfidence]
+  );
+  const openCitationRecord = openCitation ? citationsByNumber.get(openCitation.n) ?? null : null;
 
   // Extract TOC from rendered HTML after mount
   useEffect(() => {
@@ -230,15 +426,22 @@ function HtmlReader({
           {tocItems.length > 0 && (
             <nav className="reader-toc" aria-label="Contents">
               <div className="toc-label">Contents</div>
-              {tocItems.map((t) => (
-                <button
-                  key={t.id}
-                  className={`toc-item${activeSec === t.id ? " on" : ""}`}
-                  onClick={() => scrollToSection(t.id)}
-                >
-                  {t.label}
-                </button>
-              ))}
+              {tocItems.map((t) => {
+                const confidence =
+                  citationsState === "available" ? sectionConfidenceById.get(t.id) : undefined;
+                return (
+                  <button
+                    key={t.id}
+                    className={`toc-item${activeSec === t.id ? " on" : ""}`}
+                    onClick={() => scrollToSection(t.id)}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      {confidence && <DensityDot density={confidence.density} />}
+                      {t.label}
+                    </span>
+                  </button>
+                );
+              })}
             </nav>
           )}
 
@@ -263,6 +466,16 @@ function HtmlReader({
                 </div>
               </div>
             )}
+
+            {citationsState === "unavailable" && (
+              <div className="mb-5 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3.5 py-2.5 text-xs text-[var(--ink-faint)]">
+                Citations unavailable for this document.
+              </div>
+            )}
+            {citationsState === "available" && (
+              <TrustSummary sections={sectionConfidence} citations={citations} />
+            )}
+
             {/*
              * contentHtml is the output of toSafeContentHtml() (server, page.tsx).
              * sanitize-html has already enforced the v1 contract allowlist.
@@ -277,6 +490,61 @@ function HtmlReader({
           </main>
 
         </div>
+      </div>
+
+      {openCitation && openCitationRecord && (
+        <CitationDetailPortal
+          citation={openCitationRecord}
+          projectId={projectId}
+          anchorRect={openCitation.rect}
+          onClose={() => setOpenCitation(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function DensityDot({ density }: { density: SectionConfidence["density"] }) {
+  const color =
+    density === "well" ? "bg-pos" : density === "light" ? "bg-warn" : "bg-[var(--ink-faint)]";
+  return <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${color}`} aria-hidden />;
+}
+
+function TrustSummary({
+  sections,
+  citations,
+}: {
+  sections: SectionConfidence[];
+  citations: CitationRecord[];
+}) {
+  const well = sections.filter((section) => section.density === "well").length;
+  const light = sections.filter((section) => section.density === "light").length;
+  const none = sections.filter((section) => section.density === "none").length;
+  const sourceCount = new Set(
+    citations.map((citation) => citation.source_id ?? citation.source_title ?? citation.evidence_id)
+  ).size;
+
+  return (
+    <div className="mb-5 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3.5 py-2.5">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
+        <span className="flex items-center gap-1.5 text-[var(--ink)]">
+          <DensityDot density="well" />
+          {well} well-grounded
+        </span>
+        <span className="flex items-center gap-1.5 text-[var(--ink)]">
+          <DensityDot density="light" />
+          {light} lightly grounded
+        </span>
+        {none > 0 && (
+          <span className="flex items-center gap-1.5 text-[var(--ink-2)]">
+            <DensityDot density="none" />
+            {none} with no citations
+          </span>
+        )}
+        <span className="ml-auto text-[var(--ink-faint)]">
+          {citations.length} citation{citations.length === 1 ? "" : "s"} · {sourceCount} source
+          {sourceCount === 1 ? "" : "s"}
+        </span>
       </div>
     </div>
   );

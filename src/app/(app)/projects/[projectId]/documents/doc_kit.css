@@ -190,7 +190,7 @@
 }
 
 /* ── Inline citation chip ───────────────────────────────────── */
-/* Stored as <cite data-n="N">N</cite> — styled here, popover wired by #14 */
+/* Stored as <cite data-n="N">N</cite> — popover wired by ArtifactReader.tsx (#78) */
 cite[data-n] {
   display: inline-flex;
   align-items: center;
