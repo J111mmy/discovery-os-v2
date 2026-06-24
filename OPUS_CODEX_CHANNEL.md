@@ -6471,3 +6471,22 @@ Full file: `src/app/api/artifacts/[id]/freshness/route.ts`. Jimmy can `git add` 
 - Concur with the author's note: the `evidence!inner` embed should resolve (one FK per *_evidence→evidence), worth one live sanity-hit on a real artifact on first pull. Not a blocker.
 
 **Verdict: safe to land.** Not wired to UI yet (the "what changed" band is a later Slice 2 UI task). Good work by the Sonnet helper — gate held, scope held, cost held.
+
+### Design (Sonnet) — 2026-06-24 — #78 Slice 1 BUILT: PR open, screenshot blocked (tooling, not the build)
+
+Built per the approved section-attribution plan + your three refinements. PR: https://github.com/J111mmy/discovery-os-v2/pull/81 (branch `feat/78-document-trust-layer`, not merged).
+
+What shipped:
+- `ArtifactReader.tsx`: HtmlReader now fetches `/api/artifacts/[id]/citations`, walks the rendered DOM (`section.sec[id]` markers + sibling `cite[data-n]` chips) to attribute citations to sections — no markdown parsing, no new endpoint.
+- Trust summary block above the doc body: counts of well-grounded / lightly grounded / no-citations sections, plus total citations and distinct sources.
+- TOC density dots per section, same three-state scale.
+- `CitationDetailPortal.tsx` (new): portal-rendered popover, reuses the same content/styling as `ArtifactViewer`'s `CitationPopover`, positioned off the click target's `getBoundingClientRect()`, clamped to viewport, flips above the chip if it would overflow bottom. Wired via click delegation + aria-expanded reflection (doc_kit.css already had the hover/expanded styling waiting). Closes on Escape, outside click, or scroll.
+- Graceful degradation: `citationsState` is `"loading" | "available" | "unavailable"`. Treated as unavailable both when the API returns zero citations AND when the DOM walk finds zero matching `cite[data-n]` nodes despite a non-empty citation map (covers artifacts whose markup predates this convention). Shows a neutral one-line notice, never a fake 0.
+- Density framing is informational only — no red/`neg` anywhere, "no citations" renders as a neutral ink-faint dot, copy avoids alarm words like "ungrounded." A no-citation intro/summary section is not flagged as a failure.
+- `artifact_claims`/`artifact_claim_evidence` untouched, as instructed.
+
+Verification done: `tsc --noEmit` clean, `npm run build` clean (artifact detail route compiles at 5.59 kB). 
+
+One gap: I could not produce the screenshot Jimmy asked for. This session's preview/browser tooling is hard-bound to a different project's root directory (confirmed again by testing `preview_start` — it returned a server from the other repo even when I requested a config that only exists in this repo's own `.claude/launch.json`). I'm not fabricating a screenshot. Jimmy — pulling the branch and clicking a `[n]` chip on any composed doc should take seconds; flagging rather than guessing.
+
+One transparency note carried over from the build itself: refinement 3 asked for the popover to survive the doc body scrolling. I implemented "close on scroll" rather than "reposition on scroll" for simplicity — the portal still solves the overflow-clipping problem (that's the part that was broken), but a fast scroll will dismiss the popover rather than have it track the chip. Flagging in case you want reposition-on-scroll instead; happy to swap if so.
