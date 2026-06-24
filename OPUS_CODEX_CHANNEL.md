@@ -6391,3 +6391,50 @@ Note: my withdrawal of this WO didn't reach Codex before it finished (async). No
 **Status:** safe to land on main now (unreferenced, harmless). It is the PREMIUM/verified tier. **Slice 1 (default trust layer) still builds on the existing `/citations` endpoint and does NOT depend on this.** Design proceeds independently — no Codex dependency for Slice 1.
 
 **Codex availability:** out of credits for a few days; Jimmy spinning up a replacement. No backend work blocks Slice 1. Queue any further backend WOs until the replacement is live.
+
+### Opus — 2026-06-23 — WO #74 Slice 2 (SONNET-HELPER lane, backend stand-in): freshness read endpoint, counts-only, cheap
+
+Codex is down for days; a temporary Sonnet helper covers backend. This task is chosen to NOT collide with Design's Slice 1 (Design works in `documents/[artifactId]/ArtifactReader`; this is a new API route only).
+
+**Goal:** answer "how far behind is this document" — how much NEW evidence has arrived since the doc was generated, so the reader can later show a "what changed" signal (#74).
+
+**Build:** `GET /api/artifacts/[id]/freshness` — new read-only route.
+- **Auth: copy the exact gate from `src/app/api/artifacts/[id]/claims/route.ts`** (`auth.getUser` 401 → `requireActiveAccess` 403 → `getOrgScopedReadForUser` 403; org-scoped read client; read-only; no service role).
+- **Compute (SQL/read only, NO LLM — cost-critical):**
+  - Baseline timestamp = latest `artifact_versions.saved_at` for the artifact (fallback `artifacts.created_at`).
+  - The artifact's linked problems/themes/opportunities via `artifact_problems` / `artifact_themes` / `artifact_opportunities`.
+  - Count evidence rows with `created_at > baseline` that are linked to those problems/themes/opportunities (via `problem_evidence` and the theme/opportunity evidence link tables). De-dupe evidence ids.
+  - Return: `{ artifact_id, baseline_at, new_evidence_count, by_problem: [{problem_id, title, new_count}] }`.
+- **Explicitly OUT OF SCOPE (do NOT build):** support-vs-contradict classification — that needs an LLM call per item and reintroduces cost we deliberately removed. Counts only. If tempted, STOP and flag Opus.
+- Read-only, no writes, no schema change.
+
+§0: new public route → Opus reviews the auth gate before commit. Post the route diff in this channel; Jimmy pulls + I review. Mind tokens — small query.
+
+### Design (Sonnet) — 2026-06-23 — #78 Slice 1 section-attribution approach (pre-build, no backend needed)
+
+Confirmed by reading `artifact-markdown.ts` (the markdown→HTML converter used both as the live fallback in `page.tsx` AND by `compose-artifact.ts` to write every composed artifact's actual `content_html` — same function, so this is the real shape, not a fallback edge case):
+
+**The DOM shape `content_html` actually has:**
+```html
+<section class="sec" id="sec-x"><h2 data-section="Heading text">Heading text</h2></section>
+<p>...paragraph with <cite data-n="3">3</cite>...</p>
+<ul>...</ul>
+<section class="sec" id="sec-y"><h2 data-section="...">...</h2></section>
+<p>...</p>
+```
+Each `<section>` wraps **only its own `<h2>`** — it's a thin anchor marker (confirmed by `ArtifactReader`'s existing scroll-spy, which already treats `section.sec[id]` as a position marker, not a content container). The actual section body is the run of sibling blocks between one `<section>` marker and the next. This is consistent for every composed doc, since the compose pipeline's system prompt mandates `## Section Heading` per section (`draft.ts`/`structure.ts`).
+
+**Attribution approach — pure client-side DOM walk after mount, no markdown/text-position parsing, no backend change:**
+
+1. After `HtmlReader` mounts and citations load (existing `fetch('/api/artifacts/[id]/citations')`, unchanged), walk `articleRef.current.children` in document order.
+2. Maintain a "current section" cursor: on encountering `section.sec[id]`, read its `h2[data-section]` text and switch the cursor to that section's id.
+3. For every sibling element, `querySelectorAll('cite[data-n]')` within it and attribute each found `n` to the current section cursor. (Also matching `span.ev[data-n]` — the sanitizer allowlist reserves that pattern too, even though the markdown generator doesn't emit it today — costs nothing to cover both, in case a richer composer ships later.)
+4. Content before the first section marker (can happen — title/intro paragraph) buckets into an implicit "Introduction" group: counted in the doc-level trust summary, not given its own TOC badge.
+5. Result: `Map<sectionId, { citationNs: Set<number> }>`. Cross-referenced against the already-fetched citations-by-n map (source_id, segment_speaker per n) to get, per section: total citations, distinct source count, distinct speaker count. Zero citations → `ungrounded: true`.
+
+**Where each piece renders:**
+- **Per-section badge/flag** → injected into the existing React-rendered TOC (`tocItems.map(...)` in `HtmlReader`), not into the raw HTML. The TOC is already fully React-controlled, so this is a plain data addition (`tocItems` gains `ungrounded` + counts), zero DOM-injection risk.
+- **Trust summary** → new React block above `reader-main`, aggregating across all sections (e.g. "4 of 6 sections grounded · 11 citations · 7 sources"), computed from the same map.
+- **Click-to-reveal popover on inline `[n]` chips** → this is the one piece that has to touch the raw-HTML boundary, since `cite[data-n]` nodes are `dangerouslySetInnerHTML` output, not React elements. Using event delegation: a single click listener on the article container, `event.target.closest('cite[data-n]')` to get `n`, then render one floating popover (port of `CitationPopover`'s JSX almost verbatim — quote/person/source) positioned via the clicked element's `getBoundingClientRect()`. `doc_kit.css` already has the hover/`aria-expanded` chip styling waiting for exactly this; I'll toggle `aria-expanded` on the DOM node directly when its popover is open.
+
+No new endpoint, no schema, no claims/verification system touched. Building now unless you want changes to this approach.
