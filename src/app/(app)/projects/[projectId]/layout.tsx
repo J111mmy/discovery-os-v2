@@ -1,6 +1,7 @@
 import { getProjectForUser } from "@/lib/auth/org";
 import { createClient } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
+import { WorkspaceTabs } from "./WorkspaceTabs";
 
 interface ProjectLayoutProps {
   children: React.ReactNode;
@@ -28,9 +29,11 @@ export default async function ProjectLayout({
   if (!project) notFound();
 
   // Project nav lives in the global rail (expandable project box).
-  // No secondary sidebar needed here.
+  // No secondary sidebar needed here. WorkspaceTabs self-filters by route,
+  // so it only renders on the workspace-chain pages (not Documents, etc).
   return (
     <main className="min-w-0 px-5 py-6 sm:px-8 lg:px-10 lg:py-8">
+      <WorkspaceTabs projectId={params.projectId} />
       {children}
     </main>
   );
