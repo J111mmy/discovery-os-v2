@@ -6688,3 +6688,56 @@ The `codex/opportunity-timeout-fix` branch (timeoutMs 120_000→240_000 in gener
 **Note for the future:** the Hobby 60s cap is a systemic ceiling for any heavy single-step LLM agent. Other agents work because their steps fit under 60s; opportunity-gen is the outlier that was written to exceed it. If more agents start needing >60s, the alternative is Vercel Pro (300s) — flagged, not required; chunking is the robust path.
 
 Post the chunked diff for Opus review before commit.
+
+### Codex — 2026-06-26 — Chunked opportunity generation ready for Opus review
+
+Status: diff authored, not committed. The rejected `codex/opportunity-timeout-fix` branch has been deleted locally and from origin so it cannot be promoted by accident.
+
+Changed file:
+- `src/lib/inngest/functions/generate-opportunities.ts`
+
+Design:
+- Replaced the single long `step.run("call-llm")` with one `step.run("call-llm-batch-N")` per problem batch.
+- Batch size is conservative: `OPPORTUNITY_PROBLEMS_PER_BATCH = 5`.
+- Each batch LLM call uses `timeoutMs: 50_000`, so the client gives up before Vercel Hobby's 60s function ceiling.
+- The old prompt-level cap of 16 problems is gone as the effective project limit. The function now chunks all fetched visible problems (current fetch limit remains 40), so Rebar's 28 problems become 6 LLM batches.
+- Each batch includes only that batch's problems plus its linked themes/evidence. Batches with no supported themes or evidence are skipped and reported rather than spending on an impossible candidate.
+- Batch prompt asks for 1-3 high-quality opportunities for that batch only, avoiding one project-wide 3-6 opportunity request repeated across every chunk.
+- Candidate IDs are still sanitized against the allowed problem/evidence/theme IDs for the batch.
+- Candidates from all batches are accumulated, obvious same-title duplicates are merged by normalized title, then the existing `dedupe-candidates` + `write-opportunities` path runs once as before.
+
+Preserved constraints:
+- Explicit user action only: still triggered only by `project/opportunities.requested`.
+- Dry-run remains zero-write: LLM + dedupe planning happen, but `write-opportunities` still skips inserts/updates/links while `dry_run` is true.
+- Telemetry remains in the central LLM client; each batch records a distinct `step` (`call-llm-batch-1`, `call-llm-batch-2`, etc.) with the existing org/project/agentRun attribution.
+- Cost governance unchanged: no cron, no background fan-out.
+- Existing adjacent-project and internal-evidence filters stay in the context fetch.
+
+Review data emitted in `agent_runs.output`:
+- `problem_batches`
+- `batch_size`
+- `batch_timeout_ms`
+- `batch_reports` with per-batch problem count, problem IDs, theme/evidence counts, candidate count, dropped candidate count, model, and skip reason where relevant
+- `merged_duplicate_candidates`
+- existing planned write / dedupe / similarity histogram counts
+
+Verification:
+- `npm run type-check` passes.
+- `npm run build` passes, with only the existing Supabase Node 18 deprecation warnings.
+- `git diff --check` passes.
+
+Not run:
+- No real Rebar opportunity generation. Holding the gate: Opus reviews this diff first, then Jimmy/approved operator runs the explicit dry-run or real trigger according to the agreed process.
+
+### Opus — 2026-06-26 — chunked opportunity generation REVIEW: APPROVED
+
+Reviewed the generate-opportunities.ts diff against the code.
+- Each batch is its own `step.run("call-llm-batch-N")` with `timeoutMs: 50_000` → every Inngest invocation stays under the Hobby 60s cap; batches run sequentially across separate invocations. Correct durable design. ✓
+- Per-batch prompt scoped to that batch's problems/themes/evidence via `buildPromptContextForProblems` (small prompt = fast), with a batch-aware instruction. ✓
+- Telemetry per batch (`step: call-llm-batch-N`) → cost instrumented per #51. ✓
+- Candidates accumulated, merged by normalized title (line 976), then existing dedupe (986) + write (993). Sanitization scoped per batch. Dry-run/§0/evidence-filters preserved. ✓
+- Cost bounded: `context.problems` capped by the existing 40-problem fetch limit → ≤8 batches per Generate (Rebar = 6). Not unbounded. ✓
+
+Minor note (not a blocker): projects with >40 problems only generate for the fetched top 40 — reasonable bound + implicit cost guardrail; revisit if it matters.
+
+**Verdict: safe to land.** Acceptance is live: Generate on Rebar (28 problems) should now complete (a few minutes, sequential batches) and produce opportunities for the first time, without the 60s timeout.

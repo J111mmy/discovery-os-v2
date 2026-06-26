@@ -21,7 +21,8 @@ import {
 } from "@/lib/evidence/internal";
 
 const OPPORTUNITY_DEDUPE_SIMILARITY_THRESHOLD = 0.88;
-const MAX_PROBLEMS_FOR_PROMPT = 16;
+const OPPORTUNITY_PROBLEMS_PER_BATCH = 5;
+const OPPORTUNITY_LLM_BATCH_TIMEOUT_MS = 50_000;
 const MAX_EVIDENCE_PER_PROBLEM = 6;
 const MAX_EVIDENCE_FOR_PROMPT = 90;
 
@@ -92,6 +93,14 @@ type ExistingOpportunityRow = {
 type DedupeMethod = "new" | "normalised_title" | "embedding";
 type OpportunityCandidate = z.infer<typeof OpportunityCandidateSchema>;
 
+type OpportunityPromptContext = {
+  problems: ProblemRow[];
+  problemThemes: ProblemThemeRow[];
+  problemEvidence: ProblemEvidenceRow[];
+  themes: ThemeRow[];
+  evidence: EvidenceRow[];
+};
+
 const ProblemLinkSchema = z.object({
   problem_id: z.string().uuid(),
   rationale: z.string().trim().min(1).max(360),
@@ -155,6 +164,63 @@ function uniqueStrings(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
 
+function chunkArray<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function mergeByKey<T>(items: T[], getKey: (item: T) => string) {
+  const seen = new Set<string>();
+  const merged: T[] = [];
+  for (const item of items) {
+    const key = getKey(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(item);
+  }
+  return merged;
+}
+
+function mergeCandidatesByNormalizedTitle(candidates: OpportunityCandidate[]) {
+  const indexByTitle = new Map<string, number>();
+  const merged: OpportunityCandidate[] = [];
+  let mergedDuplicates = 0;
+
+  for (const candidate of candidates) {
+    const key = normalizeOpportunityTitle(candidate.title);
+    const existingIndex = key ? indexByTitle.get(key) : undefined;
+
+    if (existingIndex == null) {
+      if (key) indexByTitle.set(key, merged.length);
+      merged.push(candidate);
+      continue;
+    }
+
+    const existing = merged[existingIndex];
+    merged[existingIndex] = {
+      ...existing,
+      problem_links: mergeByKey(
+        [...existing.problem_links, ...candidate.problem_links],
+        (link) => link.problem_id
+      ),
+      evidence_links: mergeByKey(
+        [...existing.evidence_links, ...candidate.evidence_links],
+        (link) => `${link.evidence_id}:${link.relationship}`
+      ),
+      theme_links: mergeByKey(
+        [...existing.theme_links, ...candidate.theme_links],
+        (link) => `${link.theme_id}:${link.relationship}`
+      ),
+    };
+    mergedDuplicates += 1;
+  }
+
+  return { candidates: merged, merged_duplicates: mergedDuplicates };
+}
+
 function opportunityText(
   opportunity: Pick<ExistingOpportunityRow, "title" | "description" | "how_might_we">
 ) {
@@ -207,7 +273,7 @@ function formatResearchDataForPrompt({
   const usedEvidenceIds = new Set<string>();
   const blocks: string[] = [];
 
-  for (const problem of problems.slice(0, MAX_PROBLEMS_FOR_PROMPT)) {
+  for (const problem of problems.slice(0, OPPORTUNITY_PROBLEMS_PER_BATCH)) {
     const typedThemeIds = problemThemes
       .filter((link) => link.problem_id === problem.id)
       .map((link) => link.theme_id);
@@ -284,6 +350,36 @@ function formatResearchDataForPrompt({
   }
 
   return `PROBLEMS:\n${blocks.join("\n\n---\n\n")}`;
+}
+
+function buildPromptContextForProblems(
+  context: OpportunityPromptContext,
+  problems: ProblemRow[]
+): OpportunityPromptContext {
+  const problemIds = new Set(problems.map((problem) => problem.id));
+  const problemThemes = context.problemThemes.filter((link) => problemIds.has(link.problem_id));
+  const problemEvidence = context.problemEvidence.filter((link) => problemIds.has(link.problem_id));
+
+  const themeIds = new Set(
+    uniqueStrings([
+      ...problemThemes.map((link) => link.theme_id),
+      ...problems.flatMap((problem) => asStringArray(problem.source_theme_ids)),
+    ])
+  );
+  const evidenceIds = new Set(
+    uniqueStrings([
+      ...problemEvidence.map((link) => link.evidence_id),
+      ...problems.flatMap((problem) => asStringArray(problem.source_evidence_ids)),
+    ])
+  );
+
+  return {
+    problems,
+    problemThemes,
+    problemEvidence,
+    themes: context.themes.filter((theme) => themeIds.has(theme.id)),
+    evidence: context.evidence.filter((row) => evidenceIds.has(row.id)),
+  };
 }
 
 function sanitizeCandidate(
@@ -732,6 +828,8 @@ export const generateOpportunities = inngest.createFunction(
               status: "completed",
               output: {
                 dry_run: dryRun,
+                batch_size: OPPORTUNITY_PROBLEMS_PER_BATCH,
+                batch_timeout_ms: OPPORTUNITY_LLM_BATCH_TIMEOUT_MS,
                 problems: context.problems.length,
                 problem_evidence_links: context.problemEvidence.length,
                 evidence_supplied: context.evidence.length,
@@ -747,79 +845,143 @@ export const generateOpportunities = inngest.createFunction(
         return { dry_run: dryRun, opportunities_written: 0 };
       }
 
-      const { candidates, model_used, dropped_candidates } = await step.run("call-llm", async () => {
-        const themeById = new Map(context.themes.map((theme) => [theme.id, theme]));
-        const evidenceById = new Map(context.evidence.map((row) => [row.id, row]));
-        const researchData = formatResearchDataForPrompt({
-          problems: context.problems,
-          problemThemes: context.problemThemes,
-          problemEvidence: context.problemEvidence,
-          themeById,
-          evidenceById,
-        });
+      const problemBatches = chunkArray(context.problems, OPPORTUNITY_PROBLEMS_PER_BATCH);
+      const batchReports: Array<{
+        batch: number;
+        problems: number;
+        problem_ids: string[];
+        themes_supplied: number;
+        evidence_supplied: number;
+        candidates: number;
+        dropped_candidates: number;
+        model_used: string | null;
+        skipped_reason?: string;
+      }> = [];
+      const allCandidates: OpportunityCandidate[] = [];
 
-        const result = await callLLM({
-          tier: "premium",
-          temperature: 0.25,
-          system:
-            "You generate evidence-backed product opportunities from research problems. Return strict JSON only.",
-          messages: [
-            {
-              role: "user",
-              content: buildOpportunityGenerationPrompt({
-                frame: context.frame || "No project frame set.",
-                researchData,
-              }),
-            },
-          ],
-          timeoutMs: 240_000,
-          telemetry: {
-            orgId: org_id,
-            projectId: project_id,
-            agentRunId,
-            agentType: dryRun ? "opportunity-generation-dry-run" : "opportunity-generation",
-            step: "call-llm",
-          },
-        });
+      for (let batchIndex = 0; batchIndex < problemBatches.length; batchIndex += 1) {
+        const batchProblems = problemBatches[batchIndex];
+        const batchNumber = batchIndex + 1;
+        const batchContext = buildPromptContextForProblems(context, batchProblems);
 
-        const rawArray = extractJsonArray(result.content);
-        if (!Array.isArray(rawArray)) {
-          throw new Error("Opportunity generation did not return a JSON array");
+        if (batchContext.themes.length === 0 || batchContext.evidence.length === 0) {
+          batchReports.push({
+            batch: batchNumber,
+            problems: batchContext.problems.length,
+            problem_ids: batchContext.problems.map((problem) => problem.id),
+            themes_supplied: batchContext.themes.length,
+            evidence_supplied: batchContext.evidence.length,
+            candidates: 0,
+            dropped_candidates: 0,
+            model_used: null,
+            skipped_reason:
+              batchContext.themes.length === 0 ? "no_supported_themes" : "no_supported_evidence",
+          });
+          continue;
         }
 
-        let droppedCount = 0;
-        const validCandidates: OpportunityCandidate[] = [];
-        rawArray.forEach((element, index) => {
-          const parsedCandidate = OpportunityCandidateSchema.safeParse(element);
-          if (parsedCandidate.success) {
-            validCandidates.push(parsedCandidate.data);
-            return;
+        const batchResult = await step.run(`call-llm-batch-${batchNumber}`, async () => {
+          const themeById = new Map(batchContext.themes.map((theme) => [theme.id, theme]));
+          const evidenceById = new Map(batchContext.evidence.map((row) => [row.id, row]));
+          const researchData = formatResearchDataForPrompt({
+            problems: batchContext.problems,
+            problemThemes: batchContext.problemThemes,
+            problemEvidence: batchContext.problemEvidence,
+            themeById,
+            evidenceById,
+          });
+
+          const result = await callLLM({
+            tier: "premium",
+            temperature: 0.25,
+            system:
+              "You generate evidence-backed product opportunities from research problems. Return strict JSON only.",
+            messages: [
+              {
+                role: "user",
+                content: `${buildOpportunityGenerationPrompt({
+                  frame: context.frame || "No project frame set.",
+                  researchData,
+                })}
+
+BATCH EXECUTION:
+- This is batch ${batchNumber} of ${problemBatches.length}.
+- Generate 1-3 high-quality opportunities for this batch only.
+- Other batches cover other problems; do not compensate for missing project-wide context.
+- Return strict JSON only.`,
+              },
+            ],
+            timeoutMs: OPPORTUNITY_LLM_BATCH_TIMEOUT_MS,
+            telemetry: {
+              orgId: org_id,
+              projectId: project_id,
+              agentRunId,
+              agentType: dryRun ? "opportunity-generation-dry-run" : "opportunity-generation",
+              step: `call-llm-batch-${batchNumber}`,
+            },
+          });
+
+          const rawArray = extractJsonArray(result.content);
+          if (!Array.isArray(rawArray)) {
+            throw new Error(`Opportunity generation batch ${batchNumber} did not return a JSON array`);
           }
-          droppedCount += 1;
-          const failingPaths = parsedCandidate.error.issues
-            .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
-            .join("; ");
-          console.warn(
-            `[generate-opportunities] dropped invalid opportunity candidate at index ${index}: ${failingPaths}`
-          );
+
+          let droppedCount = 0;
+          const validCandidates: OpportunityCandidate[] = [];
+          rawArray.forEach((element, index) => {
+            const parsedCandidate = OpportunityCandidateSchema.safeParse(element);
+            if (parsedCandidate.success) {
+              validCandidates.push(parsedCandidate.data);
+              return;
+            }
+            droppedCount += 1;
+            const failingPaths = parsedCandidate.error.issues
+              .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+              .join("; ");
+            console.warn(
+              `[generate-opportunities] dropped invalid opportunity candidate in batch ${batchNumber} at index ${index}: ${failingPaths}`
+            );
+          });
+
+          const allowedProblemIds = new Set(batchContext.problems.map((problem) => problem.id));
+          const allowedEvidenceIds = new Set(batchContext.evidence.map((row) => row.id));
+          const allowedThemeIds = new Set(batchContext.themes.map((theme) => theme.id));
+          const sanitized = validCandidates
+            .map((candidate) =>
+              sanitizeCandidate(candidate, allowedProblemIds, allowedEvidenceIds, allowedThemeIds)
+            )
+            .filter(
+              (candidate) =>
+                candidate.problem_links.length > 0 &&
+                candidate.evidence_links.length > 0 &&
+                candidate.theme_links.length > 0
+            );
+
+          return { candidates: sanitized, model_used: result.model, dropped_candidates: droppedCount };
         });
 
-        const allowedProblemIds = new Set(context.problems.map((problem) => problem.id));
-        const allowedEvidenceIds = new Set(context.evidence.map((row) => row.id));
-        const allowedThemeIds = new Set(context.themes.map((theme) => theme.id));
-        const sanitized = validCandidates
-          .map((candidate) =>
-            sanitizeCandidate(candidate, allowedProblemIds, allowedEvidenceIds, allowedThemeIds)
-          )
-          .filter(
-            (candidate) =>
-              candidate.problem_links.length > 0 &&
-              candidate.evidence_links.length > 0 &&
-              candidate.theme_links.length > 0
-          );
+        allCandidates.push(...batchResult.candidates);
+        batchReports.push({
+          batch: batchNumber,
+          problems: batchContext.problems.length,
+          problem_ids: batchContext.problems.map((problem) => problem.id),
+          themes_supplied: batchContext.themes.length,
+          evidence_supplied: batchContext.evidence.length,
+          candidates: batchResult.candidates.length,
+          dropped_candidates: batchResult.dropped_candidates,
+          model_used: batchResult.model_used,
+        });
+      }
 
-        return { candidates: sanitized, model_used: result.model, dropped_candidates: droppedCount };
-      });
+      const mergedCandidates = mergeCandidatesByNormalizedTitle(allCandidates);
+      const candidates = mergedCandidates.candidates;
+      const model_used = uniqueStrings(
+        batchReports.map((report) => report.model_used).filter((model): model is string => Boolean(model))
+      ).join(", ");
+      const dropped_candidates = batchReports.reduce(
+        (total, report) => total + report.dropped_candidates,
+        0
+      );
 
       const plans = await step.run("dedupe-candidates", async () =>
         buildDedupePlans({
@@ -964,6 +1126,11 @@ export const generateOpportunities = inngest.createFunction(
           planned_locked_linked: plannedLockedLinked,
           planned_link_rows: plannedLinkRows,
           planned_writes: dryRun ? plannedInserted + plannedUpdated + plannedLockedLinked : 0,
+          problem_batches: problemBatches.length,
+          batch_size: OPPORTUNITY_PROBLEMS_PER_BATCH,
+          batch_timeout_ms: OPPORTUNITY_LLM_BATCH_TIMEOUT_MS,
+          batch_reports: batchReports,
+          merged_duplicate_candidates: mergedCandidates.merged_duplicates,
           adjacent_evidence_excluded: context.adjacentEvidenceExcluded,
           internal_evidence_excluded: context.internalEvidenceExcluded,
         };
@@ -983,7 +1150,7 @@ export const generateOpportunities = inngest.createFunction(
               dropped_candidates,
               ...report,
             },
-            model_used,
+            model_used: model_used || null,
             completed_at: new Date().toISOString(),
           })
           .eq("org_id", org_id)
