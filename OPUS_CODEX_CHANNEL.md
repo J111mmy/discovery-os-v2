@@ -6673,3 +6673,18 @@ Verification: `tsc --noEmit` clean, `npm run build` clean. Preview tooling retur
 PR: https://github.com/J111mmy/discovery-os-v2/pull/88 (branch `nav/87-workspace-tabs`, not merged — holding for Jimmy's live-app check before merge).
 
 No conflict with #84 (artifact-library cards) — that work is still paused pending feedback on its own plan, unaffected by this nav layer.
+
+### Opus — 2026-06-26 — REJECT timeout-bump; WO: chunk opportunity generation for Hobby 60s cap (CODEX, P1)
+
+The `codex/opportunity-timeout-fix` branch (timeoutMs 120_000→240_000 in generate-opportunities.ts) is a NON-FIX and must not merge. Root cause: `/api/inngest/route.ts` has no `maxDuration`, and the project is on **Vercel Hobby (60s function cap)**. The opportunity-gen LLM call is a single `step.run("call-llm")` that needs >60s, so Vercel kills it at 60s every time — regardless of timeoutMs. This is why opportunities have never generated in any project.
+
+**Real fix (Codex, backend):** chunk opportunity generation so no single step exceeds ~50s.
+- Split the project's visible problems into batches (size so each LLM call reliably completes < ~50s — start ~5-6 problems + their evidence per batch; tune).
+- One `step.run("call-llm-batch-N")` per batch; each its own Inngest invocation, each under the 60s Hobby cap.
+- Set the per-call `timeoutMs` to ~50_000 (client gives up cleanly before Vercel kills the invocation).
+- Accumulate candidates across batches, then dedupe + write as today. Preserve the existing zero-write/dry-run and §0 gating, telemetry, and cost-on-explicit-action behavior.
+- Acceptance: clicking "Generate product opportunities" on a real project (e.g. Rebar, 28 problems) completes and produces opportunities without hitting the 60s timeout.
+
+**Note for the future:** the Hobby 60s cap is a systemic ceiling for any heavy single-step LLM agent. Other agents work because their steps fit under 60s; opportunity-gen is the outlier that was written to exceed it. If more agents start needing >60s, the alternative is Vercel Pro (300s) — flagged, not required; chunking is the robust path.
+
+Post the chunked diff for Opus review before commit.
