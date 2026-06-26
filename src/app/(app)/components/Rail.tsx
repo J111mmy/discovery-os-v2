@@ -33,9 +33,10 @@ const DOT_COLORS = [
 ];
 
 // ── Sub-nav for an active project ─────────────────────────────────
+// The research chain (Sources/Evidence/Themes/Problems/Opportunities)
+// lives in WorkspaceTabs.tsx, accessed via the project name link.
+// This list is just the second top-level area, alongside Workspace.
 const PROJECT_NAV = [
-  { id: "workspace", label: "Workspace", href: "" },
-  { id: "evidence",  label: "Evidence",  href: "evidence" },
   { id: "documents", label: "Documents", href: "documents" },
 ];
 
@@ -265,6 +266,16 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
   const openProjectId = activeProjectId ?? lastProjectId;
   const openProject = projects.find((p) => p.id === openProjectId) ?? null;
 
+  // Two top-level areas per project: Workspace (the research chain, tabs
+  // live in WorkspaceTabs.tsx) and Documents. This tells the rail which one
+  // is active so the project-name link and Documents item can highlight.
+  const openProjectColor = openProjectId
+    ? DOT_COLORS[projects.findIndex((p) => p.id === openProjectId) % DOT_COLORS.length]
+    : null;
+  const onProjectDocuments = openProjectId
+    ? pathname.startsWith(`/projects/${openProjectId}/documents`)
+    : false;
+
   // Global ⌘K / Ctrl+K — open command palette from anywhere
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -353,18 +364,22 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
 
           <div style={divider} />
 
-          {/* Active project sub-items (icon-only strip) */}
+          {/* Active project: workspace link + Documents (icon-only strip) */}
           {openProject && (
             <>
-              {PROJECT_NAV.slice(0, 3).map((item) => {
-                const href = item.href ? `/projects/${openProjectId}/${item.href}` : `/projects/${openProjectId}`;
-                const on = item.href
-                  ? pathname.startsWith(`/projects/${openProjectId}/${item.href}`)
-                  : pathname === `/projects/${openProjectId}`;
-                const color = DOT_COLORS[projects.findIndex((p) => p.id === openProjectId) % DOT_COLORS.length];
+              <Link
+                href={`/projects/${openProjectId}`}
+                title={openProject.name}
+                style={{ ...colIconBtn, background: !onProjectDocuments ? "var(--sel)" : "transparent", textDecoration: "none" }}
+              >
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: openProjectColor!, flexShrink: 0, boxShadow: !onProjectDocuments ? `0 0 0 3px ${openProjectColor}22` : "none" }} />
+              </Link>
+              {PROJECT_NAV.map((item) => {
+                const href = `/projects/${openProjectId}/${item.href}`;
+                const on = pathname.startsWith(href);
                 return (
                   <Link key={item.id} href={href} title={item.label}
-                    style={{ ...colIconBtn, color: on ? color : "var(--ink-3)", background: on ? "var(--sel)" : "transparent", textDecoration: "none" }}>
+                    style={{ ...colIconBtn, color: on ? openProjectColor! : "var(--ink-3)", background: on ? "var(--sel)" : "transparent", textDecoration: "none" }}>
                     <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em" }}>
                       {item.label.slice(0, 2)}
                     </span>
@@ -512,13 +527,18 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
                 } : { marginBottom: 2 }}>
                   {isOpen ? (
                     <>
-                      {/* Active project label (non-interactive) */}
-                      <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 10px 6px", cursor: "default" }}>
+                      {/* Active project label — links to the workspace (Overview tab) */}
+                      <Link
+                        href={`/projects/${p.id}`}
+                        style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 10px 6px", textDecoration: "none", borderRadius: 7, transition: "background .13s" }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--sel)"; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                      >
                         <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0, boxShadow: `0 0 0 3px ${color}22` }} />
-                        <span style={{ flex: 1, fontWeight: 640, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "-0.01em", color: "var(--ink)" }}>
+                        <span style={{ flex: 1, fontWeight: 640, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "-0.01em", color: !onProjectDocuments ? "var(--ink)" : "var(--ink-2)" }}>
                           {p.name}
                         </span>
-                      </div>
+                      </Link>
                       {/* Sub-nav items */}
                       <div style={{ padding: "0 5px 4px" }}>
                         {PROJECT_NAV.map((item) => (
@@ -796,11 +816,23 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
                   const color = DOT_COLORS[i % DOT_COLORS.length];
                   const isActive = p.id === activeProjectId;
                   return (
-                    <Link key={p.id} href={`/projects/${p.id}`} onClick={() => setMobileMenuOpen(false)}
-                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: "var(--r-sm)", background: isActive ? "var(--surface-2)" : "transparent", color: isActive ? "var(--ink)" : "var(--ink-2)", fontWeight: isActive ? 620 : 480, fontSize: 14, textDecoration: "none" }}>
-                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />
-                      {p.name}
-                    </Link>
+                    <div key={p.id}>
+                      <Link href={`/projects/${p.id}`} onClick={() => setMobileMenuOpen(false)}
+                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: "var(--r-sm)", background: isActive ? "var(--surface-2)" : "transparent", color: isActive ? "var(--ink)" : "var(--ink-2)", fontWeight: isActive ? 620 : 480, fontSize: 14, textDecoration: "none" }}>
+                        <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />
+                        {p.name}
+                      </Link>
+                      {isActive && PROJECT_NAV.map((item) => {
+                        const href = `/projects/${p.id}/${item.href}`;
+                        const on = pathname.startsWith(href);
+                        return (
+                          <Link key={item.id} href={href} onClick={() => setMobileMenuOpen(false)}
+                            style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px 8px 31px", borderRadius: "var(--r-sm)", color: on ? "var(--ink)" : "var(--ink-3)", fontWeight: on ? 600 : 460, fontSize: 13, textDecoration: "none" }}>
+                            {item.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
                   );
                 })}
                 <div style={{ height: 1, background: "var(--line)", margin: "4px 0" }} />
