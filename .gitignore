@@ -33,3 +33,7 @@ supabase/.temp
 
 # Dev-only utility scripts (hardcoded project/org IDs, not for public repo)
 scripts/
+
+# Local agent config and generated decks (not part of the app)
+.claude/
+*.pptx
