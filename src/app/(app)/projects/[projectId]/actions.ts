@@ -43,6 +43,36 @@ export async function runProjectSynthesisAction(formData: FormData) {
   revalidatePath(`/projects/${project.id}`);
 }
 
+export async function runProjectOpportunitiesAction(formData: FormData) {
+  const projectId = String(formData.get("project_id") ?? "");
+  if (!projectId) return;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) redirect("/login");
+
+  const access = await requireActiveAccess({ id: user.id, email: user.email });
+  if (!access.ok) redirect(accessRedirectPath(access.status));
+
+  const project = await getProjectForUser<{ id: string; org_id: string }>(
+    user.id,
+    projectId,
+    "id, org_id"
+  );
+
+  if (!project) return;
+
+  await inngest.send({
+    name: "project/opportunities.requested",
+    data: { org_id: project.org_id, project_id: project.id },
+  });
+
+  revalidatePath(`/projects/${project.id}/opportunities`);
+}
+
 function uniqueProjectSlug(baseName: string, attempt: number) {
   const base = projectSlugFromName(baseName);
   return attempt === 0 ? base : `${base}-${attempt + 1}`;

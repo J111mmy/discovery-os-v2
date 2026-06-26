@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { runProjectOpportunitiesAction } from "../actions";
 import { isConfidentAnchor, ReviewStateBadge, type ReviewState } from "../shared-evidence";
 import {
   SeverityPill,
@@ -303,32 +304,173 @@ function OpportunityCard({ projectId, opportunity }: { projectId: string; opport
   );
 }
 
+function GenerateConfirmDialog({
+  projectId,
+  onCancel,
+  onSubmitStart,
+}: {
+  projectId: string;
+  onCancel: () => void;
+  onSubmitStart: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal
+      aria-label="Generate product opportunities"
+      onClick={onCancel}
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 px-5 py-[8vh] backdrop-blur-sm"
+    >
+      <div
+        onClick={(event) => event.stopPropagation()}
+        className="w-full max-w-md rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-2xl shadow-black/40"
+      >
+        <h2 className="text-base font-semibold text-[var(--ink)]">Generate product opportunities?</h2>
+        <p className="mt-2 text-sm leading-6 text-[var(--ink-2)]">
+          This runs an AI analysis over your current problems, themes, and evidence to surface new
+          solution directions. It can take a minute or two and uses your project&apos;s AI usage
+          budget. You can run it again later as more evidence comes in.
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-lg border border-[var(--line)] px-3.5 py-2 text-sm font-medium text-[var(--ink-2)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+          >
+            Cancel
+          </button>
+          <form action={runProjectOpportunitiesAction} onSubmit={onSubmitStart}>
+            <input type="hidden" name="project_id" value={projectId} />
+            <button
+              type="submit"
+              className="rounded-lg bg-[var(--accent)] px-3.5 py-2 text-sm font-semibold text-white"
+            >
+              Generate
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GenerateButton({
+  variant,
+  onClick,
+}: {
+  variant: "bar" | "empty-state";
+  onClick: () => void;
+}) {
+  if (variant === "empty-state") {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-white"
+      >
+        Generate product opportunities
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex-shrink-0 rounded-lg border border-[var(--accent)] px-3.5 py-2 text-xs font-semibold text-[var(--accent)] transition-colors hover:bg-[var(--accent)] hover:text-white"
+    >
+      Generate product opportunities
+    </button>
+  );
+}
+
+function GeneratingBadge() {
+  return (
+    <div className="flex-shrink-0 rounded-lg border border-warn/20 bg-warn-bg px-3 py-1.5 text-xs font-medium text-warn">
+      Generating opportunities…
+    </div>
+  );
+}
+
+const GENERATE_POLL_INTERVAL_MS = 4000;
+// Generation runs a premium-tier LLM call with its own ~4 minute internal
+// timeout; give the poll a bit of headroom before giving up on watching it.
+const GENERATE_MAX_POLLS = 60;
+
 export function OpportunitiesList({ projectId }: OpportunitiesListProps) {
   const [opportunities, setOpportunities] = useState<OpportunityRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [triggerError, setTriggerError] = useState<string | null>(null);
+  const baselineIdsRef = useRef<Set<string>>(new Set());
+  const pollCountRef = useRef(0);
+
+  const loadOpportunities = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/projects/${projectId}/opportunities`);
+      if (!response.ok) {
+        setError("We could not load opportunities. Try again.");
+        return null;
+      }
+      const data = await response.json();
+      setError(null);
+      const rows: OpportunityRow[] = data.opportunities ?? [];
+      setOpportunities(rows);
+      return rows;
+    } catch {
+      setError("We could not load opportunities. Try again.");
+      return null;
+    }
+  }, [projectId]);
 
   useEffect(() => {
+    void loadOpportunities();
+  }, [loadOpportunities]);
+
+  // There's no run-status field on the read endpoint yet, so completion is
+  // detected by polling and watching for opportunity rows that weren't there
+  // when generation was triggered. A run that turns up nothing new (e.g. not
+  // enough evidence yet) still needs to clear the pending state eventually,
+  // hence the poll cap.
+  useEffect(() => {
+    if (!generating) return;
     let cancelled = false;
 
-    async function load() {
-      try {
-        const response = await fetch(`/api/projects/${projectId}/opportunities`);
-        if (!response.ok) {
-          if (!cancelled) setError("We could not load opportunities. Try again.");
-          return;
-        }
-        const data = await response.json();
-        if (!cancelled) setOpportunities(data.opportunities ?? []);
-      } catch {
-        if (!cancelled) setError("We could not load opportunities. Try again.");
+    async function poll() {
+      const rows = await loadOpportunities();
+      if (cancelled) return;
+
+      const hasNewRows = (rows ?? []).some((row) => !baselineIdsRef.current.has(row.id));
+      if (hasNewRows) {
+        setGenerating(false);
+        return;
       }
+
+      pollCountRef.current += 1;
+      if (pollCountRef.current >= GENERATE_MAX_POLLS) {
+        setGenerating(false);
+        setTriggerError("This is taking longer than expected. Check back in a bit, or try again.");
+        return;
+      }
+
+      timeoutId = setTimeout(poll, GENERATE_POLL_INTERVAL_MS);
     }
 
-    load();
+    let timeoutId = setTimeout(poll, GENERATE_POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
+      clearTimeout(timeoutId);
     };
-  }, [projectId]);
+  }, [generating, loadOpportunities]);
+
+  function handleSubmitStart() {
+    baselineIdsRef.current = new Set((opportunities ?? []).map((row) => row.id));
+    pollCountRef.current = 0;
+    setTriggerError(null);
+    setConfirmOpen(false);
+    setGenerating(true);
+  }
 
   if (error) {
     return (
@@ -353,19 +495,51 @@ export function OpportunitiesList({ projectId }: OpportunitiesListProps) {
     );
   }
 
-  if (opportunities.length === 0) {
-    return (
-      <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-12 text-center text-sm text-[var(--ink-2)]">
-        No product opportunities yet. These are surfaced from evidence-backed problems, not from suggested workspaces.
-      </div>
-    );
-  }
-
   return (
     <div className="grid gap-4">
-      {opportunities.map((opportunity) => (
-        <OpportunityCard key={opportunity.id} projectId={projectId} opportunity={opportunity} />
-      ))}
+      {triggerError && (
+        <div className="rounded-lg border border-neg/20 bg-neg-bg px-3.5 py-2.5 text-sm text-neg">
+          {triggerError}
+        </div>
+      )}
+
+      {opportunities.length > 0 && (
+        <div className="flex items-center justify-end gap-2">
+          {generating ? (
+            <GeneratingBadge />
+          ) : (
+            <GenerateButton variant="bar" onClick={() => setConfirmOpen(true)} />
+          )}
+        </div>
+      )}
+
+      {opportunities.length === 0 ? (
+        <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-12 text-center">
+          <p className="text-sm text-[var(--ink-2)]">
+            No product opportunities yet. These are surfaced from evidence-backed problems, not from
+            suggested workspaces.
+          </p>
+          <div className="mt-5 flex justify-center">
+            {generating ? (
+              <GeneratingBadge />
+            ) : (
+              <GenerateButton variant="empty-state" onClick={() => setConfirmOpen(true)} />
+            )}
+          </div>
+        </div>
+      ) : (
+        opportunities.map((opportunity) => (
+          <OpportunityCard key={opportunity.id} projectId={projectId} opportunity={opportunity} />
+        ))
+      )}
+
+      {confirmOpen && (
+        <GenerateConfirmDialog
+          projectId={projectId}
+          onCancel={() => setConfirmOpen(false)}
+          onSubmitStart={handleSubmitStart}
+        />
+      )}
     </div>
   );
 }

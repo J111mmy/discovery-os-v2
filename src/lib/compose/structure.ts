@@ -11,8 +11,25 @@ import type { ComposeDraftSection, TaskTier } from "@/types/database";
 
 const VISIBLE_REVIEW_STATES = ["suggested", "accepted", "edited"] as const;
 const VISIBLE_OPPORTUNITY_STATUSES = ["suggested", "accepted", "active"] as const;
+const VISIBLE_PROBLEM_STATUSES = ["surfaced", "acknowledged", "active"] as const;
 const MAX_OPPORTUNITIES_FOR_PROMPT = 8;
+const MAX_PROBLEMS_FOR_PROMPT = 10;
 const MAX_EVIDENCE_PER_OPPORTUNITY = 6;
+
+const PROBLEM_SELECT = [
+  "id",
+  "title",
+  "description",
+  "statement",
+  "status",
+  "severity",
+  "confidence",
+  "who_affected",
+  "what_is_hard",
+  "why_it_matters",
+  "current_workarounds",
+  "current_tools",
+].join(", ");
 
 type SupabaseClient = ReturnType<typeof createServiceClient>;
 
@@ -368,68 +385,75 @@ async function fetchStructureContext({
 
   const opportunities = asRows<OpportunityRow>(opportunitiesResult.data);
   const opportunityIds = opportunities.map((opportunity) => opportunity.id);
-  if (opportunityIds.length === 0) {
-    throw new Error("No visible opportunities found for structure-driven compose. Run opportunity generation first.");
-  }
+  let problemOpportunityLinks: ProblemOpportunityLinkRow[] = [];
+  let opportunityEvidenceLinks: OpportunityEvidenceLinkRow[] = [];
+  let opportunityThemeLinks: OpportunityThemeLinkRow[] = [];
+  let fallbackProblems: ProblemRow[] | null = null;
+  let problemIds: string[] = [];
 
-  const [problemOpportunityResult, opportunityEvidenceResult, opportunityThemeResult] =
-    await Promise.all([
-      supabase
-        .from("problem_opportunities")
-        .select("problem_id, opportunity_id, relationship, source, review_state, rationale")
-        .eq("org_id", org_id)
-        .eq("project_id", project_id)
-        .in("opportunity_id", opportunityIds)
-        .in("review_state", [...VISIBLE_REVIEW_STATES]),
-      supabase
-        .from("opportunity_evidence")
-        .select("opportunity_id, evidence_id, relationship, rationale")
-        .eq("org_id", org_id)
-        .eq("project_id", project_id)
-        .in("opportunity_id", opportunityIds),
-      supabase
-        .from("opportunity_themes")
-        .select("opportunity_id, theme_id, relationship, rationale")
-        .eq("org_id", org_id)
-        .eq("project_id", project_id)
-        .in("opportunity_id", opportunityIds),
-    ]);
+  if (opportunityIds.length > 0) {
+    const [problemOpportunityResult, opportunityEvidenceResult, opportunityThemeResult] =
+      await Promise.all([
+        supabase
+          .from("problem_opportunities")
+          .select("problem_id, opportunity_id, relationship, source, review_state, rationale")
+          .eq("org_id", org_id)
+          .eq("project_id", project_id)
+          .in("opportunity_id", opportunityIds)
+          .in("review_state", [...VISIBLE_REVIEW_STATES]),
+        supabase
+          .from("opportunity_evidence")
+          .select("opportunity_id, evidence_id, relationship, rationale")
+          .eq("org_id", org_id)
+          .eq("project_id", project_id)
+          .in("opportunity_id", opportunityIds),
+        supabase
+          .from("opportunity_themes")
+          .select("opportunity_id, theme_id, relationship, rationale")
+          .eq("org_id", org_id)
+          .eq("project_id", project_id)
+          .in("opportunity_id", opportunityIds),
+      ]);
 
-  if (problemOpportunityResult.error) {
-    throw new Error(`Failed to load opportunity problem links: ${problemOpportunityResult.error.message}`);
-  }
-  if (opportunityEvidenceResult.error) {
-    throw new Error(`Failed to load opportunity evidence links: ${opportunityEvidenceResult.error.message}`);
-  }
-  if (opportunityThemeResult.error) {
-    throw new Error(`Failed to load opportunity theme links: ${opportunityThemeResult.error.message}`);
-  }
+    if (problemOpportunityResult.error) {
+      throw new Error(`Failed to load opportunity problem links: ${problemOpportunityResult.error.message}`);
+    }
+    if (opportunityEvidenceResult.error) {
+      throw new Error(`Failed to load opportunity evidence links: ${opportunityEvidenceResult.error.message}`);
+    }
+    if (opportunityThemeResult.error) {
+      throw new Error(`Failed to load opportunity theme links: ${opportunityThemeResult.error.message}`);
+    }
 
-  const problemOpportunityLinks = asRows<ProblemOpportunityLinkRow>(problemOpportunityResult.data);
-  const opportunityEvidenceLinks = asRows<OpportunityEvidenceLinkRow>(opportunityEvidenceResult.data);
-  const opportunityThemeLinks = asRows<OpportunityThemeLinkRow>(opportunityThemeResult.data);
-  const problemIds = unique(problemOpportunityLinks.map((link) => link.problem_id));
+    problemOpportunityLinks = asRows<ProblemOpportunityLinkRow>(problemOpportunityResult.data);
+    opportunityEvidenceLinks = asRows<OpportunityEvidenceLinkRow>(opportunityEvidenceResult.data);
+    opportunityThemeLinks = asRows<OpportunityThemeLinkRow>(opportunityThemeResult.data);
+    problemIds = unique(problemOpportunityLinks.map((link) => link.problem_id));
+  } else {
+    const fallbackProblemsResult = await supabase
+      .from("problems")
+      .select(PROBLEM_SELECT)
+      .eq("org_id", org_id)
+      .eq("project_id", project_id)
+      .in("status", [...VISIBLE_PROBLEM_STATUSES])
+      .order("updated_at", { ascending: false })
+      .limit(Math.min(MAX_PROBLEMS_FOR_PROMPT, Math.max(1, limit)));
+
+    if (fallbackProblemsResult.error) {
+      throw new Error(`Failed to load problems for structure-driven compose: ${fallbackProblemsResult.error.message}`);
+    }
+
+    fallbackProblems = asRows<ProblemRow>(fallbackProblemsResult.data);
+    problemIds = fallbackProblems.map((problem) => problem.id);
+  }
 
   const [problemsResult, problemEvidenceResult, problemThemeResult] = await Promise.all([
-    problemIds.length > 0
+    fallbackProblems
+      ? Promise.resolve({ data: fallbackProblems, error: null })
+      : problemIds.length > 0
       ? supabase
           .from("problems")
-          .select(
-            [
-              "id",
-              "title",
-              "description",
-              "statement",
-              "status",
-              "severity",
-              "confidence",
-              "who_affected",
-              "what_is_hard",
-              "why_it_matters",
-              "current_workarounds",
-              "current_tools",
-            ].join(", ")
-          )
+          .select(PROBLEM_SELECT)
           .eq("org_id", org_id)
           .eq("project_id", project_id)
           .in("id", problemIds)
@@ -639,13 +663,16 @@ function selectEvidenceForCompose({
 
   const addEvidence = (
     evidenceId: string,
-    trace: { opportunityId: string; problemIds?: string[]; themeIds?: string[] }
+    trace: { opportunityIds?: string[]; problemIds?: string[]; themeIds?: string[] }
   ) => {
     if (selected.size >= maxEvidence && !selected.has(evidenceId)) return;
     const evidence = evidenceById.get(evidenceId);
     if (!evidence) return;
     const existing = selected.get(evidence.id);
-    const opportunity_ids = unique([...(existing?.opportunity_ids ?? []), trace.opportunityId]);
+    const opportunity_ids = unique([
+      ...(existing?.opportunity_ids ?? []),
+      ...(trace.opportunityIds ?? []),
+    ]);
     const problem_ids = unique([...(existing?.problem_ids ?? []), ...(trace.problemIds ?? [])]);
     const theme_ids = unique([...(existing?.theme_ids ?? []), ...(trace.themeIds ?? [])]);
 
@@ -695,7 +722,7 @@ function selectEvidenceForCompose({
       if (perOpportunityCount >= MAX_EVIDENCE_PER_OPPORTUNITY) break;
       const before = selected.size;
       addEvidence(candidate.evidenceId, {
-        opportunityId: opportunity.id,
+        opportunityIds: [opportunity.id],
         problemIds: candidate.problemIds,
         themeIds: candidate.themeIds,
       });
@@ -704,6 +731,49 @@ function selectEvidenceForCompose({
     }
 
     if (selected.size >= maxEvidence) break;
+  }
+
+  if (opportunities.length === 0) {
+    for (const problemId of unique([
+      ...problemEvidenceLinks.map((link) => link.problem_id),
+      ...problemThemeLinks.map((link) => link.problem_id),
+    ])) {
+      const problemThemeIds = unique(
+        problemThemeLinks
+          .filter((link) => link.problem_id === problemId)
+          .map((link) => link.theme_id)
+      );
+      let perProblemCount = 0;
+      const candidates = [
+        ...problemEvidenceLinks
+          .filter((link) => link.problem_id === problemId)
+          .map((link) => ({
+            evidenceId: link.evidence_id,
+            problemIds: [problemId],
+            themeIds: problemThemeIds,
+          })),
+        ...themeEvidenceLinks
+          .filter((link) => problemThemeIds.includes(link.theme_id))
+          .map((link) => ({
+            evidenceId: link.evidence_id,
+            problemIds: [problemId],
+            themeIds: [link.theme_id],
+          })),
+      ];
+
+      for (const candidate of candidates) {
+        if (perProblemCount >= MAX_EVIDENCE_PER_OPPORTUNITY) break;
+        const before = selected.size;
+        addEvidence(candidate.evidenceId, {
+          problemIds: candidate.problemIds,
+          themeIds: candidate.themeIds,
+        });
+        if (selected.size > before || selected.has(candidate.evidenceId)) perProblemCount += 1;
+        if (selected.size >= maxEvidence) break;
+      }
+
+      if (selected.size >= maxEvidence) break;
+    }
   }
 
   return Array.from(selected.values()).map((row, index) => ({
@@ -724,6 +794,54 @@ function idsToLabels<T extends { id: string }>(
 function formatStructureGraph(context: StructureContext) {
   const problemById = new Map(context.problems.map((problem) => [problem.id, problem]));
   const themeById = new Map(context.themes.map((theme) => [theme.id, theme]));
+
+  if (context.opportunities.length === 0) {
+    const problemBlocks = context.problems.map((problem) => {
+      const themeIds = unique(
+        context.problemThemeLinks
+          .filter((link) => link.problem_id === problem.id)
+          .map((link) => link.theme_id)
+      );
+      const themeLines = themeIds
+        .map((id) => themeById.get(id))
+        .filter((theme): theme is ThemeRow => Boolean(theme))
+        .map((theme) =>
+          [
+            `THEME_ID: ${theme.id}`,
+            `LABEL: ${theme.label}`,
+            theme.central_concept ? `CENTRAL_CONCEPT: ${theme.central_concept}` : null,
+            theme.interpretation ? `INTERPRETATION: ${theme.interpretation}` : null,
+            theme.description ? `DESCRIPTION: ${theme.description}` : null,
+          ]
+            .filter(Boolean)
+            .join("\n")
+        );
+
+      return [
+        `PROBLEM_ID: ${problem.id}`,
+        `TITLE: ${problem.title}`,
+        problem.statement ? `STATEMENT: ${problem.statement}` : null,
+        problem.who_affected ? `WHO: ${problem.who_affected}` : null,
+        problem.what_is_hard ? `WHAT_IS_HARD: ${problem.what_is_hard}` : null,
+        problem.why_it_matters ? `WHY_IT_MATTERS: ${problem.why_it_matters}` : null,
+        problem.current_tools?.length ? `CURRENT_TOOLS: ${problem.current_tools.join(", ")}` : null,
+        problem.current_workarounds?.length
+          ? `CURRENT_WORKAROUNDS: ${problem.current_workarounds.join(", ")}`
+          : null,
+        themeLines.length > 0 ? `LINKED_THEMES:\n${themeLines.join("\n\n")}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+    });
+
+    return [
+      "STRUCTURED DECISION GRAPH:",
+      "No product opportunity records are available yet. Use this problem/theme/evidence graph to create a useful, evidence-cited artifact without pretending opportunity records exist.",
+      problemBlocks.join("\n\n---\n\n"),
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
 
   const opportunityBlocks = context.opportunities.map((opportunity) => {
     const problemIds = unique(
@@ -820,7 +938,12 @@ function formatEvidenceBlock(context: StructureContext) {
     .join("\n\n");
 }
 
-function buildSystemPrompt(persona: string, project: ProjectContext, evidenceCount: number) {
+function buildSystemPrompt(
+  persona: string,
+  project: ProjectContext,
+  evidenceCount: number,
+  hasOpportunities: boolean
+) {
   const parts = [
     `You are ${persona}.`,
     `You are creating a working GTM or strategy artifact for the "${project.name}" project.`,
@@ -836,11 +959,11 @@ function buildSystemPrompt(persona: string, project: ProjectContext, evidenceCou
 
   parts.push(`\n\nSTRUCTURE-GROUNDED COMPOSE RULES:
 - You are writing from a structured decision graph, not a loose evidence search.
-- Opportunities are the strategic recommendations and should shape what the artifact says to do next.
+- ${hasOpportunities ? "Opportunities are the strategic recommendations and should shape what the artifact says to do next." : "No product opportunity records are available. Structure the artifact from problems, themes, and evidence, and recommend next steps from that evidence without inventing opportunity records."}
 - Problems are the diagnosed pains. Themes are the synthesis layer. Evidence records are the only citeable factual source.
 - You have ${evidenceCount} evidence records labelled [1], [2], [3] and so on.
 - Every factual claim, customer observation, or specific finding must include an inline evidence citation like [3] or [1][4].
-- Use the opportunity/problem/theme chain to decide structure, prioritisation, and implications.
+- Use the ${hasOpportunities ? "opportunity/problem/theme" : "problem/theme"} chain to decide structure, prioritisation, and implications.
 - Never invent participants, quotes, numbers, competitors, tools, or outcomes.
 - If evidence is thin, say so as an evidence gap.
 - Paraphrase evidence. Do not copy long verbatim passages from source content.`);
@@ -849,7 +972,7 @@ function buildSystemPrompt(persona: string, project: ProjectContext, evidenceCou
 - Start immediately with # Title on line 1. No preamble.
 - Use ## Section Heading for each section.
 - Write focused, substantive prose. Short bullets are allowed only when they improve scanability.
-- Land clearly on what should happen next, using the opportunities as the recommendation layer.
+- Land clearly on what should happen next${hasOpportunities ? ", using the opportunities as the recommendation layer" : ""}.
 - End with a ## Open Questions section listing the top assumptions or evidence gaps.`);
 
   return parts.join(" ");
@@ -1053,11 +1176,16 @@ export async function composeStructureDraft({
   const supabase = createServiceClient();
   const context = await fetchStructureContext({ supabase, org_id, project_id, limit });
   if (context.selectedEvidence.length === 0) {
-    throw new Error("No traceable evidence found through the opportunity/problem/theme chain.");
+    throw new Error("No traceable evidence found through the structure-driven compose chain.");
   }
 
   const persona = detectExpertPersona(prompt);
-  const system = buildSystemPrompt(persona, context.project, context.selectedEvidence.length);
+  const system = buildSystemPrompt(
+    persona,
+    context.project,
+    context.selectedEvidence.length,
+    context.opportunities.length > 0
+  );
   const graphBlock = formatStructureGraph(context);
   const evidenceBlock = formatEvidenceBlock(context);
   const userMessage = `${prompt}\n\n---\n${graphBlock}\n\n---\nCITEABLE EVIDENCE RECORDS:\n\n${evidenceBlock}`;
