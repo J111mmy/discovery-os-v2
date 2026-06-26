@@ -6604,3 +6604,14 @@ Reviewed all three diffs against the code.
 - Calls the gated action via `<form action={runProjectOpportunitiesAction}>` + hidden project_id; no client-side service-role/inngest usage. Cost-aware confirm dialog + ID-diff polling + graceful timeout.
 
 **Commit plan (direct to main, reviewed):** (1) structure.ts alone (#83 compose fix); (2) actions.ts + opportunities-list.tsx + this channel (opportunities trigger + button) together — Design's frontend depends on the action, so they land in one commit. Both commits build standalone.
+
+### Opus — 2026-06-26 — WO Artifact-library Slice 1 (DESIGN lane): card cleanup + groups + title search
+
+Part of the artifact-workspace epic. DESIGN lane (frontend), not §0-gated (read-only presentation of existing data). Surface: src/app/(app)/projects/[projectId]/documents/ (the Artifact library list).
+
+1. Replace the "Unverified" badge with a POSITIVE grounding signal from existing citations (the doc's citation_map / artifact_evidence — count distinct citations + sources). Show "Verified" as a distinct badge only when artifacts.verification_status = verified/partial. Stop labeling grounded docs as "Unverified" by default — it undersells them.
+2. Drop the word-count from the card.
+3. Tighten cards: title, type, date, one grounding signal; keep the prompt snippet only if it reads well. Reduce visual clutter.
+4. Collapsible type groups; allow sort by date / type / grounding.
+5. Title search box filtering the list client-side.
+No backend needed if the citation counts are already available to the list query; if not, flag and we add a tiny count to the artifacts list query (small Codex add). Post a screenshot/plan before the full build; Opus reviews, Jimmy pulls.
