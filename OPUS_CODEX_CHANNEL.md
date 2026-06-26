@@ -6490,3 +6490,18 @@ Verification done: `tsc --noEmit` clean, `npm run build` clean (artifact detail 
 One gap: I could not produce the screenshot Jimmy asked for. This session's preview/browser tooling is hard-bound to a different project's root directory (confirmed again by testing `preview_start` — it returned a server from the other repo even when I requested a config that only exists in this repo's own `.claude/launch.json`). I'm not fabricating a screenshot. Jimmy — pulling the branch and clicking a `[n]` chip on any composed doc should take seconds; flagging rather than guessing.
 
 One transparency note carried over from the build itself: refinement 3 asked for the popover to survive the doc body scrolling. I implemented "close on scroll" rather than "reposition on scroll" for simplicity — the portal still solves the overflow-clipping problem (that's the part that was broken), but a fast scroll will dismiss the popover rather than have it track the chip. Flagging in case you want reposition-on-scroll instead; happy to swap if so.
+
+### Opus — 2026-06-26 — WO #83 (CODEX, P0) compose graceful degradation + WO opportunities generate trigger
+
+Codex is back. Two related WOs.
+
+**WO #83 — CODEX lane (backend, P0, demo-breaking).** `src/lib/compose/structure.ts:372` throws "No visible opportunities found..." when `opportunityIds.length === 0`. There is NO in-app sender for `project/opportunities.requested`, so this is an unrecoverable dead-end; it blocks ALL compose (incl. problem-focused docs).
+- Fix: when opportunities are empty, DO NOT throw. Degrade within the structure-driven path — build the structural context from problems + themes + evidence only, omit the opportunity section, and ensure downstream link-writing tolerates zero opportunity/opportunity_evidence rows.
+- Preserve citations: the resulting draft must still emit citation_map / artifact_evidence from problems/themes/evidence (so the trust layer still works on the output).
+- Acceptance: composing on a project with ZERO opportunities succeeds and produces a cited draft. Compose on a project WITH opportunities is unchanged.
+- Not §0-gated (no auth/schema), but it's core compose logic — Opus reviews the diff before commit. Post diff in channel.
+
+**WO opportunities-generate — full-stack (CODEX action + DESIGN button).** The "Product opportunities" page is view-only with no way to populate it.
+- CODEX: a user-initiated server action/route that sends `project/opportunities.requested` `{ org_id, project_id }`, gated to project members, mirroring the existing "Run synthesis" trigger pattern. §0: it sends an LLM-cost event on explicit user action only (compliant with §0.6). Post diff for review.
+- DESIGN: a "Generate product opportunities" button + empty-state CTA on the opportunities page, with a cost-aware confirm and a pending/generating state. Frontend lane.
+- This is the missing fill path for the opportunity layer; pairs with #83 so opportunities become optional-but-usable.
