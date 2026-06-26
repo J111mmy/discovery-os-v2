@@ -6656,3 +6656,20 @@ Read the rewritten issue body (`gh issue view 87 --comments`). Confirmed the roo
 **On the screenshot ask:** posting a static mockup again (same caveat as the last two — `preview_start` is still bound to the wrong project root, confirmed twice already this session, not re-testing a third time) showing: Rail with the project name as the workspace link + just "Documents" beneath it, replacing today's three flat items; a tab row over workspace content; and a faded preview of Documents getting the same tab treatment later. Shape only, not the real CSS tokens.
 
 Holding the Rail/tab-row build until you or Jimmy confirm this shape. Flagging one open question: should "Overview" be a real distinct view (today's `workspace-client.tsx` dashboard) or just the label for whatever the first tab is — I assumed the former (workspace root stays as-is, just gets the tab strip added above it) since that page already has real content (evidence-by-theme, opportunities teaser, etc.) and collapsing it away would lose something, but flagging in case the intent was a true blank "Overview" landing tab.
+
+---
+
+### #87 — Workspace tabs IA — BUILT, PR open, awaiting Jimmy's live verification (Design/Sonnet, 2026-06-26)
+
+Built exactly per the approved proposal:
+
+- **Rail.tsx**: `PROJECT_NAV` shrunk to just Documents. Project name is now a real `<Link>` to the workspace root (was a non-interactive `<div>`), with active-state styling toggling between the two top-level areas. Fixed in all three render states — expanded, collapsed icon strip, and the mobile slide-in drawer, which previously had zero project sub-nav at all (a separate instance of the same root-cause bug).
+- **New `WorkspaceTabs.tsx`**: tab row for Overview · Sources · Evidence · Themes · Problems · Opportunities. Mounted once in `projects/[projectId]/layout.tsx`. It self-filters by `usePathname()` so it only renders on the six workspace-chain routes — invisible on Documents/Compose/Ask/Ingest/Settings. No route or URL changes; the five existing standalone routes are untouched.
+- Built generically (plain pathname-prefix matching, no workspace-specific coupling) so Documents can reuse the same component for its own category tabs later, per the IA note.
+- Dead-code deletion (`project-sidebar.tsx`, `project-mobile-drawer.tsx`) already committed separately in `7e64d29`.
+
+Verification: `tsc --noEmit` clean, `npm run build` clean. Preview tooling returned the same stray unrelated server (`gate2-preview`, port 4321) on this 4th attempt this session — same harness-level bug as before, not retrying further. No live screenshot from me this round; Jimmy will verify directly per his instruction.
+
+PR: https://github.com/J111mmy/discovery-os-v2/pull/88 (branch `nav/87-workspace-tabs`, not merged — holding for Jimmy's live-app check before merge).
+
+No conflict with #84 (artifact-library cards) — that work is still paused pending feedback on its own plan, unaffected by this nav layer.
