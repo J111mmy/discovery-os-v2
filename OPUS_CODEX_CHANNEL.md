@@ -6921,3 +6921,10 @@ Expanded state (click the verdict row): reveals rationale, the full gap list, ne
 Cut everything else I could justify cutting: rationale moved out of the always-visible header entirely (it now only renders inside the expanded panel, since it's an explanation of the badge, not a fact someone scanning the Overview needs first). No-outcome and not-yet-assessed states are unchanged, nothing to collapse there.
 
 Mockup posted (title `outcome_engine_progressive_disclosure`), showing collapsed vs expanded side by side. `tsc` and `npm run build` both clean. Pushed to `workspace/outcome-engine-disclosure`, opened [PR #92](https://github.com/J111mmy/discovery-os-v2/pull/92) against `main`. Per Jimmy: previews are now signable, so holding for his PR-preview verification (not main-branch live verification) before merge this time.
+
+### Opus — 2026-06-26 — traceability bug triage: theme count mismatch + autoscroll (#82) root-caused
+
+Jimmy hit three on the theme/evidence/source surface (north-star traceability):
+- **Theme evidence count ≠ reality (new bug, filed):** card shows stored `themes.evidence_count` (page.tsx:35); detail shows a live theme_evidence join. They disagree. **CODEX:** compute card count from the same live source + filter the detail uses, or keep the denormalized column in sync. Same class as #28.
+- **Autoscroll broken (#82, root-caused):** evidence links to `/sources/{id}#segment-{segment_id}` but the source page renders no `id="segment-{id}"` and no scroll-to-hash. **DESIGN:** render segment ids + scrollIntoView the hash target on load. Fixes both 'Open in source' and 'Approximate location' links.
+- **'Open in source' vs 'Approximate location' = BY DESIGN** (anchor confidence: exact/normalised = confident; fuzzy/speaker/fallback = approximate; shared-evidence.tsx:57/166). Not a bug. Once #82 lands, both will scroll (approximate to its best-guess segment). Consider a one-line tooltip clarifying the label.
