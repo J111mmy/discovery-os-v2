@@ -13,6 +13,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
+import { usePathname } from "next/navigation";
 import { createProjectAction } from "@/app/(app)/projects/new/actions";
 
 // ── Slug helpers (mirrors new-project-form.tsx) ────────────────────
@@ -95,6 +96,18 @@ export function NewProjectModal({ open, onClose }: Props) {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  // The create action redirects to the new project, but this modal lives in the
+  // persistent rail, so navigation alone never dismisses it. Close once the route
+  // changes while we're open (i.e. the create succeeded and navigated us away).
+  const pathname = usePathname();
+  const prevPathname = useRef(pathname);
+  useEffect(() => {
+    if (prevPathname.current !== pathname) {
+      prevPathname.current = pathname;
+      if (open) onClose();
+    }
+  }, [pathname, open, onClose]);
 
   if (!open) return null;
 
