@@ -1,10 +1,12 @@
+import { NO_EM_DASH_OUTPUT_RULE } from "./style";
+
 export const GAP_DETECTION_PROMPT_VERSION = "gap-detection-v1";
 
 export const GAP_DETECTION_PROMPT = `
 You are a senior research analyst reviewing discovery coverage.
 
 Given a project frame and the themes that have been discovered from evidence so far,
-identify what is MISSING — research areas, questions, or personas from the frame
+identify what is MISSING: research areas, questions, or personas from the frame
 that have little or no evidence coverage in the discovered themes.
 
 For each gap return:
@@ -14,10 +16,11 @@ For each gap return:
 - suggested_action: one concrete thing the PM could do to close this gap (e.g. "Interview a procurement lead", "Add support ticket data")
 
 Rules:
-- Only flag genuine gaps — topics in the frame not covered by any theme
+- ${NO_EM_DASH_OUTPUT_RULE}
+- Only flag genuine gaps: topics in the frame not covered by any theme
 - Do not flag gaps for topics with good theme coverage
 - If the frame is empty or vague, flag that itself as a gap
-- Aim for 2-5 gaps — be selective
+- Aim for 2-5 gaps. Be selective
 - If coverage is strong and no gaps exist, return []
 
 Return only JSON in this exact shape:

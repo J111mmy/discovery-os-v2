@@ -93,7 +93,7 @@ export const detectGaps = inngest.createFunction(
           {
             role: "user",
             content: buildGapDetectionPrompt({
-              frame: frame || "No project frame set — this itself may be a gap.",
+              frame: frame || "No project frame set. This itself may be a gap.",
               themes,
             }),
           },

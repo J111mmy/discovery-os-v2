@@ -1,6 +1,7 @@
 // Compose pipeline — evidence-grounded document drafting
 import { callLLM, type LLMTelemetryContext } from "@/lib/llm/client";
 import { detectExpertPersona } from "@/lib/llm/persona";
+import { NO_EM_DASH_OUTPUT_RULE } from "@/lib/llm/prompts/style";
 import { dualQueryEvidence } from "@/lib/query/evidence";
 import { createServiceClient } from "@/lib/supabase/server";
 import type { ComposeDraftRequest, ComposeDraftResponse, ComposeDraftSection, EvidenceRecord } from "@/types/database";
@@ -63,7 +64,7 @@ function formatThemesBlock(themes: ThemeSummary[]): string {
   if (themes.length === 0) return "";
   const lines = themes.map((t) =>
     t.description
-      ? `• ${t.label} (${t.evidence_count} records) — ${t.description}`
+      ? `• ${t.label} (${t.evidence_count} records): ${t.description}`
       : `• ${t.label} (${t.evidence_count} records)`
   );
   return `\n\nDISCOVERED THEMES:\n${lines.join("\n")}`;
@@ -74,7 +75,7 @@ function formatProblemsBlock(problems: ProblemSummary[]): string {
   const lines = problems.map((p) => {
     const severityTag = p.severity === "high" ? "[HIGH]" : p.severity === "medium" ? "[MED]" : "[LOW]";
     return p.description
-      ? `${severityTag} ${p.title} — ${p.description}`
+      ? `${severityTag} ${p.title}: ${p.description}`
       : `${severityTag} ${p.title}`;
   });
   return `\n\nKNOWN PROBLEMS (from research):\n${lines.join("\n")}`;
@@ -112,11 +113,12 @@ function buildSystemPrompt(
 - You have ${evidenceCount} evidence records below, each labelled [1], [2], [3]…
 - Every factual claim, customer observation, or specific finding MUST include an inline citation in square brackets, e.g. [3] or [1][4]. Place it immediately after the relevant sentence, before the period where possible.
 - If multiple records support the same point, cite all of them: [2][5].
-- The DISCOVERED THEMES and KNOWN PROBLEMS above represent synthesised research — use them to orient your document structure.
-- Paraphrase evidence in your own words — do not copy verbatim passages.
-- Where evidence is absent or thin, flag the gap explicitly: "Evidence is limited here — treat as hypothesis."
+- The DISCOVERED THEMES and KNOWN PROBLEMS above represent synthesised research. Use them to orient your document structure.
+- Paraphrase evidence in your own words. Do not copy verbatim passages.
+- Where evidence is absent or thin, flag the gap explicitly: "Evidence is limited here. Treat as hypothesis."
 - Never invent participants, quotes, numbers, or outcomes.
-- Confidence levels: High = 3+ independent evidence records; Medium = 1–2; Low = inference only.`);
+- Confidence levels: High = 3+ independent evidence records; Medium = 1–2; Low = inference only.
+- ${NO_EM_DASH_OUTPUT_RULE}`);
 
   parts.push(`\n\nOUTPUT FORMAT:
 - Start immediately with # Title on line 1. No preamble, no "Here is your document".

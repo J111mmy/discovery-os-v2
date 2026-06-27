@@ -1,3 +1,5 @@
+import { NO_EM_DASH_OUTPUT_RULE } from "./style";
+
 export const PROJECT_SYNTHESIS_PROMPT_VERSION = "project-synthesis-v1";
 
 export const PROJECT_SYNTHESIS_PROMPT = `
@@ -13,6 +15,7 @@ For each theme, return:
 Use existing theme labels where they fit before inventing new ones.
 Only include evidence IDs that appear in the input.
 Do not create a theme from a single weak or unrelated record unless it is a clear signal.
+${NO_EM_DASH_OUTPUT_RULE}
 
 Return only JSON in this exact shape:
 [

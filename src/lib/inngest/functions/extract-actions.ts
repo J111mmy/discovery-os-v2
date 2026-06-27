@@ -143,7 +143,7 @@ export const extractActions = inngest.createFunction(
         const llmResult = await callLLM({
           tier: "cheap",
           system:
-            "You extract action items and product requests from research session notes. Be conservative — only include clear, explicit commitments and requests. Return only valid JSON.",
+            "You extract action items and product requests from research session notes. Be conservative. Only include clear, explicit commitments and requests. Return only valid JSON.",
           messages: [{ role: "user", content: prompt }],
           timeoutMs: 30_000,
           telemetry: {

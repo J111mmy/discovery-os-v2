@@ -1,5 +1,6 @@
 import { callLLM, type LLMTelemetryContext } from "@/lib/llm/client";
 import { detectExpertPersona } from "@/lib/llm/persona";
+import { NO_EM_DASH_OUTPUT_RULE } from "@/lib/llm/prompts/style";
 import { neutralizeUntrustedSourceContentFence } from "@/lib/llm/prompts/untrusted-content";
 import { createServiceClient } from "@/lib/supabase/server";
 import { filterAdjacentProjectHintedEvidence } from "@/lib/evidence/adjacent-project";
@@ -966,7 +967,8 @@ function buildSystemPrompt(
 - Use the ${hasOpportunities ? "opportunity/problem/theme" : "problem/theme"} chain to decide structure, prioritisation, and implications.
 - Never invent participants, quotes, numbers, competitors, tools, or outcomes.
 - If evidence is thin, say so as an evidence gap.
-- Paraphrase evidence. Do not copy long verbatim passages from source content.`);
+- Paraphrase evidence. Do not copy long verbatim passages from source content.
+- ${NO_EM_DASH_OUTPUT_RULE}`);
 
   parts.push(`\n\nOUTPUT FORMAT:
 - Start immediately with # Title on line 1. No preamble.

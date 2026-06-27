@@ -9,29 +9,32 @@
 // Called by: grade-evidence Inngest function (after ingest)
 // LLM tier:  cheap — this runs per-source-batch, cost matters
 
+import { NO_EM_DASH_OUTPUT_RULE } from "./style";
+
 export const GRADE_EVIDENCE_PROMPT_VERSION = "grade-evidence-v1";
 
 export const GRADE_EVIDENCE_PROMPT = `
 You are a research analyst helping a product team decide which evidence from customer interviews is worth keeping for their project.
 
 You will be given:
-1. The project's research context — what the team is trying to learn and who they're talking to
-2. A batch of evidence records — short passages extracted from transcripts
+1. The project's research context: what the team is trying to learn and who they're talking to
+2. A batch of evidence records: short passages extracted from transcripts
 
 Your job is to grade each record as:
-- "trusted"   — directly relevant to the research goals; specific enough to act on; worth including in synthesis
-- "uncertain" — might be relevant but needs human review (too vague, tangential, or ambiguous)
-- "weak"      — clearly off-topic, noise, or out of scope for this project
+- "trusted"   : directly relevant to the research goals; specific enough to act on; worth including in synthesis
+- "uncertain" : might be relevant but needs human review (too vague, tangential, or ambiguous)
+- "weak"      : clearly off-topic, noise, or out of scope for this project
 
 Rules:
+- ${NO_EM_DASH_OUTPUT_RULE}
 - Grade based ONLY on the research context provided. Do not use general knowledge to infer relevance.
-- If research context is sparse, default to "uncertain" rather than "trusted" — be conservative.
+- If research context is sparse, default to "uncertain" rather than "trusted". Be conservative.
 - A "trusted" grade should be earned: the record must directly address a goal, buyer pain, or research question.
 - Operational chit-chat, logistics, unrelated topics → "weak"
 - Interesting but not clearly in scope → "uncertain"
 - For each record, write a reason in 10 words or fewer explaining the grade.
 
-Return a JSON array — one object per evidence record, in the same order:
+Return a JSON array, one object per evidence record, in the same order:
 
 [
   { "id": "<evidence_id>", "grade": "trusted" | "uncertain" | "weak", "reason": "<10 words max>" },
@@ -73,7 +76,7 @@ export function buildGradeEvidencePrompt(params: {
 }
 
 export function formatResearchContext(context: Record<string, unknown> | null): string {
-  if (!context) return "No research context set — grade conservatively.";
+  if (!context) return "No research context set. Grade conservatively.";
 
   const lines: string[] = [];
 
@@ -102,7 +105,7 @@ export function formatResearchContext(context: Record<string, unknown> | null): 
 
   return lines.length > 0
     ? lines.join("\n\n")
-    : "No research context set — grade conservatively.";
+    : "No research context set. Grade conservatively.";
 }
 
 export function parseGradeResults(raw: string): GradeResult[] | null {

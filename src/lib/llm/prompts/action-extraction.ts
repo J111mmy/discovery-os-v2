@@ -6,6 +6,8 @@
 //
 // Returns structured JSON to avoid hallucination of items not present.
 
+import { NO_EM_DASH_OUTPUT_RULE } from "./style";
+
 export const ACTION_EXTRACTION_PROMPT_VERSION = "action-extraction-v1";
 
 export const ACTION_EXTRACTION_PROMPT = `
@@ -13,7 +15,7 @@ You are a research operations analyst reviewing notes from a customer research s
 
 Extract two types of items from the evidence below:
 
-**1. ACTIONS** — explicit commitments made by internal team members (the researchers, sales reps, or product people running the session). These are things they said they would do. Examples:
+**1. ACTIONS**: explicit commitments made by internal team members (the researchers, sales reps, or product people running the session). These are things they said they would do. Examples:
 - "I'll send you the demo recording"
 - "Let me check with our engineering team and get back to you"
 - "We'll set up a pilot for you next month"
@@ -21,16 +23,16 @@ Extract two types of items from the evidence below:
 
 Only extract items where someone clearly committed to doing something. Do not extract vague intentions or "we're planning to" statements about the product.
 
-**2. PRODUCT REQUESTS** — explicit asks or wishes from external participants (customers, prospects). These are things they said they need or wish the product could do. Examples:
+**2. PRODUCT REQUESTS**: explicit asks or wishes from external participants (customers, prospects). These are things they said they need or wish the product could do. Examples:
 - "I wish it had a bulk export feature"
 - "We can't buy until it integrates with Salesforce"
 - "It would be really useful if we could set user permissions by department"
 - "We need an audit log for compliance reasons"
 
 For priority_signal, infer from language strength:
-- "critical" — "can't buy without", "blocker", "deal-breaker", "we need this"
-- "important" — "really important", "high priority for us", "would definitely use"
-- "nice_to_have" — "would be nice", "it'd be cool if", "eventually"
+- "critical": "can't buy without", "blocker", "deal-breaker", "we need this"
+- "important": "really important", "high priority for us", "would definitely use"
+- "nice_to_have": "would be nice", "it'd be cool if", "eventually"
 
 Return a single JSON object with exactly two keys. If nothing is found for a category, return an empty array.
 
@@ -54,6 +56,7 @@ Return a single JSON object with exactly two keys. If nothing is found for a cat
 }
 
 Rules:
+- ${NO_EM_DASH_OUTPUT_RULE}
 - Be conservative. Only extract things that are clearly commitments or requests. Do not infer.
 - Do not create duplicate entries for the same commitment or request mentioned multiple times.
 - Keep descriptions short and actionable (under 20 words each).

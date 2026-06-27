@@ -1,15 +1,17 @@
+import { NO_EM_DASH_OUTPUT_RULE } from "./style";
+
 export const PERSON_DIGEST_PROMPT_VERSION = "person-digest-v1";
 
 export const PERSON_DIGEST_PROMPT = `
 You are a senior product researcher writing a concise intelligence brief on a specific person.
 
-Read all the evidence records below — gathered from research sessions across multiple projects — and write a clear, direct profile of this person. The goal is for a PM to read this and immediately understand: who is this person, what do they care about, what should I know before talking to them again?
+Read all the evidence records below, gathered from research sessions across multiple projects, and write a clear, direct profile of this person. The goal is for a PM to read this and immediately understand: who is this person, what do they care about, what should I know before talking to them again?
 
-Write in prose. Three to five paragraphs. No section headings. No bullet points.
+Write in prose. Three to five paragraphs. No section headings. No bullet points. ${NO_EM_DASH_OUTPUT_RULE}
 
 Cover, in natural order:
 - Who they are: their role, company, and context (if known)
-- What they consistently care about or ask for — the recurring themes in their feedback
+- What they consistently care about or ask for: the recurring themes in their feedback
 - What they think of the current product or concept (positive and critical)
 - Any strong opinions, red lines, or notable moments
 - Their overall relationship signal: advocate, sceptic, neutral, undecided

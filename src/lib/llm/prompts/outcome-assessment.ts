@@ -1,3 +1,5 @@
+import { NO_EM_DASH_OUTPUT_RULE } from "./style";
+
 export const OUTCOME_ASSESSMENT_PROMPT_VERSION = "outcome-assessment-v1";
 
 export function buildOutcomeAssessmentPrompt(input: { projectSummary: string }) {
@@ -39,6 +41,7 @@ Return only valid JSON with this exact shape:
 }
 
 Rules:
+- ${NO_EM_DASH_OUTPUT_RULE}
 - outcome_status must be one of: "met", "on_track", "blocked".
 - severity and priority must be one of: "high", "medium", "low".
 - readiness must be one of: "ready", "needs_more_evidence", "not_ready".

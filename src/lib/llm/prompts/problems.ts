@@ -1,3 +1,5 @@
+import { NO_EM_DASH_OUTPUT_RULE } from "./style";
+
 export const PROBLEM_DISCOVERY_PROMPT_VERSION = "problem-discovery-v2";
 
 export const PROBLEM_DISCOVERY_PROMPT = `
@@ -23,17 +25,18 @@ For each problem, return:
 - topic_provenance_ids: topic IDs that describe the evidence behind this problem
 
 Rules:
+- ${NO_EM_DASH_OUTPUT_RULE}
 - Only surface problems genuinely supported by the supplied evidence
 - Do not invent affected roles, tools, workarounds, or impacts
 - Evidence IDs must come from the supplied evidence list only
 - Theme IDs must come from the supplied theme list only
 - Topic IDs must come from the supplied topic list only
-- The two relationship sets are NOT interchangeable. Never use "primary" or "contributing" on evidence_links — those are theme_links values only. Never use evidence relationships ("supporting", "contradicting", "example", "edge_case") on theme_links.
+- The two relationship sets are NOT interchangeable. Never use "primary" or "contributing" on evidence_links. Those are theme_links values only. Never use evidence relationships ("supporting", "contradicting", "example", "edge_case") on theme_links.
 - Distinguish direct support from provenance; do not mark nearby evidence as supporting unless it truly supports the problem
 - Include contradicting evidence when the supplied evidence challenges or limits the problem
 - Merge themes that describe the same underlying problem
 - A theme can support multiple problems if warranted
-- Aim for 3-7 problems — quality over quantity
+- Aim for 3-7 problems. Quality over quantity
 - Titles must be specific and grounded, not generic ("Users struggle with X" is too vague)
 
 Return only JSON in this exact shape:

@@ -1,3 +1,5 @@
+import { NO_EM_DASH_OUTPUT_RULE } from "./style";
+
 export const CLAIM_VERIFICATION_PROMPT_VERSION = "claim-verify-v1";
 
 export function buildClaimVerificationPrompt({
@@ -13,6 +15,7 @@ You are a claim verification analyst for a product discovery system.
 Read the single claim and the trusted evidence records below. Decide whether the claim is supported by the evidence.
 
 Rules:
+- ${NO_EM_DASH_OUTPUT_RULE}
 - supported: the trusted evidence directly supports the claim.
 - partially_supported: the trusted evidence supports part of the claim, but the claim is broader, stronger, or more specific than the evidence allows.
 - unsupported: the trusted evidence does not support the claim.

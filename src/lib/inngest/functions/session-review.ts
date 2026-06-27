@@ -39,7 +39,7 @@ function formatEvidenceForReview(records: EvidenceRecord[]): string {
       const sentiment = record.sentiment ?? "neutral";
 
       return [
-        `### Record ${index + 1} — ${classification} / ${sentiment}`,
+        `### Record ${index + 1}: ${classification} / ${sentiment}`,
         speaker ? `**Speaker:** ${speaker}` : null,
         record.content,
         record.summary ? `*Summary: ${record.summary}*` : null,
@@ -151,7 +151,7 @@ export const sessionReview = inngest.createFunction(
         const result = await callLLM({
           tier: "standard",
           system:
-            "You write clear, human-readable research briefs. Write in prose. Return only the brief — no preamble, no meta-commentary.",
+            "You write clear, human-readable research briefs. Write in prose. Return only the brief. No preamble, no meta-commentary.",
           messages: [{ role: "user", content: prompt }],
           timeoutMs: 120_000,
           telemetry: {

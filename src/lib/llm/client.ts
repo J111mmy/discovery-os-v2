@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { createServiceClient } from "@/lib/supabase/server";
 import { EMBEDDING_MODEL } from "./models";
+import { appendUserFacingStyleRules } from "./prompts/style";
 import { getAIModelConfig } from "./settings";
 import type { TaskTier } from "@/types/database";
 
@@ -317,13 +318,14 @@ function providerErrorMessage(provider: string, error: unknown) {
 
 export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
   const config = await getAIModelConfig(opts.tier);
+  const systemPrompt = appendUserFacingStyleRules(opts.system);
 
   if (config.provider === "anthropic") {
     const request = {
       model: config.model,
       max_tokens: opts.maxTokens ?? config.maxTokens,
       temperature: opts.temperature ?? config.temperature,
-      system: opts.system,
+      system: systemPrompt,
       messages: opts.messages,
     };
 
@@ -393,7 +395,7 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
 
   if (config.provider === "openai") {
     const messages = [
-      { role: "system" as const, content: opts.system },
+      { role: "system" as const, content: systemPrompt },
       ...opts.messages.map((message) => ({
         role: message.role,
         content: contentToText(message.content),
@@ -471,13 +473,14 @@ export async function streamLLM(
   onDelta: LLMDeltaHandler
 ): Promise<LLMCallResult> {
   const config = await getAIModelConfig(opts.tier);
+  const systemPrompt = appendUserFacingStyleRules(opts.system);
 
   if (config.provider === "anthropic") {
     const request = {
       model: config.model,
       max_tokens: opts.maxTokens ?? config.maxTokens,
       temperature: opts.temperature ?? config.temperature,
-      system: opts.system,
+      system: systemPrompt,
       messages: opts.messages,
     };
 
@@ -553,7 +556,7 @@ export async function streamLLM(
 
   if (config.provider === "openai") {
     const messages = [
-      { role: "system" as const, content: opts.system },
+      { role: "system" as const, content: systemPrompt },
       ...opts.messages.map((message) => ({
         role: message.role,
         content: contentToText(message.content),

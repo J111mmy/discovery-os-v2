@@ -1,3 +1,5 @@
+import { NO_EM_DASH_OUTPUT_RULE } from "./style";
+
 export const ENTITY_EXTRACTION_PROMPT_VERSION = "entity-extraction-v2";
 
 export const ENTITY_EXTRACTION_PROMPT = `
@@ -36,6 +38,7 @@ Return only JSON in this shape:
 }
 
 Rules:
+- ${NO_EM_DASH_OUTPUT_RULE}
 - Only include entities that appear in or are directly implied by the evidence text.
 - Do not invent companies from generic role labels.
 - Competitors are tools, products, or companies described as alternatives, comparisons, or prior solutions.

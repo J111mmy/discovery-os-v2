@@ -1,3 +1,5 @@
+import { NO_EM_DASH_OUTPUT_RULE } from "./style";
+
 export const OPPORTUNITY_GENERATION_PROMPT_VERSION = "opportunity-generation-v1";
 
 export const OPPORTUNITY_GENERATION_PROMPT = `
@@ -22,6 +24,7 @@ For each opportunity, return:
 - theme_links: theme IDs that support the opportunity, each with relationship "supporting" and a short rationale
 
 Rules:
+- ${NO_EM_DASH_OUTPUT_RULE}
 - Only propose opportunities genuinely grounded in the supplied problems/evidence/themes.
 - Do not invent problem IDs, evidence IDs, or theme IDs.
 - Do not propose features as final answers. Frame the opportunity space, not a fully-specified solution.

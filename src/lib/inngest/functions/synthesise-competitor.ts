@@ -56,7 +56,7 @@ function formatEvidenceForCompetitor(
       const project = projectNames.get(record.project_id) ?? "Unknown project";
       const classification = record.classification ?? "signal";
       const sentiment = record.sentiment ? ` / ${record.sentiment}` : "";
-      const header = `### Record ${index + 1} — ${classification}${sentiment} · ${project}${speaker}`;
+      const header = `### Record ${index + 1}: ${classification}${sentiment} · ${project}${speaker}`;
 
       return [header, record.content, record.summary ? `*${record.summary}*` : null]
         .filter(Boolean)
