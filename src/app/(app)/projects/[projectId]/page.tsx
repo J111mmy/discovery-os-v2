@@ -6,6 +6,7 @@ import { redirect, notFound } from "next/navigation";
 import { computeConfidence } from "@/lib/confidence";
 import {
   createProjectFromOpportunityAction,
+  runProjectOutcomeAssessmentAction,
   runProjectSynthesisAction,
   updateProjectOpportunityStatusAction,
 } from "./actions";
@@ -54,6 +55,25 @@ type GapSignal = {
   description: string;
   severity: string;
   suggested_action: string;
+};
+
+type OutcomeAssessment = {
+  outcome_status: "met" | "on_track" | "blocked";
+  rationale: string;
+  gaps_to_outcome: Array<{ gap: string; why_it_matters: string; severity: "high" | "medium" | "low" }>;
+  next_actions: Array<{ action: string; priority: "high" | "medium" | "low"; rationale: string }>;
+  generatable_artifacts: Array<{
+    artifact_type: string;
+    purpose: string;
+    readiness: "ready" | "needs_more_evidence" | "not_ready";
+  }>;
+};
+
+type FrameDraftData = {
+  problem: string;
+  hypothesis: string;
+  buyers: string;
+  research_areas: string[];
 };
 
 function synthesisTimeLabel(value: string | null): string {
@@ -107,13 +127,18 @@ export default async function ProjectPage({ params }: Props) {
     name: string;
     description: string | null;
     frame: string | null;
+    frame_draft: FrameDraftData | null;
+    frame_draft_generated_at: string | null;
+    research_context: { outcomes?: string } | null;
+    outcome_assessment: OutcomeAssessment | null;
+    outcome_assessed_at: string | null;
     synthesis_stale: boolean;
     last_synthesised_at: string | null;
     created_at: string;
   }>(
     user.id,
     params.projectId,
-    "id, org_id, name, description, frame, synthesis_stale, last_synthesised_at, created_at"
+    "id, org_id, name, description, frame, frame_draft, frame_draft_generated_at, research_context, outcome_assessment, outcome_assessed_at, synthesis_stale, last_synthesised_at, created_at"
   );
 
   if (!project) notFound();
@@ -139,7 +164,6 @@ export default async function ProjectPage({ params }: Props) {
   })();
 
   const [
-    { count: sourcesCount },
     { count: evidenceCount },
     { count: trustedCount },
     { count: pendingCount },
@@ -148,13 +172,10 @@ export default async function ProjectPage({ params }: Props) {
     { count: problemCount },
     { data: problemPreviews },
     { count: runningSynthesisCount },
+    { count: runningOutcomeAssessmentCount },
     { data: trustedEvidenceMeta },
     { data: activityRuns },
   ] = await Promise.all([
-    read
-      .from("sources")
-      .select("*", { count: "exact", head: true })
-      .eq("project_id", project.id),
     read
       .from("evidence")
       .select("*", { count: "exact", head: true })
@@ -196,6 +217,12 @@ export default async function ProjectPage({ params }: Props) {
       .select("*", { count: "exact", head: true })
       .eq("project_id", project.id)
       .eq("agent_type", "project-synthesis")
+      .eq("status", "running"),
+    read
+      .from("agent_runs")
+      .select("*", { count: "exact", head: true })
+      .eq("project_id", project.id)
+      .eq("agent_type", "outcome-assessment")
       .eq("status", "running"),
     // Lightweight for confidence scoring: source diversity + recency
     read
@@ -276,13 +303,19 @@ export default async function ProjectPage({ params }: Props) {
         name: project.name,
         description: project.description,
         frame: project.frame,
+        frame_draft: project.frame_draft,
+        frame_draft_generated_at: project.frame_draft_generated_at,
+        research_outcome: project.research_context?.outcomes ?? null,
         synthesis_stale: project.synthesis_stale,
         last_synthesised_at: project.last_synthesised_at,
       }}
+      outcomeAssessment={project.outcome_assessment}
+      outcomeAssessedAt={project.outcome_assessed_at}
+      assessingOutcome={(runningOutcomeAssessmentCount ?? 0) > 0}
+      onAssessOutcome={runProjectOutcomeAssessmentAction}
       confidenceScore={confidence.score}
       weakestHint={confidence.weakest.hint}
       pulse={pulse}
-      sourcesCount={sourcesCount ?? 0}
       evidenceCount={evidenceCount ?? 0}
       trustedTotal={trustedTotal}
       pendingCount={pendingCount ?? 0}
