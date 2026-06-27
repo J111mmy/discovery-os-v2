@@ -99,12 +99,12 @@ const LENSES: { key: EvidenceLensKey; label: string; blurb: string }[] = [
   {
     key: "topics",
     label: "Topics",
-    blurb: "Snippet-level analytical labels from the current evidence model.",
+    blurb: "Descriptive labels on individual snippets. AI-suggested, human-editable, can feed synthesis.",
   },
   {
     key: "themes",
     label: "Themes",
-    blurb: "Higher-order patterns linked through the reviewed theme table.",
+    blurb: "Interpretive patterns with their own organising idea. Not a tally of topics.",
   },
   {
     key: "problems",
@@ -405,21 +405,37 @@ function LensStat({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+function LensKindBadge({ kind }: { kind: "topic" | "theme" }) {
+  const isTheme = kind === "theme";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+        isTheme ? "bg-accent-soft text-accent" : "bg-info-bg text-info"
+      }`}
+    >
+      {isTheme ? "Theme" : "Topic"}
+    </span>
+  );
+}
+
 function TopicLens({ projectId, items }: { projectId: string; items: TopicLensItem[] }) {
   if (items.length === 0) return <EmptyLens label="topics" />;
 
   return (
-    <div className="grid gap-3 p-4 sm:p-5">
+    <div className="grid gap-2.5 p-4 sm:grid-cols-2 sm:p-5">
       {items.map((item) => (
         <article
           key={item.id}
-          className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4"
+          className="rounded-lg border border-[var(--line)] border-l-[3px] border-l-info bg-[var(--surface)] p-3.5"
         >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="mb-2">
+            <LensKindBadge kind="topic" />
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <Link
                 href={`/projects/${projectId}/evidence?topic_id=${item.id}`}
-                className="text-base font-semibold text-[var(--ink)] transition-colors hover:text-[var(--accent)]"
+                className="text-sm font-semibold text-[var(--ink)] transition-colors hover:text-[var(--accent)]"
               >
                 {item.label}
               </Link>
@@ -432,7 +448,7 @@ function TopicLens({ projectId, items }: { projectId: string; items: TopicLensIt
             </div>
           </div>
           {item.source_types.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
               {item.source_types.slice(0, 4).map((type) => (
                 <span
                   key={type}
@@ -454,22 +470,25 @@ function ThemeLens({ projectId, items }: { projectId: string; items: ThemeLensIt
   if (items.length === 0) return <EmptyLens label="themes" />;
 
   return (
-    <div className="grid gap-3 p-4 sm:p-5">
+    <div className="grid gap-4 p-4 sm:p-5">
       {items.map((item) => (
         <article
           key={item.id}
-          className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4"
+          className="rounded-xl border border-[var(--line)] border-l-[4px] border-l-accent bg-[var(--surface)] p-5"
         >
+          <div className="mb-2.5">
+            <LensKindBadge kind="theme" />
+          </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <Link
                 href={`/projects/${projectId}/evidence?theme_id=${item.id}`}
-                className="text-base font-semibold text-[var(--ink)] transition-colors hover:text-[var(--accent)]"
+                className="text-lg font-semibold text-[var(--ink)] transition-colors hover:text-[var(--accent)]"
               >
                 {item.label}
               </Link>
               {item.description && (
-                <p className="mt-1 line-clamp-2 text-sm leading-5 text-[var(--ink-2)]">
+                <p className="mt-1.5 line-clamp-3 text-sm leading-6 text-[var(--ink-2)]">
                   {item.description}
                 </p>
               )}
