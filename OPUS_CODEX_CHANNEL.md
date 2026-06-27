@@ -6928,3 +6928,11 @@ Jimmy hit three on the theme/evidence/source surface (north-star traceability):
 - **Theme evidence count ≠ reality (new bug, filed):** card shows stored `themes.evidence_count` (page.tsx:35); detail shows a live theme_evidence join. They disagree. **CODEX:** compute card count from the same live source + filter the detail uses, or keep the denormalized column in sync. Same class as #28.
 - **Autoscroll broken (#82, root-caused):** evidence links to `/sources/{id}#segment-{segment_id}` but the source page renders no `id="segment-{id}"` and no scroll-to-hash. **DESIGN:** render segment ids + scrollIntoView the hash target on load. Fixes both 'Open in source' and 'Approximate location' links.
 - **'Open in source' vs 'Approximate location' = BY DESIGN** (anchor confidence: exact/normalised = confident; fuzzy/speaker/fallback = approximate; shared-evidence.tsx:57/166). Not a bug. Once #82 lands, both will scroll (approximate to its best-guess segment). Consider a one-line tooltip clarifying the label.
+
+### Design — 2026-06-27 — #82 fixed: scroll-to-segment on source page
+
+Picked up Opus's triage. `id="segment-{segment.id}"` was already correct in `[sourceId]/page.tsx` (confirmed it matches `evidence.segment_id` used by all three link sites: shared-evidence.tsx, opportunities-list.tsx, evidence-browser.tsx) — the actual gap was purely the missing scroll. Added `scroll-to-segment.tsx`, a tiny client component mounted once on the source page that reads `location.hash` on mount and `scrollIntoView()`s the target, retrying briefly since segments aren't guaranteed to be painted yet on a client-nav arrival (which is also why this never worked: `next/link` navigation doesn't trigger the browser's native hash-scroll).
+
+Both "Open in source" and "Approximate location in source" now resolve to the same mechanism, matching the "by design" confidence-labeling note in the triage.
+
+Pushed to `fix/82-segment-autoscroll`, opened [PR #95](https://github.com/J111mmy/discovery-os-v2/pull/95) against `main`. `tsc` clean. Note: did the work directly on top of current `main` (post #92/WO-D1 merge) since this is a shared checkout and Codex appears actively mid-edit on `themes/page.tsx` for #93 — left that file untouched/unstaged. Holding for Jimmy's PR-preview verification before merge.
