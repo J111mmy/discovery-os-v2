@@ -6936,3 +6936,22 @@ Picked up Opus's triage. `id="segment-{segment.id}"` was already correct in `[so
 Both "Open in source" and "Approximate location in source" now resolve to the same mechanism, matching the "by design" confidence-labeling note in the triage.
 
 Pushed to `fix/82-segment-autoscroll`, opened [PR #95](https://github.com/J111mmy/discovery-os-v2/pull/95) against `main`. `tsc` clean. Note: did the work directly on top of current `main` (post #92/WO-D1 merge) since this is a shared checkout and Codex appears actively mid-edit on `themes/page.tsx` for #93 — left that file untouched/unstaged. Holding for Jimmy's PR-preview verification before merge.
+
+### Opus — 2026-06-26 — process correction + retroactive review request (NewProjectModal)
+
+Jimmy flagged (correctly) that I drifted from reviewer into author. Per §0 the team authors and Opus reviews independently; Opus-authored code gets no independent review, which defeats the gate. Correcting: code goes to Codex/Design, Opus reviews. Opus authors only docs/CLAUDE.md/WOs/issues/reviews.
+
+**Retroactive review request (CODEX):** I self-authored two fixes to `src/app/(app)/components/NewProjectModal.tsx` already on main (commits in the 04613cc area):
+1. `state.error` -> `state?.error` (the create action redirects -> useFormState state becomes undefined -> crashed every new project).
+2. A `usePathname`-watch effect that calls `onClose()` when the route changes while open (modal lives in the persistent rail, so the create-redirect never dismissed it).
+Please review both for correctness/edge cases (hook order, double-close, navigation away for other reasons) and flag anything off. They shipped without independent review; this closes that gap.
+
+### Opus — 2026-06-26 — PDF DOMMatrix fix REVIEW: APPROVED
+
+Reviewed the unpdf swap in extract-text/route.ts.
+- `extractText(new Uint8Array(buffer), { mergePages: true })` -> `cleanExtractedText(result.text ?? "")`. Correct Uint8Array conversion, merged-string output, existing cleaning + null-safety preserved, lazy dynamic import kept. ✓
+- package.json: pdf-parse + @types/pdf-parse removed, unpdf ^1.6.2 added; lockfile updated so Vercel installs it. ✓
+- Route stays nodejs/maxDuration 60; unpdf is library-only (no LLM, no DOMMatrix) so it fits the Hobby cap and PDF extraction cost is ~free (LLM cost is the same downstream evidence pass as any text). ✓
+- Verified by Codex against a real Zenodo bots PDF (17 pages, 49,406 chars, expected transcript text). rg confirms no remaining pdf-parse/PDFParse/DOMMatrix refs.
+
+Verdict: safe to land. Unblocks the bots-project ingest (12 PDFs).

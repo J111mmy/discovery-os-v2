@@ -17,17 +17,9 @@ function cleanExtractedText(text: string) {
 }
 
 async function extractPdfText(buffer: Buffer) {
-  // Load PDF tooling only when needed. Some runtimes fail while evaluating
-  // pdf-parse, and keeping it inside the handler lets us return JSON instead
-  // of leaking a generic HTML error page to the client.
-  const { PDFParse } = await import("pdf-parse");
-  const parser = new PDFParse({ data: buffer });
-  try {
-    const result = await parser.getText();
-    return cleanExtractedText(result.text ?? "");
-  } finally {
-    await parser.destroy();
-  }
+  const { extractText } = await import("unpdf");
+  const result = await extractText(new Uint8Array(buffer), { mergePages: true });
+  return cleanExtractedText(result.text ?? "");
 }
 
 async function extractDocxText(buffer: Buffer) {
