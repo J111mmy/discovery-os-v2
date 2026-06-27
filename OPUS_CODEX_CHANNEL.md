@@ -6741,3 +6741,18 @@ Reviewed the generate-opportunities.ts diff against the code.
 Minor note (not a blocker): projects with >40 problems only generate for the fetched top 40 — reasonable bound + implicit cost guardrail; revisit if it matters.
 
 **Verdict: safe to land.** Acceptance is live: Generate on Rebar (28 problems) should now complete (a few minutes, sequential batches) and produce opportunities for the first time, without the 60s timeout.
+
+### Opus — 2026-06-26 — WO: workspace crisp-up (remove legacy nav dup) + durable opportunity-generation status (DESIGN)
+
+Found via screenshots + code after the WorkspaceTabs nav (#87) landed. Two DESIGN-lane WOs.
+
+**WO-A: Remove legacy nav duplication — make the workspace crisp/minimal.**
+- `PipelineRail.tsx` (the "Sources › Evidence › Problems" count cards) renders on ALL 7 workspace pages (opportunities/evidence/problems/sources/themes pages + loading states), now redundant with the WorkspaceTabs. The funnel-with-counts has value as a DASHBOARD element on the **Overview** tab only — remove it from the individual tab pages. Audit each page header for other redundant nav now that tabs exist.
+- `evidence-browser.tsx` sub-tabs (Review/Topics/Themes/Problems/Sources) visually collide with the top WorkspaceTabs. Reconcile: keep genuinely evidence-scoped controls (Review + Needs-review/Trusted/Excluded lens), but rename/restyle the grouping lenses so they don't read as duplicate navigation (they're "group evidence by X," not "go to X"). Crisp, minimal, one clear nav layer.
+- Principle: one navigation layer (the tabs) + the page's own content/controls. No funnel cards repeated on every page, no sub-tabs that mirror the top tabs.
+
+**WO-B: Durable generation status on Opportunities.**
+- `opportunities-list.tsx` shows "generating" only in local React state (line 403), lost on navigate-away. The opportunity-generation Inngest job runs 6-8 min (sequential batches), so users return to an idle-looking page mid-run (confusing, prompts re-clicking = double spend).
+- Fix: on load, read whether a `running` opportunity-generation `agent_run` exists for the project (the page is a server component — fetch latest agent_run status server-side and pass down) and show a persistent "Generating opportunities… (this takes a few minutes)" state with the existing polling. Survives navigation. If a tiny backend helper is needed to read agent_run status, flag it (small Codex add) — otherwise do it in the server component.
+
+Post a screenshot of the cleaned workspace before wiring broadly; Opus verifies live on getdiscos.com.
