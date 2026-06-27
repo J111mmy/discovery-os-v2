@@ -7,6 +7,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { SourceActions } from "../source-actions";
 import { InsightProgress } from "./InsightProgress";
+import { ScrollToSegment } from "./scroll-to-segment";
 import { SessionExtras } from "./session-extras";
 
 interface Props {
@@ -192,6 +193,7 @@ export default async function SourceDetailPage({ params }: Props) {
 
   return (
     <div className="mx-auto max-w-6xl">
+      <ScrollToSegment />
       <div className="mb-8">
         <Link
           href={`/projects/${project.id}/sources`}
