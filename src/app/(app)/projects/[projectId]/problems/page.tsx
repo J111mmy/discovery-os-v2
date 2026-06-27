@@ -6,7 +6,6 @@ import {
 } from "@/lib/evidence/adjacent-project";
 import { createClient } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
-import { PipelineRail } from "../PipelineRail";
 import { ProblemsList, type ProblemDetail, type ProblemRow } from "./problems-list";
 
 type ProblemReadClient = Awaited<ReturnType<typeof createClient>> | OrgScopedRead;
@@ -547,22 +546,12 @@ export default async function ProblemsPage({ params, searchParams }: Props) {
     memberClient: supabase,
   });
 
-  const [{ data }, { count: sourcesCount }, { count: evidenceCount }] = await Promise.all([
-    read
-      .from("problems")
-      .select("id, title, description, severity, status, created_at")
-      .eq("project_id", project.id)
-      .order("severity", { ascending: true })
-      .order("created_at", { ascending: false }),
-    read
-      .from("sources")
-      .select("*", { count: "exact", head: true })
-      .eq("project_id", project.id),
-    read
-      .from("evidence")
-      .select("*", { count: "exact", head: true })
-      .eq("project_id", project.id),
-  ]);
+  const { data } = await read
+    .from("problems")
+    .select("id, title, description, severity, status, created_at")
+    .eq("project_id", project.id)
+    .order("severity", { ascending: true })
+    .order("created_at", { ascending: false });
 
   const problems = sortProblems(
     await hydrateProblemRowsWithTypedLinks({
@@ -607,13 +596,6 @@ export default async function ProblemsPage({ params, searchParams }: Props) {
           Surfaced from synthesised evidence.
         </p>
       </div>
-
-      <PipelineRail
-        projectId={project.id}
-        sourcesCount={sourcesCount ?? 0}
-        evidenceCount={evidenceCount ?? 0}
-        problemCount={problems.length}
-      />
 
       {!project.problems_discovered_at ? (
         <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-12 text-center text-sm text-[var(--ink-2)]">

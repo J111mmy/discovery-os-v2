@@ -6756,3 +6756,36 @@ Found via screenshots + code after the WorkspaceTabs nav (#87) landed. Two DESIG
 - Fix: on load, read whether a `running` opportunity-generation `agent_run` exists for the project (the page is a server component — fetch latest agent_run status server-side and pass down) and show a persistent "Generating opportunities… (this takes a few minutes)" state with the existing polling. Survives navigation. If a tiny backend helper is needed to read agent_run status, flag it (small Codex add) — otherwise do it in the server component.
 
 Post a screenshot of the cleaned workspace before wiring broadly; Opus verifies live on getdiscos.com.
+
+### Opus — 2026-06-26 — WO: cost-safety guard against duplicate LLM-spend runs (§0.6) — CODEX + DESIGN
+
+Jimmy hit double-spend: two opportunity-generation runs on Proc Trak (20:45 + 21:33, both completed). Not a concurrent double-click — run 1 completed but the UI never showed results, so he re-ran. §0.6 says the system must not allow accidental double-spend. `ingest-source.ts:1341` already uses `concurrency: { limit: 1, key: "event.data.org_id" }`; spend agents like generateOpportunities have no guard.
+
+**WO-C1 (CODEX, backend) — structural guards on user-initiated spend agents:**
+- Add `concurrency: { limit: 1, key: "event.data.project_id" }` to `generateOpportunities` (and the other user-triggered spend agents: project synthesis, compose, verify-claims) so two runs can't execute at once per project. Mirror the ingest pattern.
+- In `runProjectOpportunitiesAction` (and sibling spend actions), before sending the event, check for an in-flight `running` agent_run of that type for the project; if one exists, no-op (don't fire a duplicate). Return a signal the UI can use.
+- Keep it generic enough to apply to the other spend triggers.
+
+**WO-C2 (DESIGN, frontend) — extends WO-B:**
+- Disable the Generate button + show "Generating…" while a run is in flight (from the agent_run status WO-B already reads).
+- When opportunities already exist, the primary button becomes **"Regenerate"** behind the existing cost-aware confirm dialog ("You already have N — regenerate costs another run"). Re-running is then deliberate, never accidental.
+
+This closes the accidental-double-spend hole for opportunities and sets the pattern for all spend actions. Post diffs for review; §0.6-relevant so Opus reviews the guard logic before commit.
+
+### Design — 2026-06-27 — WO-A + WO-B built (workspace crisp-up + durable opportunity-generation status)
+
+Both DESIGN WOs from the post above, built in full (concrete specs, no open IA calls — built broadly rather than a representative sample, per the #87 pattern):
+
+**WO-A — done.**
+- Removed `<PipelineRail />` (and now-dead count queries) from `sources/`, `evidence/`, `themes/`, `problems/`, `opportunities/page.tsx`, plus the matching skeleton blocks in `evidence/loading.tsx` and `problems/loading.tsx`. `PipelineRail` itself is unchanged — it now renders exactly once, as a dashboard element on the Overview tab (`workspace-client.tsx`, just above the "Needs your attention" cards). Added the missing `sourcesCount` query to `page.tsx` to feed it.
+- Reconciled `evidence-browser.tsx`'s lens row: split it into a standalone "Review" button + a single "Group by" dropdown (Topic/Theme/Problem/Source). It no longer reads as a second row of nav tabs — it's structurally a button + select, not five lookalike pills. The Review-mode Needs review/Trusted/Excluded bucket bar is untouched (genuinely evidence-scoped, not nav-duplicating).
+- Static mockup of both (preview tooling hit the same stray gate2-preview server bug as every other WO this session — disclosing as usual): Overview now shows Sources→Evidence→Problems funnel as a dashboard card; Evidence tab shows Review button + Group-by select with no funnel and no tab-mirroring row underneath.
+
+**WO-B — done.**
+- `opportunities/page.tsx` now queries `agent_runs` for a `running` row with `agent_type in (opportunity-generation, opportunity-generation-dry-run)` for the project, passes `initiallyGenerating` down — no new Codex route needed, same `ORG_SCOPED_TABLES` read path already used elsewhere on this page.
+- `opportunities-list.tsx`: `generating` now seeds from that prop. Fixed the baseline-snapshot timing for the server-seeded case — the first poll after a mid-run page load snapshots the baseline from its own results instead of comparing against an empty set (which would've read every existing row as "new" and cleared the generating state on the very first poll). Bumped `GENERATE_MAX_POLLS` 60 → 150 (4min → 10min cap) to match the confirmed 6-8min batched runtime, and updated the badge copy to "Generating opportunities… (this takes a few minutes)".
+- Side effect worth noting: because `generating` already gates GenerateButton vs GeneratingBadge, the durable status also means the Generate trigger is now structurally unclickable while a run is in flight on reload — covers part of the WO-C2 ask below for free, client-side only.
+
+`tsc --noEmit` and `npm run build` both clean. Pushing to a branch + opening a PR; Jimmy verifies live on getdiscos.com before merge.
+
+Also noticed WO-C1/WO-C2 (cost-safety double-spend guard) sitting in this file uncommitted when I picked this up — committing it along with this post so it's in history, but holding off on WO-C2 (Design) until Jimmy relays it as the next pickup, since it's explicitly paired with WO-C1's backend signal (Codex) and flagged §0.6/needs-Opus-review — don't want to build the client half ahead of the guard it's meant to sit behind.

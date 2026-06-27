@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { PipelineRail } from "./PipelineRail";
 import type {
   ProjectOpportunityConfidence,
   ProjectOpportunityStatus,
@@ -54,6 +55,7 @@ export interface WorkspaceViewProps {
   confidenceScore: number;
   weakestHint: string;
   pulse: { tone: "attention" | "running" | "quiet"; text: string } | null;
+  sourcesCount: number;
   evidenceCount: number;
   trustedTotal: number;
   pendingCount: number;
@@ -1080,6 +1082,7 @@ export function WorkspaceView({
   confidenceScore,
   weakestHint,
   pulse,
+  sourcesCount,
   evidenceCount,
   trustedTotal,
   pendingCount,
@@ -1300,6 +1303,13 @@ export function WorkspaceView({
           </div>
         </Link>
       )}
+
+      <PipelineRail
+        projectId={project.id}
+        sourcesCount={sourcesCount}
+        evidenceCount={evidenceCount}
+        problemCount={problemCount}
+      />
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 

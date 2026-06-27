@@ -2,7 +2,6 @@ import { getProjectForUser } from "@/lib/auth/org";
 import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
 import { createClient } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
-import { PipelineRail } from "../PipelineRail";
 import { OpportunitiesList } from "./opportunities-list";
 
 interface Props {
@@ -30,20 +29,14 @@ export default async function OpportunitiesPage({ params }: Props) {
     memberClient: supabase,
   });
 
-  const [{ count: sourcesCount }, { count: evidenceCount }, { count: problemCount }] = await Promise.all([
-    read
-      .from("sources")
-      .select("*", { count: "exact", head: true })
-      .eq("project_id", project.id),
-    read
-      .from("evidence")
-      .select("*", { count: "exact", head: true })
-      .eq("project_id", project.id),
-    read
-      .from("problems")
-      .select("*", { count: "exact", head: true })
-      .eq("project_id", project.id),
-  ]);
+  const { count: runningGenerationCount } = await read
+    .from("agent_runs")
+    .select("*", { count: "exact", head: true })
+    .eq("project_id", project.id)
+    .in("agent_type", ["opportunity-generation", "opportunity-generation-dry-run"])
+    .eq("status", "running");
+
+  const initiallyGenerating = (runningGenerationCount ?? 0) > 0;
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -58,14 +51,7 @@ export default async function OpportunitiesPage({ params }: Props) {
         </p>
       </div>
 
-      <PipelineRail
-        projectId={project.id}
-        sourcesCount={sourcesCount ?? 0}
-        evidenceCount={evidenceCount ?? 0}
-        problemCount={problemCount ?? 0}
-      />
-
-      <OpportunitiesList projectId={project.id} />
+      <OpportunitiesList projectId={project.id} initiallyGenerating={initiallyGenerating} />
     </div>
   );
 }
