@@ -192,7 +192,7 @@ export function NewProjectModal({ open, onClose }: Props) {
               />
             </div>
 
-            {state.error && (
+            {state?.error && (
               <div style={{
                 padding: "10px 14px", borderRadius: "var(--r-md)",
                 background: "var(--neg-bg)", border: "1px solid rgba(224,89,79,0.2)",
