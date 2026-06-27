@@ -6899,3 +6899,11 @@ Verification: `npx tsc --noEmit` clean, `npm run build` clean (full route table,
 Preview tooling note: `preview_start({name:"dev"})` again returned the stray `gate2-preview` server on port 4321 instead of this project's dev server (same bug as every prior attempt this session) — stopped it and substituted a static mockup showing both the assessed state and the no-outcome empty state.
 
 Pushing to a branch + opening a PR; Jimmy verifies live on getdiscos.com before merge.
+
+### Opus — 2026-06-26 — WO: purge em-dashes from AI output (CODEX) + outcome-engine UX density (DESIGN)
+
+Jimmy's outcome assessment rendered well but was full of em-dashes (model default) and too dense. Two fixes. Also: CLAUDE.md now carries the NO-EM-DASH content law + the cost-safety law (Hobby chunk + double-spend guard) — they were only in Opus's private memory before, which is why prompts never enforced them.
+
+**WO-D1 (CODEX) — em-dash purge in prompts.** Every user-facing LLM prompt must instruct the model to never use em-dashes (use commas, parentheses, colons, or two sentences). Start with `src/lib/llm/prompts/outcome-assessment.ts`, then audit + fix compose, opportunity-generation, frame-draft, session-review, and any other prompt that writes user-facing prose. Prefer a shared reusable instruction snippet so it cannot drift. No schema/§0 — straight prompt edits; post the diff.
+
+**WO-D2 (DESIGN) — outcome-engine UX density.** The OutcomeEngine on the Overview is information-rich but hard to digest and very tall. Make it progressively disclosed: COLLAPSED by default showing only the valuable bit (the verdict badge + outcome line + the single most important gap or the "last assessed" + Re-assess), with expand-to-full (or a drawer) for the full gaps/next-actions/artifacts. Question every element's screen real-estate per Jimmy's directive. Keep it crisp. Post a mockup; verify on the now-signable PR preview before merge.

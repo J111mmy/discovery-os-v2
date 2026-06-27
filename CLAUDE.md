@@ -12,10 +12,11 @@ The full specification is in `Discovery-OS-v2-PRD-final.docx` (in the parent Dis
 
 **North star:** *Traceability is the product.* Every useful output is beautiful, specific, and traceable back to the exact evidence: a claim in any artifact links to the exact sentence a person said, in the exact source, with the exact anchor. We are the trust layer between an organisation's raw signal and everything it produces from it.
 
-**Current focus (updated 2026-06-18):** **Quality before billing.** Billing/monetisation is consciously PARKED (Jimmy, 2026-06-18) until evidence + entity quality is trustworthy — you cannot charge for a tool that misspells a customer's name.
-- **In flight:** the Ask track — WO-1 attribution ✅ done; WO-2 Continue-in-Ask, WO-3 Safari layout, WO-4 ontology-aware Ask, streaming backend remain.
-- **Active big chunk (Codex):** **#28 P3 ontology cutover** — PULLED UP 2026-06-20 (Jimmy, conscious decision) ahead of the entity cluster. Cut the app off legacy arrays onto the typed ontology (problem_evidence, topics, opportunities reconciliation), governed by `docs/architecture/ONTOLOGY.md`. Unblocks #57 + #59. Remaining migrations/backfills are §0-gated.
-- **Next epic (now follows #28):** the entity/trust quality cluster — #41 pre-ingest speaker/org scan (keystone, landed) → close out #39 (junk people), #40 (company quality), #36 (internal-speaker leak). This is the north star made real.
+**Current focus (updated 2026-06-26):** **Quality before billing** still holds (billing PARKED). The active arc is the **workspace + document experience** becoming the product:
+- **Workspace = outcome engine (#90):** the Overview assesses whether the project's outcome (from the frame) is met and what is left to close it. Phase 1 (`assess-outcome` agent + `projects.outcome_assessment`) and Phase 2 (Overview UI) shipped. Next: UX polish (it is dense — wants expand/collapse showing only the verdict by default) and purge em-dashes from its output.
+- **Document showpiece (#78/#84):** live citation/trust layer on artifacts shipped; artifact-library crisp-up + standard-kit (have-vs-missing, evidence-gated) next.
+- **Opportunity generation (#83):** now WORKS — was always dying on the Hobby 60s cap; now chunked into sub-60s Inngest steps. Reachable via the new workspace tabs (#87, project name links to the workspace; chain lives as tabs).
+- **Open queue:** #85 compose citation quality (theme-id leak), #86 H3 styling, evidence Group-by trim, cost-telemetry view (#52 shipped), per-org spend caps (#72).
 - **Parked:** Stripe billing epic + self-serve onboarding (revisit only by conscious decision once quality holds).
 
 **Structure law:** the research ontology is DECIDED and canonical: `Source → Segment → Evidence → Topics → Themes → Problems → {Opportunities, Actions, Artifacts}`. Read `docs/architecture/ONTOLOGY.md` before touching anything that creates, labels, groups, or renders evidence, topics, themes, problems, opportunities, actions, or artifacts. The three hard rules: (1) Topic ≠ Theme ≠ Tag, never merge them; (2) Problems are evidence-backed and earned, never inherited or invented; (3) Opportunities/Actions/Artifacts are siblings, not a chain. If a layer looks redundant, you are missing context, re-read ONTOLOGY.md before acting.
@@ -23,6 +24,10 @@ The full specification is in `Discovery-OS-v2-PRD-final.docx` (in the parent Dis
 **Roadmap discipline:** the sequence changes ONLY by a conscious decision recorded here and in `ROADMAP.md`. New bugs/observations go to the backlog (GitHub Issues) and do NOT silently reorder the roadmap.
 
 **Question, then adhere (working principle, set by Jimmy 2026-06-20):** challenge anything that does not make sense and raise it for a decision. But the north star, the ontology, and the locked principles/rules are not silently overridden to "fix" a thing that looks off. Surface the conflict, propose the change, let Jimmy decide. Disagreement is welcome; quiet drift is not. Changing a locked decision requires the same conscious, recorded step as the roadmap.
+
+**Content law — NO EM-DASHES (—):** Jimmy reads em-dashes as AI slop. They must not appear in user-facing product copy, in AI-GENERATED OUTPUT (compose artifacts, opportunities, outcome assessments, frames, session briefs, anything a model writes for a user), or in agent writing. Every LLM prompt that produces user-facing text MUST instruct the model to avoid em-dashes (use commas, parentheses, colons, or two sentences). A prompt that omits this instruction is a defect to fix.
+
+**Cost-safety law (extends §0.6) — Vercel HOBBY = 60s function cap:** the app runs on Vercel Hobby, so no single Inngest step may run an LLM call that can exceed ~55s. Heavy generation MUST be chunked into multiple sub-60s steps (reference: `generate-opportunities.ts` batches problems). Every USER-TRIGGERED LLM-spend agent MUST have BOTH (a) `concurrency: { limit: 1, key: "event.data.project_id" }` on the Inngest function, AND (b) an in-flight guard in its trigger action — query `agent_runs` for a `running` run of that `agent_type` for the project and no-op if one exists. This prevents accidental double-spend (a single doc/op should never cost two runs). Reference pattern: `runProjectOpportunitiesAction`, `runProjectOutcomeAssessmentAction`.
 
 ---
 
