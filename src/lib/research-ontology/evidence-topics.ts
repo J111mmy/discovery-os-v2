@@ -1,13 +1,15 @@
 import type { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { OrgScopedRead } from "@/lib/auth/support-read";
 import type { EvidenceRecord } from "@/types/database";
+import { VISIBLE_REVIEW_STATES } from "./review-states";
+
+export { VISIBLE_REVIEW_STATES } from "./review-states";
 
 type SupabaseClient =
   | Awaited<ReturnType<typeof createClient>>
   | ReturnType<typeof createServiceClient>
   | OrgScopedRead;
 
-export const VISIBLE_REVIEW_STATES = ["suggested", "accepted", "edited"] as const;
 const VISIBLE_REVIEW_STATE_VALUES = [...VISIBLE_REVIEW_STATES];
 const PAGE_SIZE = 1000;
 

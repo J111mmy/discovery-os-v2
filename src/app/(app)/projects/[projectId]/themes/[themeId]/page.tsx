@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getProjectForUser } from "@/lib/auth/org";
 import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
+import { isVisibleReviewState } from "@/lib/research-ontology/review-states";
 import { createClient } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
 import {
@@ -59,12 +60,6 @@ const evidenceRelationshipOrder: Record<EvidenceRelationship, number> = {
   edge_case: 3,
   provenance: 4,
 };
-
-const visibleReviewStates = new Set<ReviewState>(["suggested", "accepted", "edited"]);
-
-function isVisibleReviewState(value: ReviewState) {
-  return visibleReviewStates.has(value);
-}
 
 function numericConfidence(value: number | string | null) {
   if (value === null) return null;

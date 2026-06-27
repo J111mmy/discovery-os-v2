@@ -1,11 +1,50 @@
 import { getProjectForUser } from "@/lib/auth/org";
 import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
+import { VISIBLE_REVIEW_STATES } from "@/lib/research-ontology/review-states";
 import { createClient } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
 import { ThemesList, type ThemeRow, type ThemeStatus } from "./themes-list";
 
 interface Props {
   params: { projectId: string };
+}
+
+const THEME_EVIDENCE_PAGE_SIZE = 1000;
+
+type ThemeEvidenceCountLink = {
+  theme_id: string;
+  evidence_id: string;
+};
+
+async function loadVisibleThemeEvidenceCounts(
+  read: Awaited<ReturnType<typeof getProjectOrgReadForUser>>,
+  projectId: string
+) {
+  const counts = new Map<string, Set<string>>();
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await read
+      .from("theme_evidence")
+      .select("theme_id, evidence_id")
+      .eq("project_id", projectId)
+      .in("review_state", [...VISIBLE_REVIEW_STATES])
+      .range(from, from + THEME_EVIDENCE_PAGE_SIZE - 1);
+
+    if (error) return { counts, error };
+
+    const rows = (data ?? []) as ThemeEvidenceCountLink[];
+    for (const link of rows) {
+      const evidenceIds = counts.get(link.theme_id) ?? new Set<string>();
+      evidenceIds.add(link.evidence_id);
+      counts.set(link.theme_id, evidenceIds);
+    }
+
+    if (rows.length < THEME_EVIDENCE_PAGE_SIZE) break;
+    from += THEME_EVIDENCE_PAGE_SIZE;
+  }
+
+  return { counts, error: null };
 }
 
 export default async function ThemesPage({ params }: Props) {
@@ -29,18 +68,20 @@ export default async function ThemesPage({ params }: Props) {
     memberClient: supabase,
   });
 
-  const [themesResult, problemThemesResult] = await Promise.all([
+  const [themesResult, themeEvidenceCountsResult, problemThemesResult] = await Promise.all([
     read
       .from("themes")
-      .select("id, label, central_concept, description, status, evidence_count, updated_at")
+      .select("id, label, central_concept, description, status, updated_at")
       .eq("project_id", project.id),
+    loadVisibleThemeEvidenceCounts(read, project.id),
     read
       .from("problem_themes")
       .select("theme_id")
       .eq("project_id", project.id),
   ]);
 
-  const loadError = themesResult.error || problemThemesResult.error;
+  const loadError = themesResult.error || themeEvidenceCountsResult.error || problemThemesResult.error;
+  const evidenceCounts = themeEvidenceCountsResult.counts;
 
   const problemCounts = new Map<string, number>();
   for (const link of (problemThemesResult.data ?? []) as Array<{ theme_id: string }>) {
@@ -53,10 +94,10 @@ export default async function ThemesPage({ params }: Props) {
     central_concept: string | null;
     description: string | null;
     status: ThemeStatus;
-    evidence_count: number;
     updated_at: string;
   }>).map((theme) => ({
     ...theme,
+    evidence_count: evidenceCounts.get(theme.id)?.size ?? 0,
     problem_count: problemCounts.get(theme.id) ?? 0,
   }));
 
