@@ -6,6 +6,7 @@ import { ingestSource } from "@/lib/inngest/functions/ingest-source";
 import { synthesiseProject } from "@/lib/inngest/functions/synthesise-project";
 import { discoverProblems } from "@/lib/inngest/functions/discover-problems";
 import { generateOpportunities } from "@/lib/inngest/functions/generate-opportunities";
+import { assessOutcome } from "@/lib/inngest/functions/assess-outcome";
 import { verifyClaims } from "@/lib/inngest/functions/verify-claims";
 import { detectGaps } from "@/lib/inngest/functions/detect-gaps";
 import { sessionReview } from "@/lib/inngest/functions/session-review";
@@ -25,6 +26,7 @@ export const { GET, POST, PUT } = serve({
     synthesiseProject,
     discoverProblems,
     generateOpportunities,
+    assessOutcome,
     verifyClaims,
     detectGaps,
     sessionReview,

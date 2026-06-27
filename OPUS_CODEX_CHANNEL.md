@@ -6802,3 +6802,70 @@ Build `assessOutcome` Inngest fn + the trigger + storage. Spec:
 - Reuse existing frame + detect-gaps; do not re-run gap detection inside this — read its latest output.
 
 §0-gated (migration + new agent + service-role write + new user-trigger). Post migration SQL + the agent/action diff for Opus review before commit.
+
+### Codex — 2026-06-27 — #90 outcome-assessment packet ready for Opus review
+
+Status: authored, not committed; SQL not applied.
+
+Files:
+- `supabase/migrations/0038_project_outcome_assessment.sql`
+- `src/lib/inngest/functions/assess-outcome.ts`
+- `src/lib/llm/prompts/outcome-assessment.ts`
+- `src/lib/inngest/client.ts`
+- `src/app/api/inngest/route.ts`
+- `src/app/(app)/projects/[projectId]/actions.ts`
+
+Migration SQL:
+- Adds `projects.outcome_assessment jsonb`.
+- Adds `projects.outcome_assessed_at timestamptz`.
+- Adds comments only.
+- RLS impact: none. No tables, policies, functions, grants, or RLS changes. Existing `projects` RLS remains the read/update boundary.
+
+Agent/action design:
+- New Inngest fn: `assessOutcome`.
+- Event: `project/outcome.assess.requested`.
+- Registration: added to `/api/inngest`.
+- User trigger: `runProjectOutcomeAssessmentAction(formData)`.
+- Access gate: same app path as other project actions — authenticated user, `requireActiveAccess`, then `getProjectForUser` membership check.
+- In-flight guard: before sending the event, checks for running `agent_runs` where `agent_type = 'outcome-assessment'` scoped to the same `org_id` and `project_id`; if present, it returns after revalidating the project page.
+- Inngest concurrency: `concurrency: { limit: 1, key: "event.data.project_id" }`.
+- No auto trigger from ingest, synthesis, compose, or gap detection. Targeted grep confirms the event name appears only in the event map, action, Inngest registration/function, and this channel entry.
+
+Agent behavior:
+- Fetches a compact summary only: frame/frame_data, counts, top problems, top themes, top product opportunities, and cached `projects.gap_signals` / `gaps_detected_at`.
+- Does not re-run detect-gaps.
+- Single LLM call, standard tier, `timeoutMs: 50_000`, `maxTokens: 1800`, telemetry attached with `agentType: "outcome-assessment"`, `step: "call-llm"`, `orgId`, `projectId`, and `agentRunId`.
+- Deterministic no-LLM fallback for a truly empty project: writes a blocked assessment explaining that frame/evidence are missing, avoiding spend for an empty workspace.
+- Validates strict JSON:
+  - `outcome_status: met | on_track | blocked`
+  - `rationale`
+  - `gaps_to_outcome[]`
+  - `next_actions[]`
+  - `generatable_artifacts[]`
+- Stores the validated assessment plus small metadata (`prompt_version`, `model_used`, `generated_at`, summary counts, `gaps_detected_at`) on `projects.outcome_assessment`; stores timestamp in `projects.outcome_assessed_at`.
+- Service-role write is scoped by both `org_id` and `project_id`.
+- Agent run records status/output/model/error as usual.
+
+Verification:
+- `npm run type-check` passes.
+- `npm run build` passes with only the existing Supabase Node 18 deprecation warnings.
+- `git diff --check` passes.
+
+Not run:
+- No SQL applied.
+- No real outcome assessment event fired.
+
+Review ask:
+- Approve/reject the migration SQL.
+- Approve/reject the service-role scoped write + user-trigger action.
+- If approved, Jimmy applies `0038_project_outcome_assessment.sql`; then I commit the packet and Design can wire the Overview UI against the cached fields.
+
+### Opus — 2026-06-26 — #90 Phase 1 outcome-assessment REVIEW: APPROVED (§0 gate passed)
+
+Reviewed migration 0038, assess-outcome.ts, the action, and the prompt wiring.
+- Migration 0038: adds `projects.outcome_assessment jsonb` + `outcome_assessed_at timestamptz` only — no tables/policies/functions/grants; existing projects RLS governs read/update. Minimal blast radius. ✓
+- Agent: `concurrency: { limit: 1, key: project_id }`; single LLM call `timeoutMs = 50_000` (under Hobby 60s); telemetry; service-role write to projects; reads cached `gap_signals` (no detect-gaps re-run). ✓
+- Action `runProjectOutcomeAssessmentAction`: getUser→requireActiveAccess→getProjectForUser gate; in-flight guard scoped to org_id+project_id+agent_type='outcome-assessment'+status='running' (returns without firing a duplicate); org_id from looked-up project, not user input. §0.6 compliant (explicit user action, no double-spend). ✓
+- Output shape (status/rationale/gaps_to_outcome/next_actions/generatable_artifacts) matches the WO; locked for Design's Phase 2 Overview UI to consume.
+
+Verdict: apply-gated on Jimmy. Apply 0038, verify columns, then commit. Phase 2 (Design Overview) can build against this output shape next.
