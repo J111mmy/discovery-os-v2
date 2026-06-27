@@ -1,18 +1,8 @@
 // Instant skeleton shown while the server fetch resolves (App Router loading.tsx).
-// Matches problems/page.tsx: PipelineRail + sidebar problem list + main detail pane.
+// Matches problems/page.tsx: sidebar problem list + main detail pane.
 export default function Loading() {
   return (
     <div className="motion-safe:animate-pulse">
-      {/* PipelineRail — 3 equal-width step cards */}
-      <div className="mb-6 flex flex-wrap gap-2.5">
-        {[0, 1, 2].map((i) => (
-          <div
-            key={i}
-            className="h-16 flex-1 basis-40 rounded-[14px] border border-[var(--line)] bg-[var(--surface)]"
-          />
-        ))}
-      </div>
-
       {/* Two-panel layout: sidebar list + main detail */}
       <div className="flex gap-4">
         {/* Sidebar — problem rows */}

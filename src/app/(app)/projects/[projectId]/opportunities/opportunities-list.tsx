@@ -89,6 +89,7 @@ type OpportunityRow = {
 
 interface OpportunitiesListProps {
   projectId: string;
+  initiallyGenerating?: boolean;
 }
 
 const statusLabels: Record<OpportunityStatus, string> = {
@@ -387,23 +388,25 @@ function GenerateButton({
 function GeneratingBadge() {
   return (
     <div className="flex-shrink-0 rounded-lg border border-warn/20 bg-warn-bg px-3 py-1.5 text-xs font-medium text-warn">
-      Generating opportunities…
+      Generating opportunities… (this takes a few minutes)
     </div>
   );
 }
 
 const GENERATE_POLL_INTERVAL_MS = 4000;
-// Generation runs a premium-tier LLM call with its own ~4 minute internal
-// timeout; give the poll a bit of headroom before giving up on watching it.
-const GENERATE_MAX_POLLS = 60;
+// Generation runs in sequential batches (chunked to fit Vercel's function
+// timeout) and can take 6-8 minutes end to end; give the poll plenty of
+// headroom before giving up on watching it.
+const GENERATE_MAX_POLLS = 150;
 
-export function OpportunitiesList({ projectId }: OpportunitiesListProps) {
+export function OpportunitiesList({ projectId, initiallyGenerating = false }: OpportunitiesListProps) {
   const [opportunities, setOpportunities] = useState<OpportunityRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [generating, setGenerating] = useState(false);
+  const [generating, setGenerating] = useState(initiallyGenerating);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [triggerError, setTriggerError] = useState<string | null>(null);
   const baselineIdsRef = useRef<Set<string>>(new Set());
+  const baselineInitializedRef = useRef(!initiallyGenerating);
   const pollCountRef = useRef(0);
 
   const loadOpportunities = useCallback(async () => {
@@ -441,6 +444,17 @@ export function OpportunitiesList({ projectId }: OpportunitiesListProps) {
       const rows = await loadOpportunities();
       if (cancelled) return;
 
+      // Page loaded mid-run (initiallyGenerating): there's no client-side
+      // baseline yet, so snapshot one from the first poll's results instead
+      // of comparing against an empty set, which would read every existing
+      // row as "new" and clear the generating state immediately.
+      if (!baselineInitializedRef.current) {
+        baselineIdsRef.current = new Set((rows ?? []).map((row) => row.id));
+        baselineInitializedRef.current = true;
+        timeoutId = setTimeout(poll, GENERATE_POLL_INTERVAL_MS);
+        return;
+      }
+
       const hasNewRows = (rows ?? []).some((row) => !baselineIdsRef.current.has(row.id));
       if (hasNewRows) {
         setGenerating(false);
@@ -466,6 +480,7 @@ export function OpportunitiesList({ projectId }: OpportunitiesListProps) {
 
   function handleSubmitStart() {
     baselineIdsRef.current = new Set((opportunities ?? []).map((row) => row.id));
+    baselineInitializedRef.current = true;
     pollCountRef.current = 0;
     setTriggerError(null);
     setConfirmOpen(false);

@@ -98,22 +98,22 @@ const LENSES: { key: EvidenceLensKey; label: string; blurb: string }[] = [
   },
   {
     key: "topics",
-    label: "Topics",
+    label: "Topic",
     blurb: "Snippet-level analytical labels from the current evidence model.",
   },
   {
     key: "themes",
-    label: "Themes",
+    label: "Theme",
     blurb: "Higher-order patterns linked through the reviewed theme table.",
   },
   {
     key: "problems",
-    label: "Problems",
+    label: "Problem",
     blurb: "Evidence grouped under the problem objects it currently informs.",
   },
   {
     key: "sources",
-    label: "Sources",
+    label: "Source",
     blurb: "A source-first view for provenance and context checks.",
   },
 ];
@@ -823,28 +823,52 @@ export function EvidenceBrowser({
 
   return (
     <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
-      <div className="flex flex-wrap gap-2 border-b border-[var(--line)] p-3 sm:p-4">
-        {LENSES.map((lens) => {
-          const active = lens.key === activeLens;
-          return (
-            <button
-              key={lens.key}
-              type="button"
-              onClick={() => {
-                setActiveLens(lens.key);
-                setSelected(new Set());
-                setError(null);
-              }}
-              className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                active
-                  ? "border-[var(--accent)]/50 bg-[var(--accent-soft)] text-[var(--accent)]"
-                  : "border-[var(--line)] text-[var(--ink-2)] hover:border-white/15 hover:text-[var(--ink)]"
-              }`}
-            >
-              {lens.label}
-            </button>
-          );
-        })}
+      <div className="flex flex-wrap items-center gap-3 border-b border-[var(--line)] p-3 sm:p-4">
+        <button
+          type="button"
+          onClick={() => {
+            setActiveLens("review");
+            setSelected(new Set());
+            setError(null);
+          }}
+          className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+            activeLens === "review"
+              ? "border-[var(--accent)]/50 bg-[var(--accent-soft)] text-[var(--accent)]"
+              : "border-[var(--line)] text-[var(--ink-2)] hover:border-white/15 hover:text-[var(--ink)]"
+          }`}
+        >
+          Review
+        </button>
+
+        <div className="h-5 w-px bg-[var(--line)]" aria-hidden="true" />
+
+        <label className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
+          Group by
+          <select
+            value={activeLens === "review" ? "" : activeLens}
+            onChange={(event) => {
+              const value = event.target.value as EvidenceLensKey;
+              if (!value) return;
+              setActiveLens(value);
+              setSelected(new Set());
+              setError(null);
+            }}
+            className={`rounded-lg border bg-[var(--bg)] px-2.5 py-1.5 text-sm font-medium normal-case tracking-normal outline-none transition-colors focus:border-[var(--accent)] ${
+              activeLens === "review"
+                ? "border-[var(--line)] text-[var(--ink-2)]"
+                : "border-[var(--accent)]/50 text-[var(--accent)]"
+            }`}
+          >
+            <option value="" disabled>
+              Evidence
+            </option>
+            {LENSES.filter((lens) => lens.key !== "review").map((lens) => (
+              <option key={lens.key} value={lens.key}>
+                {lens.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {activeLens === "review" ? (

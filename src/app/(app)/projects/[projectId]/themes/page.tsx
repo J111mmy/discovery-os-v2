@@ -2,7 +2,6 @@ import { getProjectForUser } from "@/lib/auth/org";
 import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
 import { createClient } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
-import { PipelineRail } from "../PipelineRail";
 import { ThemesList, type ThemeRow, type ThemeStatus } from "./themes-list";
 
 interface Props {
@@ -30,29 +29,16 @@ export default async function ThemesPage({ params }: Props) {
     memberClient: supabase,
   });
 
-  const [themesResult, problemThemesResult, { count: sourcesCount }, { count: evidenceCount }, { count: problemCount }] =
-    await Promise.all([
-      read
-        .from("themes")
-        .select("id, label, central_concept, description, status, evidence_count, updated_at")
-        .eq("project_id", project.id),
-      read
-        .from("problem_themes")
-        .select("theme_id")
-        .eq("project_id", project.id),
-      read
-        .from("sources")
-        .select("*", { count: "exact", head: true })
-        .eq("project_id", project.id),
-      read
-        .from("evidence")
-        .select("*", { count: "exact", head: true })
-        .eq("project_id", project.id),
-      read
-        .from("problems")
-        .select("*", { count: "exact", head: true })
-        .eq("project_id", project.id),
-    ]);
+  const [themesResult, problemThemesResult] = await Promise.all([
+    read
+      .from("themes")
+      .select("id, label, central_concept, description, status, evidence_count, updated_at")
+      .eq("project_id", project.id),
+    read
+      .from("problem_themes")
+      .select("theme_id")
+      .eq("project_id", project.id),
+  ]);
 
   const loadError = themesResult.error || problemThemesResult.error;
 
@@ -85,13 +71,6 @@ export default async function ThemesPage({ params }: Props) {
           Patterns synthesised from trusted evidence.
         </p>
       </div>
-
-      <PipelineRail
-        projectId={project.id}
-        sourcesCount={sourcesCount ?? 0}
-        evidenceCount={evidenceCount ?? 0}
-        problemCount={problemCount ?? 0}
-      />
 
       {loadError ? (
         <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-12 text-center text-sm text-[var(--ink-2)]">

@@ -6,7 +6,6 @@ import { createClient } from "@/lib/supabase/server";
 import type { JobStatus, SourceType, TrustScope } from "@/types/database";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { PipelineRail } from "../PipelineRail";
 import { SourcesClient, type SourceItem } from "./SourcesClient";
 
 interface Props {
@@ -73,37 +72,28 @@ export default async function SourcesPage({ params }: Props) {
   const sources = (sourceData ?? []) as SourceRow[];
   const sourceIds = sources.map((source) => source.id);
 
-  const [jobsResult, evidenceResult, segmentsResult, totalEvidenceResult, totalProblemResult] =
-    await Promise.all([
-      sourceIds.length > 0
-        ? read
-            .from("ingest_jobs")
-            .select("id, org_id, source_id, status, error, result, created_at, completed_at")
-            .in("source_id", sourceIds)
-            .order("created_at", { ascending: false })
-        : { data: [] },
-      sourceIds.length > 0
-        ? read
-            .from("evidence")
-            .select("id, org_id, project_id, source_id")
-            .eq("project_id", project.id)
-            .in("source_id", sourceIds)
-        : { data: [] },
-      sourceIds.length > 0
-        ? read
-            .from("source_segments")
-            .select("id, org_id, source_id")
-            .in("source_id", sourceIds)
-        : { data: [] },
-      read
-        .from("evidence")
-        .select("*", { count: "exact", head: true })
-        .eq("project_id", project.id),
-      read
-        .from("problems")
-        .select("*", { count: "exact", head: true })
-        .eq("project_id", project.id),
-    ]);
+  const [jobsResult, evidenceResult, segmentsResult] = await Promise.all([
+    sourceIds.length > 0
+      ? read
+          .from("ingest_jobs")
+          .select("id, org_id, source_id, status, error, result, created_at, completed_at")
+          .in("source_id", sourceIds)
+          .order("created_at", { ascending: false })
+      : { data: [] },
+    sourceIds.length > 0
+      ? read
+          .from("evidence")
+          .select("id, org_id, project_id, source_id")
+          .eq("project_id", project.id)
+          .in("source_id", sourceIds)
+      : { data: [] },
+    sourceIds.length > 0
+      ? read
+          .from("source_segments")
+          .select("id, org_id, source_id")
+          .in("source_id", sourceIds)
+      : { data: [] },
+  ]);
 
   const latestJobBySource = new Map<string, JobRow>();
   ((jobsResult.data ?? []) as JobRow[]).forEach((job) => {
@@ -189,13 +179,6 @@ export default async function SourcesPage({ params }: Props) {
           Add source
         </Link>
       </div>
-
-      <PipelineRail
-        projectId={project.id}
-        sourcesCount={sources.length}
-        evidenceCount={totalEvidenceResult.count ?? 0}
-        problemCount={totalProblemResult.count ?? 0}
-      />
 
       <SourcesClient projectId={project.id} sources={sourceItems} />
     </div>

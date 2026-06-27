@@ -139,6 +139,7 @@ export default async function ProjectPage({ params }: Props) {
   })();
 
   const [
+    { count: sourcesCount },
     { count: evidenceCount },
     { count: trustedCount },
     { count: pendingCount },
@@ -150,6 +151,10 @@ export default async function ProjectPage({ params }: Props) {
     { data: trustedEvidenceMeta },
     { data: activityRuns },
   ] = await Promise.all([
+    read
+      .from("sources")
+      .select("*", { count: "exact", head: true })
+      .eq("project_id", project.id),
     read
       .from("evidence")
       .select("*", { count: "exact", head: true })
@@ -277,6 +282,7 @@ export default async function ProjectPage({ params }: Props) {
       confidenceScore={confidence.score}
       weakestHint={confidence.weakest.hint}
       pulse={pulse}
+      sourcesCount={sourcesCount ?? 0}
       evidenceCount={evidenceCount ?? 0}
       trustedTotal={trustedTotal}
       pendingCount={pendingCount ?? 0}

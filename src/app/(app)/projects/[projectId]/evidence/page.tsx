@@ -8,7 +8,6 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import type { EvidenceRecord } from "@/types/database";
 import { notFound, redirect } from "next/navigation";
-import { PipelineRail } from "../PipelineRail";
 import { EvidenceBrowser, type EvidenceLensData, type LensEvidencePreview, type LensTrustMix } from "./evidence-browser";
 
 interface Props {
@@ -581,8 +580,6 @@ export default async function EvidencePage({ params, searchParams }: Props) {
     { count: excludedCount },
     evidenceResult,
     lensData,
-    { count: sourcesCount },
-    { count: problemCount },
     { data: internalPeople },
   ] = await Promise.all([
     read
@@ -604,14 +601,6 @@ export default async function EvidencePage({ params, searchParams }: Props) {
       ? getRecentEvidence(read, project.org_id, project.id, "all", themeFilter, themeIdFilter, topicIdFilter)
       : getRecentEvidence(read, project.org_id, project.id, "pending"),
     getEvidenceLensData(read, project.org_id, project.id),
-    read
-      .from("sources")
-      .select("*", { count: "exact", head: true })
-      .eq("project_id", project.id),
-    read
-      .from("problems")
-      .select("*", { count: "exact", head: true })
-      .eq("project_id", project.id),
     read
       .from("people")
       .select("name")
@@ -640,13 +629,6 @@ export default async function EvidencePage({ params, searchParams }: Props) {
           </p>
         </div>
       </div>
-
-      <PipelineRail
-        projectId={project.id}
-        sourcesCount={sourcesCount ?? 0}
-        evidenceCount={evidenceCount}
-        problemCount={problemCount ?? 0}
-      />
 
       <EvidenceBrowser
         projectId={project.id}
