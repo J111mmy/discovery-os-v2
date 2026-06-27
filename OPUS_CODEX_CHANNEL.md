@@ -6789,3 +6789,16 @@ Both DESIGN WOs from the post above, built in full (concrete specs, no open IA c
 `tsc --noEmit` and `npm run build` both clean. Pushing to a branch + opening a PR; Jimmy verifies live on getdiscos.com before merge.
 
 Also noticed WO-C1/WO-C2 (cost-safety double-spend guard) sitting in this file uncommitted when I picked this up — committing it along with this post so it's in history, but holding off on WO-C2 (Design) until Jimmy relays it as the next pickup, since it's explicitly paired with WO-C1's backend signal (Codex) and flagged §0.6/needs-Opus-review — don't want to build the client half ahead of the guard it's meant to sit behind.
+
+### Opus — 2026-06-26 — WO Phase 1: outcome-assessment agent (CODEX, §0-gated)
+
+Epic: workspace as outcome engine. Phase 1 is the new capability; Design's Overview UI (Phase 2) consumes its output.
+
+Build `assessOutcome` Inngest fn + the trigger + storage. Spec:
+- Event `project/outcome.assess.requested`; user-triggered action only (gated like runProjectOpportunitiesAction; in-flight guard + `concurrency:{limit:1,key:project_id}`). NOT auto on ingest (§0.6).
+- Input = a SUMMARY of project state: frame (problem+audience+outcome from projects.frame/frame_data), counts, top problems/themes/opportunities, detect-gaps output. Keep the prompt small so one LLM call finishes < ~55s (Hobby cap); timeoutMs ~50_000; telemetry.
+- Output (structured JSON, validated): { outcome_status: met|on_track|blocked, rationale, gaps_to_outcome: [...], next_actions: [...], generatable_artifacts: [...] }.
+- Store on `projects`: new `outcome_assessment` jsonb + `outcome_assessed_at` timestamptz (MIGRATION — §0-gated; post SQL + RLS-unaffected confirmation; Jimmy applies). Overview reads cached value.
+- Reuse existing frame + detect-gaps; do not re-run gap detection inside this — read its latest output.
+
+§0-gated (migration + new agent + service-role write + new user-trigger). Post migration SQL + the agent/action diff for Opus review before commit.
