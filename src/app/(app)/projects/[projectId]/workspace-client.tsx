@@ -886,6 +886,12 @@ function readinessMeta(readiness: "ready" | "needs_more_evidence" | "not_ready")
   return { label: "Not ready", color: "var(--ink-faint)" };
 }
 
+function pickTopGap(gaps: OutcomeAssessment["gaps_to_outcome"]) {
+  if (gaps.length === 0) return null;
+  const rank = { high: 0, medium: 1, low: 2 };
+  return [...gaps].sort((a, b) => rank[a.severity] - rank[b.severity])[0];
+}
+
 const OUTCOME_ASSESS_POLL_MS = 4000;
 // Single LLM call with a ~50s server timeout; poll well past that before giving up.
 const OUTCOME_ASSESS_MAX_POLLS = 25;
@@ -950,6 +956,7 @@ function OutcomeEngine({
 }) {
   const router = useRouter();
   const [assessing, setAssessing] = useState(initiallyAssessing);
+  const [open, setOpen] = useState(false);
   const baselineAssessedAtRef = useRef(assessedAt);
   const pollCountRef = useRef(0);
 
@@ -1043,12 +1050,13 @@ function OutcomeEngine({
 
   const status = assessment ? OUTCOME_STATUS_META[assessment.outcome_status] : null;
   const assessedLabel = timeAgoLabel(assessedAt);
+  const topGap = assessment ? pickTopGap(assessment.gaps_to_outcome) : null;
 
   return (
       <div style={cardStyle}>
-        <div style={{ padding: "18px 20px", borderBottom: assessment ? "1px solid var(--line)" : "none" }}>
+        <div style={{ padding: "14px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
-            <div style={{ minWidth: 0 }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
               <div
                 style={{
                   fontSize: 11,
@@ -1056,12 +1064,23 @@ function OutcomeEngine({
                   letterSpacing: ".1em",
                   textTransform: "uppercase",
                   color: "var(--ink-faint)",
-                  marginBottom: 6,
+                  marginBottom: 4,
                 }}
               >
                 Outcome
               </div>
-              <div style={{ fontSize: 15, fontWeight: 600, color: "var(--ink)", lineHeight: 1.45 }}>
+              <div
+                title={outcomeText ?? undefined}
+                style={{
+                  fontSize: 15,
+                  fontWeight: 600,
+                  color: "var(--ink)",
+                  lineHeight: 1.4,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
                 {outcomeText}
               </div>
             </div>
@@ -1080,19 +1099,30 @@ function OutcomeEngine({
               )}
             </div>
           </div>
-        </div>
 
-        {!assessment ? (
-          <div style={{ padding: "22px 20px", textAlign: "center" }}>
-            <p style={{ margin: 0, fontSize: 13, color: "var(--ink-2)", lineHeight: 1.6 }}>
+          {!assessment ? (
+            <p style={{ margin: 0, fontSize: 12.5, color: "var(--ink-2)", lineHeight: 1.5 }}>
               {assessing
                 ? "Assessing whether your evidence supports this outcome…"
-                : "Not yet assessed. Run an assessment to see whether your evidence shows you're on track."}
+                : "Not yet assessed."}
             </p>
-          </div>
-        ) : (
-          <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+          ) : (
+            <button
+              onClick={() => setOpen((o) => !o)}
+              aria-expanded={open}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                width: "100%",
+                padding: 0,
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                textAlign: "left",
+              }}
+            >
               <span
                 style={{
                   flexShrink: 0,
@@ -1107,10 +1137,65 @@ function OutcomeEngine({
               >
                 {status!.label}
               </span>
-              <p style={{ margin: 0, fontSize: 13, color: "var(--ink-2)", lineHeight: 1.6 }}>
-                {assessment.rationale}
-              </p>
-            </div>
+              {topGap ? (
+                <span
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontSize: 12.5,
+                    color: "var(--ink-2)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <span
+                    style={{
+                      flexShrink: 0,
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: outcomeSeverityColor(topGap.severity),
+                    }}
+                    aria-hidden
+                  />
+                  {topGap.gap}
+                </span>
+              ) : (
+                <span style={{ flex: 1, fontSize: 12.5, color: "var(--ink-faint)" }}>
+                  No outstanding gaps
+                </span>
+              )}
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="var(--ink-faint)"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{
+                  flexShrink: 0,
+                  transform: open ? "rotate(180deg)" : "rotate(0deg)",
+                  transition: "transform .18s",
+                }}
+                aria-hidden
+              >
+                <path d="M4 6l4 4 4-4" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {open && assessment && (
+          <div style={{ borderTop: "1px solid var(--line)", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
+            <p style={{ margin: 0, fontSize: 13, color: "var(--ink-2)", lineHeight: 1.6 }}>
+              {assessment.rationale}
+            </p>
 
             {assessment.gaps_to_outcome.length > 0 && (
               <div>

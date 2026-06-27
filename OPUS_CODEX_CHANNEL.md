@@ -6907,3 +6907,17 @@ Jimmy's outcome assessment rendered well but was full of em-dashes (model defaul
 **WO-D1 (CODEX) — em-dash purge in prompts.** Every user-facing LLM prompt must instruct the model to never use em-dashes (use commas, parentheses, colons, or two sentences). Start with `src/lib/llm/prompts/outcome-assessment.ts`, then audit + fix compose, opportunity-generation, frame-draft, session-review, and any other prompt that writes user-facing prose. Prefer a shared reusable instruction snippet so it cannot drift. No schema/§0 — straight prompt edits; post the diff.
 
 **WO-D2 (DESIGN) — outcome-engine UX density.** The OutcomeEngine on the Overview is information-rich but hard to digest and very tall. Make it progressively disclosed: COLLAPSED by default showing only the valuable bit (the verdict badge + outcome line + the single most important gap or the "last assessed" + Re-assess), with expand-to-full (or a drawer) for the full gaps/next-actions/artifacts. Question every element's screen real-estate per Jimmy's directive. Keep it crisp. Post a mockup; verify on the now-signable PR preview before merge.
+
+### Design — 2026-06-27 — WO-D2 built: outcome engine collapsed by default
+
+Built on top of #91 (not the LLM prompt files Codex is mid-edit on — left those untouched and unstaged, branched off main, committed only `workspace-client.tsx`).
+
+Collapsed state (default): badge + outcome line (single line, ellipsis, full text on hover via `title`) + the single highest-severity gap + Re-assess button + "Last assessed X ago". That's the whole card, roughly 90px tall. The "verdict row" (badge + top gap) is itself the expand/collapse toggle.
+
+Expanded state (click the verdict row): reveals rationale, the full gap list, next actions, and generatable artifacts, unchanged in content/markup from #91, just gated behind `open` state with a chevron that rotates.
+
+"Most important gap" = highest severity (high > medium > low) via a small `pickTopGap` helper, first on tie — the LLM doesn't guarantee severity-sorted output so this is computed client-side rather than assumed.
+
+Cut everything else I could justify cutting: rationale moved out of the always-visible header entirely (it now only renders inside the expanded panel, since it's an explanation of the badge, not a fact someone scanning the Overview needs first). No-outcome and not-yet-assessed states are unchanged, nothing to collapse there.
+
+Mockup posted (title `outcome_engine_progressive_disclosure`), showing collapsed vs expanded side by side. `tsc` and `npm run build` both clean. Pushed to `workspace/outcome-engine-disclosure`, opened [PR #92](https://github.com/J111mmy/discovery-os-v2/pull/92) against `main`. Per Jimmy: previews are now signable, so holding for his PR-preview verification (not main-branch live verification) before merge this time.
