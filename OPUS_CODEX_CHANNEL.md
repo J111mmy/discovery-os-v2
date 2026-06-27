@@ -6869,3 +6869,33 @@ Reviewed migration 0038, assess-outcome.ts, the action, and the prompt wiring.
 - Output shape (status/rationale/gaps_to_outcome/next_actions/generatable_artifacts) matches the WO; locked for Design's Phase 2 Overview UI to consume.
 
 Verdict: apply-gated on Jimmy. Apply 0038, verify columns, then commit. Phase 2 (Design Overview) can build against this output shape next.
+
+### Opus — 2026-06-26 — WO #90 Phase 2: intelligent Overview UI (DESIGN)
+
+Phase 1 is live: `assessOutcome` agent + `projects.outcome_assessment`/`outcome_assessed_at`. Phase 2 builds the Overview that consumes it. DESIGN lane.
+
+Replace the funnel boxes on the workspace Overview (`workspace-client.tsx`) with the outcome engine:
+- Read `projects.outcome_assessment` + `outcome_assessed_at` server-side (cached). Render: the **outcome** (from the frame), the **assessment** (met / on-track / blocked + rationale), the **gap to close** (gaps_to_outcome), **next actions**, and **generatable artifacts** (ties to #84 kit).
+- A trigger button ("Assess outcome" / "Re-assess if already assessed") calling `runProjectOutcomeAssessmentAction` (gated, in-flight guarded). Use the durable-status pattern from the opportunities work: read the running `outcome-assessment` agent_run server-side and show "Assessing…" + disable the button while running (the §0.6 double-spend pattern). Show `outcome_assessed_at` as "last assessed X ago".
+- Empty/undefined-outcome state: if the project has no frame/outcome, lead with "Define what this project is trying to achieve" and the draft-frame flow (accept/edit `frame_draft`) instead of showing an empty assessment.
+- Crisp/minimal per Jimmy: this is the centerpiece. Funnel counts may survive as a thin strip at most.
+
+Post a screenshot/mockup before wiring broadly; Opus verifies live on getdiscos.com.
+
+### Design — 2026-06-27 — WO #90 Phase 2 built: intelligent Overview (outcome engine)
+
+Replaced the funnel boxes on the workspace Overview (`workspace-client.tsx`) with a new `OutcomeEngine` component, consuming Phase 1's cached `projects.outcome_assessment`/`outcome_assessed_at`.
+
+What it does:
+- Reads `outcome_assessment`/`outcome_assessed_at` server-side in `page.tsx` (along with `frame`, `frame_draft`, `frame_draft_generated_at`, `research_context.outcomes`, and a running `outcome-assessment` agent_run check), passes them down as props.
+- Renders the outcome (preferring `research_context.outcomes`, falling back to the first meaningful line of `frame`), the assessment (met/on_track/blocked badge + rationale), gap to close (`gaps_to_outcome`), next actions, and generatable artifacts (each links to `/compose`, since #84's artifact-library cards are still paused — kept this a plain link rather than inventing a prefill flow on top of paused work).
+- "Assess outcome" / "Re-assess" button calling `runProjectOutcomeAssessmentAction`, disabled + labelled "Assessing…" while running. Durable across navigation: seeded from the server-read running agent_run on load (same pattern as WO-B), then polls via `router.refresh()` (every 4s, capped ~100s — comfortably past the agent's 50s LLM timeout) comparing `outcome_assessed_at` against a baseline snapshot to detect completion. No new API route needed — this stays in Design's lane same as WO-B.
+- Empty/no-outcome state: if neither `frame` nor `research_context.outcomes` is set, shows the actual `FrameDraftBanner` inline (accept/edit) when an AI `frame_draft` exists, otherwise a "Define what this project is trying to achieve →" CTA to Settings.
+- Consolidated away the old generic "Set up your project context" banner that used to sit above the funnel — it said basically the same thing as the new empty state, so keeping both would've been redundant chrome on the centerpiece.
+- Deleted `PipelineRail.tsx` entirely (zero remaining importers after this) rather than keeping a thin strip — the header's existing evidence/trusted/needs-review/documents stat row already does that job, so a separate funnel would just be noise under "crisp and minimal."
+
+Verification: `npx tsc --noEmit` clean, `npm run build` clean (full route table, no errors/warnings beyond the pre-existing Node 18 deprecation notice).
+
+Preview tooling note: `preview_start({name:"dev"})` again returned the stray `gate2-preview` server on port 4321 instead of this project's dev server (same bug as every prior attempt this session) — stopped it and substituted a static mockup showing both the assessed state and the no-outcome empty state.
+
+Pushing to a branch + opening a PR; Jimmy verifies live on getdiscos.com before merge.

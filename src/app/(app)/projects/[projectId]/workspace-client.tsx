@@ -15,7 +15,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { PipelineRail } from "./PipelineRail";
+import { useRouter } from "next/navigation";
+import { FrameDraftBanner, type FrameDraft } from "./settings/frame-draft-banner";
 import type {
   ProjectOpportunityConfidence,
   ProjectOpportunityStatus,
@@ -43,19 +44,37 @@ type SuggestedWorkspacePreview = {
   source_project_count: number;
 };
 
+type OutcomeAssessment = {
+  outcome_status: "met" | "on_track" | "blocked";
+  rationale: string;
+  gaps_to_outcome: Array<{ gap: string; why_it_matters: string; severity: "high" | "medium" | "low" }>;
+  next_actions: Array<{ action: string; priority: "high" | "medium" | "low"; rationale: string }>;
+  generatable_artifacts: Array<{
+    artifact_type: string;
+    purpose: string;
+    readiness: "ready" | "needs_more_evidence" | "not_ready";
+  }>;
+};
+
 export interface WorkspaceViewProps {
   project: {
     id: string;
     name: string;
     description: string | null;
     frame: string | null;
+    frame_draft: FrameDraft | null;
+    frame_draft_generated_at: string | null;
+    research_outcome: string | null;
     synthesis_stale: boolean;
     last_synthesised_at: string | null;
   };
+  outcomeAssessment: OutcomeAssessment | null;
+  outcomeAssessedAt: string | null;
+  assessingOutcome: boolean;
+  onAssessOutcome: (formData: FormData) => Promise<void>;
   confidenceScore: number;
   weakestHint: string;
   pulse: { tone: "attention" | "running" | "quiet"; text: string } | null;
-  sourcesCount: number;
   evidenceCount: number;
   trustedTotal: number;
   pendingCount: number;
@@ -825,12 +844,402 @@ function firstFrameLine(frame: string | null) {
     );
 }
 
+function timeAgoLabel(value: string | null) {
+  if (!value) return null;
+  const diffMs = Date.now() - new Date(value).getTime();
+  const minutes = Math.max(0, Math.floor(diffMs / 60_000));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 function confidenceBadgeStyle(confidence: ProjectOpportunityConfidence) {
   if (confidence === "high")
     return { border: "1px solid rgba(47,181,116,.2)", background: "var(--pos-bg)", color: "var(--pos)" };
   if (confidence === "medium")
     return { border: "1px solid rgba(212,163,42,.2)", background: "var(--warn-bg)", color: "var(--warn)" };
   return { border: "1px solid var(--line)", background: "var(--surface-2)", color: "var(--ink-2)" };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OutcomeEngine — the workspace centerpiece: outcome, assessment, gap, actions
+// ─────────────────────────────────────────────────────────────────────────────
+
+const OUTCOME_STATUS_META: Record<
+  OutcomeAssessment["outcome_status"],
+  { label: string; color: string; bg: string; border: string }
+> = {
+  met: { label: "Outcome met", color: "var(--pos)", bg: "var(--pos-bg)", border: "rgba(47,181,116,.25)" },
+  on_track: { label: "On track", color: "var(--warn)", bg: "var(--warn-bg)", border: "rgba(212,163,42,.25)" },
+  blocked: { label: "Blocked", color: "var(--neg)", bg: "var(--neg-bg)", border: "rgba(224,89,79,.25)" },
+};
+
+function outcomeSeverityColor(severity: "high" | "medium" | "low") {
+  return severity === "high" ? "var(--neg)" : severity === "medium" ? "var(--warn)" : "var(--ink-2)";
+}
+
+function readinessMeta(readiness: "ready" | "needs_more_evidence" | "not_ready") {
+  if (readiness === "ready") return { label: "Ready", color: "var(--pos)" };
+  if (readiness === "needs_more_evidence") return { label: "Needs more evidence", color: "var(--warn)" };
+  return { label: "Not ready", color: "var(--ink-faint)" };
+}
+
+const OUTCOME_ASSESS_POLL_MS = 4000;
+// Single LLM call with a ~50s server timeout; poll well past that before giving up.
+const OUTCOME_ASSESS_MAX_POLLS = 25;
+
+function AssessButton({
+  projectId,
+  assessing,
+  hasAssessment,
+  onAssessOutcome,
+  onSubmitStart,
+}: {
+  projectId: string;
+  assessing: boolean;
+  hasAssessment: boolean;
+  onAssessOutcome: (formData: FormData) => Promise<void>;
+  onSubmitStart: () => void;
+}) {
+  return (
+    <form action={onAssessOutcome} onSubmit={onSubmitStart}>
+      <input type="hidden" name="project_id" value={projectId} />
+      <button
+        type="submit"
+        disabled={assessing}
+        style={{
+          borderRadius: 8,
+          border: "1px solid var(--accent)",
+          background: assessing ? "var(--surface-2)" : "var(--accent)",
+          color: assessing ? "var(--ink-faint)" : "white",
+          fontSize: 12.5,
+          fontWeight: 600,
+          padding: "7px 14px",
+          cursor: assessing ? "default" : "pointer",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {assessing ? "Assessing…" : hasAssessment ? "Re-assess" : "Assess outcome"}
+      </button>
+    </form>
+  );
+}
+
+function OutcomeEngine({
+  projectId,
+  frame,
+  frameDraft,
+  frameDraftGeneratedAt,
+  researchOutcome,
+  assessment,
+  assessedAt,
+  initiallyAssessing,
+  onAssessOutcome,
+}: {
+  projectId: string;
+  frame: string | null;
+  frameDraft: FrameDraft | null;
+  frameDraftGeneratedAt: string | null;
+  researchOutcome: string | null;
+  assessment: OutcomeAssessment | null;
+  assessedAt: string | null;
+  initiallyAssessing: boolean;
+  onAssessOutcome: (formData: FormData) => Promise<void>;
+}) {
+  const router = useRouter();
+  const [assessing, setAssessing] = useState(initiallyAssessing);
+  const baselineAssessedAtRef = useRef(assessedAt);
+  const pollCountRef = useRef(0);
+
+  // Server gave us a fresher outcome_assessed_at than our baseline: the run finished.
+  useEffect(() => {
+    if (assessing && assessedAt !== baselineAssessedAtRef.current) {
+      setAssessing(false);
+    }
+  }, [assessing, assessedAt]);
+
+  useEffect(() => {
+    if (!assessing) return;
+    const timer = setInterval(() => {
+      pollCountRef.current += 1;
+      if (pollCountRef.current >= OUTCOME_ASSESS_MAX_POLLS) {
+        setAssessing(false);
+        return;
+      }
+      router.refresh();
+    }, OUTCOME_ASSESS_POLL_MS);
+    return () => clearInterval(timer);
+  }, [assessing, router]);
+
+  function handleSubmitStart() {
+    baselineAssessedAtRef.current = assessedAt;
+    pollCountRef.current = 0;
+    setAssessing(true);
+  }
+
+  const hasOutcome = Boolean(frame?.trim()) || Boolean(researchOutcome?.trim());
+  const outcomeText = researchOutcome?.trim() || firstFrameLine(frame) || null;
+
+  const cardStyle: React.CSSProperties = {
+    background: "var(--surface)",
+    border: "1px solid var(--line)",
+    borderRadius: "var(--r-lg)",
+    overflow: "hidden",
+  };
+
+  if (!hasOutcome) {
+    if (frameDraft) {
+      return (
+        <FrameDraftBanner
+          projectId={projectId}
+          draft={frameDraft}
+          generatedAt={frameDraftGeneratedAt}
+          onAccepted={() => {}}
+          onDiscarded={() => {}}
+        />
+      );
+    }
+
+    return (
+      <Link
+        href={`/projects/${projectId}/settings`}
+        style={{
+          display: "block",
+          padding: "20px 22px",
+          borderRadius: "var(--r-lg)",
+          border: "1px solid var(--accent)",
+          background: "var(--surface)",
+          textDecoration: "none",
+          color: "var(--ink)",
+          transition: "background .14s",
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLElement).style.background = "var(--surface-2)";
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLElement).style.background = "var(--surface)";
+        }}
+      >
+        <div style={{ fontSize: 15, fontWeight: 640, letterSpacing: "-0.01em" }}>
+          Define what this project is trying to achieve →
+        </div>
+        <div
+          style={{
+            marginTop: 6,
+            fontSize: 13,
+            color: "var(--ink-3)",
+            lineHeight: 1.55,
+            maxWidth: 480,
+          }}
+        >
+          Set the project frame and desired outcome — once it&apos;s set, the system can assess
+          whether your evidence shows you&apos;re on track to reach it.
+        </div>
+      </Link>
+    );
+  }
+
+  const status = assessment ? OUTCOME_STATUS_META[assessment.outcome_status] : null;
+  const assessedLabel = timeAgoLabel(assessedAt);
+
+  return (
+      <div style={cardStyle}>
+        <div style={{ padding: "18px 20px", borderBottom: assessment ? "1px solid var(--line)" : "none" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: ".1em",
+                  textTransform: "uppercase",
+                  color: "var(--ink-faint)",
+                  marginBottom: 6,
+                }}
+              >
+                Outcome
+              </div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: "var(--ink)", lineHeight: 1.45 }}>
+                {outcomeText}
+              </div>
+            </div>
+            <div style={{ flexShrink: 0, textAlign: "right" }}>
+              <AssessButton
+                projectId={projectId}
+                assessing={assessing}
+                hasAssessment={Boolean(assessment)}
+                onAssessOutcome={onAssessOutcome}
+                onSubmitStart={handleSubmitStart}
+              />
+              {assessedLabel && (
+                <div style={{ marginTop: 6, fontSize: 11, color: "var(--ink-faint)" }}>
+                  Last assessed {assessedLabel}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {!assessment ? (
+          <div style={{ padding: "22px 20px", textAlign: "center" }}>
+            <p style={{ margin: 0, fontSize: 13, color: "var(--ink-2)", lineHeight: 1.6 }}>
+              {assessing
+                ? "Assessing whether your evidence supports this outcome…"
+                : "Not yet assessed. Run an assessment to see whether your evidence shows you're on track."}
+            </p>
+          </div>
+        ) : (
+          <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+              <span
+                style={{
+                  flexShrink: 0,
+                  borderRadius: 999,
+                  border: `1px solid ${status!.border}`,
+                  background: status!.bg,
+                  color: status!.color,
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  padding: "3px 10px",
+                }}
+              >
+                {status!.label}
+              </span>
+              <p style={{ margin: 0, fontSize: 13, color: "var(--ink-2)", lineHeight: 1.6 }}>
+                {assessment.rationale}
+              </p>
+            </div>
+
+            {assessment.gaps_to_outcome.length > 0 && (
+              <div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: ".08em",
+                    textTransform: "uppercase",
+                    color: "var(--ink-faint)",
+                    marginBottom: 8,
+                  }}
+                >
+                  Gap to close
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {assessment.gaps_to_outcome.map((gap, i) => (
+                    <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                      <span
+                        style={{
+                          flexShrink: 0,
+                          marginTop: 6,
+                          width: 6,
+                          height: 6,
+                          borderRadius: "50%",
+                          background: outcomeSeverityColor(gap.severity),
+                        }}
+                        aria-hidden
+                      />
+                      <div>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink)" }}>{gap.gap}</div>
+                        <div style={{ fontSize: 12, color: "var(--ink-2)", lineHeight: 1.5, marginTop: 2 }}>
+                          {gap.why_it_matters}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {assessment.next_actions.length > 0 && (
+              <div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: ".08em",
+                    textTransform: "uppercase",
+                    color: "var(--ink-faint)",
+                    marginBottom: 8,
+                  }}
+                >
+                  Next actions
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {assessment.next_actions.map((action, i) => (
+                    <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                      <span
+                        style={{
+                          flexShrink: 0,
+                          marginTop: 6,
+                          width: 6,
+                          height: 6,
+                          borderRadius: "50%",
+                          background: outcomeSeverityColor(action.priority),
+                        }}
+                        aria-hidden
+                      />
+                      <div>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink)" }}>{action.action}</div>
+                        <div style={{ fontSize: 12, color: "var(--ink-2)", lineHeight: 1.5, marginTop: 2 }}>
+                          {action.rationale}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {assessment.generatable_artifacts.length > 0 && (
+              <div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: ".08em",
+                    textTransform: "uppercase",
+                    color: "var(--ink-faint)",
+                    marginBottom: 8,
+                  }}
+                >
+                  Generatable artifacts
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {assessment.generatable_artifacts.map((artifact, i) => {
+                    const readiness = readinessMeta(artifact.readiness);
+                    return (
+                      <Link
+                        key={i}
+                        href={`/projects/${projectId}/compose`}
+                        title={artifact.purpose}
+                        style={{
+                          display: "block",
+                          borderRadius: 8,
+                          border: "1px solid var(--line)",
+                          background: "var(--bg)",
+                          padding: "8px 12px",
+                          textDecoration: "none",
+                          maxWidth: 260,
+                        }}
+                      >
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink)" }}>
+                          {artifact.artifact_type}
+                        </div>
+                        <div style={{ fontSize: 11, color: readiness.color, marginTop: 2 }}>
+                          {readiness.label}
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1082,7 +1491,6 @@ export function WorkspaceView({
   confidenceScore,
   weakestHint,
   pulse,
-  sourcesCount,
   evidenceCount,
   trustedTotal,
   pendingCount,
@@ -1092,6 +1500,10 @@ export function WorkspaceView({
   problemCount,
   problemPreviews,
   gapSignals,
+  outcomeAssessment,
+  outcomeAssessedAt,
+  assessingOutcome,
+  onAssessOutcome,
   suggestedWorkspaceRows,
   synthesisRunning,
   onSynthesize,
@@ -1265,51 +1677,20 @@ export function WorkspaceView({
         </div>
       )}
 
-      {/* ── Setup prompt (no frame yet) ── */}
-      {!project.frame?.trim() && (
-        <Link
-          href={`/projects/${project.id}/settings`}
-          style={{
-            display: "block",
-            marginBottom: 16,
-            padding: "16px 20px",
-            borderRadius: "var(--r-lg)",
-            border: "1px solid var(--accent)",
-            background: "var(--surface)",
-            textDecoration: "none",
-            color: "var(--ink)",
-            transition: "background .14s",
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.background = "var(--surface-2)";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.background = "var(--surface)";
-          }}
-        >
-          <div style={{ fontSize: 13.5, fontWeight: 600 }}>
-            Set up your project context →
-          </div>
-          <div
-            style={{
-              marginTop: 6,
-              fontSize: 13,
-              color: "var(--ink-3)",
-              lineHeight: 1.55,
-            }}
-          >
-            Tell the system what you&apos;re researching and who you&apos;re
-            talking to — the AI gets smarter with each field you fill in.
-          </div>
-        </Link>
-      )}
-
-      <PipelineRail
-        projectId={project.id}
-        sourcesCount={sourcesCount}
-        evidenceCount={evidenceCount}
-        problemCount={problemCount}
-      />
+      {/* ── Outcome engine — the workspace centerpiece ── */}
+      <div style={{ marginBottom: 16 }}>
+        <OutcomeEngine
+          projectId={project.id}
+          frame={project.frame}
+          frameDraft={project.frame_draft}
+          frameDraftGeneratedAt={project.frame_draft_generated_at}
+          researchOutcome={project.research_outcome}
+          assessment={outcomeAssessment}
+          assessedAt={outcomeAssessedAt}
+          initiallyAssessing={assessingOutcome}
+          onAssessOutcome={onAssessOutcome}
+        />
+      </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
