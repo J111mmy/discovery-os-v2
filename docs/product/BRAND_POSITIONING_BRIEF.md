@@ -312,3 +312,35 @@ Market sources:
 - Maze: https://maze.co/
 - UserTesting: https://www.usertesting.com/homepage
 - DISCO legal/eDiscovery: https://csdisco.com/
+
+---
+
+## Sales Strategist Working Layer
+
+This section is the running log for positioning, GTM, and sales work. Everything above is the canonical strategy. This layer extends it; it must never contradict the locked category, wedge, or voice.
+
+**Working ritual (read first, every session):** before any positioning/GTM/sales work, read (1) this brief and (2) `OPUS_CODEX_CHANNEL.md` (for product changes that affect the story). Challenge anything that does not fit, but never silently override the locked category, wedge, or voice. Surface the conflict and let Jimmy decide. Anchor: **Traceability is the product.**
+
+### Active assets
+- **Category deck (canonical):** `docs/Presentations/DiscOS_Category_Deck.pptx`. Update this file when the deck changes. Ten slides, category-led, for research/design/product (+GTM) leaders. Content + visual verified.
+- **90-second live demo script:** the slide-7 "click a claim, meet the customer" beat (safe path: no live generation; pre-load a cited doc; fallback screenshot). Fold into a demo runbook.
+- Prior general value deck: `DiscOS_Value_Deck.pptx` (superseded by the category deck for prospect calls).
+
+### Live framing decisions (extend, do not contradict the brief)
+- **Category expression in market = "One source of proof."** Sanctioned twist on "single source of truth," allowed ONLY because always paired with citation/proof behavior. Never use the bare phrase "single source of truth."
+- **"Not a repository. A spine."** The reframe line that separates DiscOS from storage tools.
+- **Lead with the room, show breadth as the expansion.** Deck shows six seats (research, design, product, sales, success, leadership) for the whole-org "one well" vision, but in delivery lead with the PM/research/design seat in the room. Honors the wedge rule: PMs lead, GTM expands, breadth is the vision not the wedge.
+
+### Messaging hooks
+- **"Garbage In, Gospel Out."** The AI-era mutation of GIGO: AI launders unverified input into confident, authoritative-looking output everyone treats as truth. DiscOS does NOT claim to fix bad input (no "garbage in, gold out" — that breaks the trust positioning and the "exactness over hype" voice rule). The honest, on-brand flip: DiscOS makes provenance visible so garbage can never masquerade as gospel. Lines: "You can't fix garbage in. We make sure it never comes out dressed as gospel." / "We don't promise gold out. We promise you always know which is which." Use as a "why now" opener (deck slide 4 / cold-email hook).
+
+### Open asset backlog
+- Post-call follow-up email (two lines, designed to be forwarded to the decision-maker who was not in the room).
+- Demo runbook (90-sec script + safe path + fallback).
+- Cold outbound sequence (Halbert/Schwartz hooks, per ICP).
+- Competitive teardown vs Dovetail and the generic-AI threat.
+
+### Product-state awareness (from OPUS_CODEX_CHANNEL.md)
+- The trust layer (live citations + confidence + ungrounded-section flagging) shipped to prod (#78 Slice 1). This is the demo proof beat.
+- Cost telemetry + admin cost dashboard live (#51/#52); per-org spend caps backlogged (#72).
+- Entity-extraction quality is actively being hardened (JSON robustness #30; segmentation/prescan/classification #96/#101/#102). Relevant to the "quality/trust" story; do not over-claim extraction perfection in sales.
