@@ -16,7 +16,8 @@ The full specification is in `Discovery-OS-v2-PRD-final.docx` (in the parent Dis
 - **Workspace = outcome engine (#90):** the Overview assesses whether the project's outcome (from the frame) is met and what is left to close it. Phase 1 (`assess-outcome` agent + `projects.outcome_assessment`) and Phase 2 (Overview UI) shipped. Next: UX polish (it is dense — wants expand/collapse showing only the verdict by default) and purge em-dashes from its output.
 - **Document showpiece (#78/#84):** live citation/trust layer on artifacts shipped; artifact-library crisp-up + standard-kit (have-vs-missing, evidence-gated) next.
 - **Opportunity generation (#83):** now WORKS — was always dying on the Hobby 60s cap; now chunked into sub-60s Inngest steps. Reachable via the new workspace tabs (#87, project name links to the workspace; chain lives as tabs).
-- **Open queue:** #85 compose citation quality (theme-id leak), #86 H3 styling, evidence Group-by trim, cost-telemetry view (#52 shipped), per-org spend caps (#72).
+- **Open queue:** #85 compose citation quality (theme-id leak), #86 H3 styling, evidence Group-by trim, cost-telemetry view (#52 shipped), per-org spend caps (#72), #107 (two unreconciled Settings surfaces, duplicate Team/Billing), #108 (extend prompt caching past ingest-extraction), #109 (context-window grading, not urgent).
+- **P0 in flight (2026-06-28, with Codex):** `synthesise-project.ts` writes evidence-theme links to the deprecated `evidence_themes` table instead of `theme_evidence` — every theme since migration 0030 shows 0 evidence/0 problems. See §7 Schema rules. Fix scoped to one file; no backfill needed (current projects are all test candidates).
 - **Parked:** Stripe billing epic + self-serve onboarding (revisit only by conscious decision once quality holds).
 
 **Structure law:** the research ontology is DECIDED and canonical: `Source → Segment → Evidence → Topics → Themes → Problems → {Opportunities, Actions, Artifacts}`. Read `docs/architecture/ONTOLOGY.md` before touching anything that creates, labels, groups, or renders evidence, topics, themes, problems, opportunities, actions, or artifacts. The three hard rules: (1) Topic ≠ Theme ≠ Tag, never merge them; (2) Problems are evidence-backed and earned, never inherited or invented; (3) Opportunities/Actions/Artifacts are siblings, not a chain. If a layer looks redundant, you are missing context, re-read ONTOLOGY.md before acting.
@@ -207,6 +208,11 @@ source kind values      transcript          interview (legacy)
                         slack
                         usability
                         monitoring
+evidence-theme join     theme_evidence      evidence_themes (legacy,
+table                                       superseded by migration 0030 —
+                                            found still in use in
+                                            synthesise-project.ts, fixed
+                                            2026-06-28; never write to it)
 ```
 
 Reconcile these in the next schema migration before building new features on top of inconsistent column names.
@@ -259,7 +265,7 @@ The Ingest Agent must receive full project and org context before it reads a sin
 - The research areas (what questions we are trying to answer)
 - The success metrics (what a good outcome looks like)
 
-**Existing org taxonomy** (from `evidence_themes` across the org):
+**Existing org taxonomy** (from `theme_evidence` across the org):
 - The themes and classifications already in use
 - The agent should tag against these before inventing new ones
 - New themes are acceptable but should be flagged as novel
@@ -340,7 +346,8 @@ This product ingests highly confidential data: sales call recordings, internal s
 
 - All tables have `org_id` as the RLS anchor.
 - No `uuid[]` array columns for relationships. Use join tables. This enables claim-level citation lineage.
-- Join tables: `evidence_themes`, `evidence_entities`, `artifact_claim_evidence`.
+- Join tables: `theme_evidence`, `evidence_entities`, `artifact_claim_evidence`.
+- **`evidence_themes` is DEPRECATED** — superseded by `theme_evidence` (migration `0030_research_ontology_v2.sql`), which adds typed `relationship`/`source`/`review_state`/`confidence`/`agent_run_id` columns matching the locked ontology. Every reader (Themes UI, `discover-problems.ts`, Ask, compose) already moved to `theme_evidence`. **Never write to `evidence_themes`** — found `synthesise-project.ts` still writing there post-migration, leaving every theme with 0 linked evidence (fixed 2026-06-28). If you see `evidence_themes` referenced in code, that's stale and needs migrating to `theme_evidence`.
 - `source_segments` is the layer between `sources` and `evidence`. Never skip it.
 - HNSW index on `evidence.embedding`. Always include `org_id` in vector search queries to prevent cross-tenant scan.
 
