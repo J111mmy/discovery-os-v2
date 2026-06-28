@@ -8,6 +8,7 @@ import {
   buildProjectSynthesisPrompt,
   PROJECT_SYNTHESIS_PROMPT_VERSION,
 } from "@/lib/llm/prompts/synthesis";
+import { VISIBLE_REVIEW_STATES } from "@/lib/research-ontology/review-states";
 
 type TrustedEvidence = {
   id: string;
@@ -28,6 +29,8 @@ const SynthesisedThemeSchema = z.object({
   description: z.string().trim().min(1).max(500),
   evidence_ids: z.array(z.string().uuid()).default([]),
 });
+
+const REPLACEABLE_THEME_EVIDENCE_SOURCES = ["ai", "imported"] as const;
 
 // Resilient parse: a single malformed theme must not fail the whole batch —
 // validate per-element, drop (with a warning) the invalid ones, keep the
@@ -283,7 +286,7 @@ export const synthesiseProject = inngest.createFunction(
         // FAIL CLOSED before the destructive clear (Codex P1 review of 88f77ad).
         // The resilient per-theme parse means a mostly/entirely invalid model
         // response can yield an empty (or no-writeable) theme set. If we delete
-        // all existing evidence_themes first and then write nothing, a model-
+        // all existing theme_evidence first and then write nothing, a model-
         // output failure becomes silent synthesis data loss. So: compute the
         // writeable themes (valid label + at least one allowed evidence id)
         // BEFORE deleting anything, and abort the run (preserving existing
@@ -312,9 +315,13 @@ export const synthesiseProject = inngest.createFunction(
         if (allProjectEvidenceIds.length > 0) {
           for (const ids of chunk(allProjectEvidenceIds, 200)) {
             const { error } = await supabase
-              .from("evidence_themes")
+              .from("theme_evidence")
               .delete()
               .eq("org_id", org_id)
+              .eq("project_id", project_id)
+              .eq("relationship", "supporting")
+              .eq("review_state", "suggested")
+              .in("source", [...REPLACEABLE_THEME_EVIDENCE_SOURCES])
               .in("evidence_id", ids);
 
             if (error) throw new Error(`Failed to clear old theme links: ${error.message}`);
@@ -347,15 +354,24 @@ export const synthesiseProject = inngest.createFunction(
           touchedThemeIds.add(themeId);
 
           const rows = evidenceIds.map((evidenceId) => ({
+            org_id,
+            project_id,
             evidence_id: evidenceId,
             theme_id: themeId,
-            org_id,
+            relationship: "supporting",
+            source: "ai",
+            review_state: "suggested",
             confidence: null,
+            rationale: "Linked by project synthesis from trusted evidence.",
+            agent_run_id: agentRunId,
           }));
 
           const { error: linkError } = await supabase
-            .from("evidence_themes")
-            .upsert(rows, { onConflict: "evidence_id,theme_id" });
+            .from("theme_evidence")
+            .upsert(rows, {
+              onConflict: "theme_id,evidence_id,relationship",
+              ignoreDuplicates: true,
+            });
 
           if (linkError) {
             throw new Error(`Failed to link evidence to ${label}: ${linkError.message}`);
@@ -364,21 +380,36 @@ export const synthesiseProject = inngest.createFunction(
           linksCreated += rows.length;
         }
 
-        for (const themeId of Array.from(touchedThemeIds)) {
-          const { count, error } = await supabase
-            .from("evidence_themes")
-            .select("*", { count: "exact", head: true })
+        const { data: projectThemes, error: projectThemesError } = await supabase
+          .from("themes")
+          .select("id")
+          .eq("org_id", org_id)
+          .eq("project_id", project_id);
+
+        if (projectThemesError) {
+          throw new Error(`Failed to load project themes for counts: ${projectThemesError.message}`);
+        }
+
+        for (const theme of (projectThemes ?? []) as Array<{ id: string }>) {
+          const { data: countRows, error } = await supabase
+            .from("theme_evidence")
+            .select("evidence_id")
             .eq("org_id", org_id)
-            .eq("theme_id", themeId);
+            .eq("project_id", project_id)
+            .eq("theme_id", theme.id)
+            .in("review_state", [...VISIBLE_REVIEW_STATES]);
 
           if (error) throw new Error(`Failed to count theme evidence: ${error.message}`);
+          const evidenceCount = new Set(
+            ((countRows ?? []) as Array<{ evidence_id: string }>).map((row) => row.evidence_id)
+          ).size;
 
           const { error: updateError } = await supabase
             .from("themes")
-            .update({ evidence_count: count ?? 0 })
+            .update({ evidence_count: evidenceCount })
             .eq("org_id", org_id)
             .eq("project_id", project_id)
-            .eq("id", themeId);
+            .eq("id", theme.id);
 
           if (updateError) {
             throw new Error(`Failed to update theme evidence count: ${updateError.message}`);
