@@ -205,7 +205,7 @@ export const synthesiseCompany = inngest.createFunction(
           system:
             "You write clear, direct intelligence profiles of customer companies for a product team. Write in prose. No headings, no bullets. Return only the profile text.",
           messages: [{ role: "user", content: prompt }],
-          timeoutMs: 60_000,
+          timeoutMs: 50_000,
           telemetry: {
             orgId: org_id,
             agentRunId,

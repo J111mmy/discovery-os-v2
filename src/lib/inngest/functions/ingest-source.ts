@@ -231,7 +231,7 @@ function ingestExtractionTimeoutMs() {
     "INGEST_EXTRACTION_TIMEOUT_MS",
     DEFAULT_EXTRACTION_TIMEOUT_MS,
     30_000,
-    300_000
+    55_000
   );
 }
 

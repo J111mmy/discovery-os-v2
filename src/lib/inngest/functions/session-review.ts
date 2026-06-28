@@ -153,7 +153,7 @@ export const sessionReview = inngest.createFunction(
           system:
             "You write clear, human-readable research briefs. Write in prose. Return only the brief. No preamble, no meta-commentary.",
           messages: [{ role: "user", content: prompt }],
-          timeoutMs: 120_000,
+          timeoutMs: 50_000,
           telemetry: {
             orgId: org_id,
             projectId: project_id,

@@ -280,7 +280,7 @@ export const verifyClaims = inngest.createFunction(
                   }),
                 },
               ],
-              timeoutMs: 120_000,
+              timeoutMs: 50_000,
               telemetry: {
                 orgId: org_id,
                 projectId: project_id,

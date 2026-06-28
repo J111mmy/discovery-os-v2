@@ -98,7 +98,7 @@ export const detectGaps = inngest.createFunction(
             }),
           },
         ],
-        timeoutMs: 60_000,
+        timeoutMs: 50_000,
         telemetry: {
           orgId: org_id,
           projectId: project_id,
