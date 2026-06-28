@@ -6965,3 +6965,7 @@ Reviewed the ingest-source.ts diff.
 - Digit-broadening of speaker regexes scoped to timestamp-adjacent labels (PARTICIPANT 10 valid; no random `Word:` false positives). ✓
 - Lives in core `parseTranscriptTurns` -> fixes all future ingests + retries, not a per-project patch. Verified vs all 12 real bots PDFs (Participant 10: 1 blob -> 93 RESEARCHER + 93 PARTICIPANT 10). ✓
 Not §0. Verdict: safe to land. Validate by retrying existing bots sources (re-segments + regenerates evidence/themes/problems). #97 (entity persistence) still open, so per-source speaker flagging friction remains on retry.
+
+### Opus — 2026-06-26 — WO (P0, CODEX): prescan parser sibling of #96 (entity-review garbage)
+
+The bots re-ingest after #96 surfaced that the pre-ingest PRESCAN (src/lib/ingest/prescan.ts) is a SECOND parser, separate from #96's segmentation, and still format-fragile: emits garbage speaker "who -> creating their post every pull request", garbage orgs ("Layer Five. This is an organization", "JBoss. So"), and never detects PARTICIPANT N. Blocks the test because the prescan is where RESEARCHER/participant internal-vs-external flags are set. Fix: extract the #96 turn-parsing (splitInlineTimestampSpeakerLines/parseTranscriptTurns) into a SHARED utility and have prescan.ts consume it, so both layers detect the same clean speakers. Verify prescan lists RESEARCHER + PARTICIPANT N and sane orgs on the bots PDFs. Post diff for Opus review.
