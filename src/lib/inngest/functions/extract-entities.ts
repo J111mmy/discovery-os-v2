@@ -20,6 +20,12 @@ type EvidenceForEntityExtraction = {
   metadata: Record<string, unknown>;
 };
 
+type ProjectEntityContext = {
+  name: string;
+  frame: string | null;
+  frame_data: Record<string, unknown> | null;
+};
+
 type ExistingCompany = {
   id: string;
   name: string;
@@ -62,6 +68,7 @@ type EntityExtraction = {
 };
 
 type EntityDropCounts = { people: number; companies: number; competitors: number };
+type EntityFilterCounts = { companies: number; competitors: number };
 
 // Resilient parse: a single malformed person/company/competitor must not fail
 // the whole extraction. Validate each element individually, drop (with a
@@ -117,6 +124,99 @@ function normalizeName(value: string) {
     .trim();
 }
 
+function canonicalOrgKey(value: string) {
+  return normalizeName(value)
+    .replace(/\bcircle ci\b/g, "circleci")
+    .replace(/\bfossa asia\b/g, "fossasia")
+    .replace(/\bfossasia\s+(?:community|foundation|project|organisation|organization|team)\b/g, "fossasia")
+    .replace(/\b(?:community|foundation|project|organisation|organization|team)\b$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const NON_COMPANY_ENTITY_KEYS = new Set([
+  "india",
+  "google summer of code",
+  "gsoc",
+  "dependabot",
+  "apple watch",
+]);
+
+const PRODUCT_OR_TOOL_ENTITY_KEYS = new Set([
+  "black",
+  "circleci",
+  "circle ci",
+  "dependabot",
+  "github actions",
+  "apple watch",
+  "jboss",
+]);
+
+function isRejectedCompanyName(name: string) {
+  const normalized = normalizeName(name);
+  const canonical = canonicalOrgKey(name);
+  if (!normalized || normalized.length < 2) return true;
+  if (NON_COMPANY_ENTITY_KEYS.has(normalized) || NON_COMPANY_ENTITY_KEYS.has(canonical)) {
+    return true;
+  }
+  if (PRODUCT_OR_TOOL_ENTITY_KEYS.has(normalized) || PRODUCT_OR_TOOL_ENTITY_KEYS.has(canonical)) {
+    return true;
+  }
+  if (/\b(?:bot|dependabot)\b/i.test(name)) return true;
+  if (/\b(?:summer of code|programme|program|grant|conference|event)\b/i.test(name)) {
+    return true;
+  }
+  return false;
+}
+
+function isRejectedCompetitorName(name: string) {
+  const normalized = normalizeName(name);
+  const canonical = canonicalOrgKey(name);
+  if (!normalized || normalized.length < 2) return true;
+  if (NON_COMPANY_ENTITY_KEYS.has(normalized) || NON_COMPANY_ENTITY_KEYS.has(canonical)) {
+    return true;
+  }
+  return /\b(?:bot|dependabot)\b/i.test(name);
+}
+
+function formatProjectFrame(project: ProjectEntityContext) {
+  const frameData =
+    project.frame_data && Object.keys(project.frame_data).length > 0
+      ? JSON.stringify(project.frame_data, null, 2)
+      : "";
+  const frame = project.frame?.trim() ?? "";
+  const parts = [
+    `Project: ${project.name}`,
+    frame ? `Frame text:\n${frame}` : null,
+    frameData ? `Structured frame:\n${frameData}` : null,
+  ].filter(Boolean);
+
+  return parts.length > 0
+    ? parts.join("\n\n")
+    : "No project frame is set. Treat this as no product context for competitor extraction.";
+}
+
+function hasProductCompetitionContext(project: ProjectEntityContext) {
+  const fields = [
+    project.name,
+    project.frame ?? "",
+    project.frame_data ? JSON.stringify(project.frame_data) : "",
+  ].join(" ");
+  const normalized = normalizeName(fields);
+  if (!normalized) return false;
+
+  const hasProductObject =
+    /\b(product|platform|app|application|software|tool|service|solution|workflow|prototype|offering)\b/.test(
+      normalized
+    );
+  const hasResearchOrMarketContext =
+    /\b(competitor|competition|alternative|replace|replacement|current solution|prior solution|users|customers|buyers|market|using today|currently use|our|we|build|building)\b/.test(
+      normalized
+    );
+
+  return hasProductObject && hasResearchOrMarketContext;
+}
+
 function extractJsonObject(content: string) {
   const trimmed = content.trim();
   const unfenced = trimmed
@@ -149,6 +249,55 @@ function formatEvidence(records: EvidenceForEntityExtraction[]) {
 
 function filterEvidenceIds(ids: string[], allowed: Set<string>) {
   return Array.from(new Set(ids.filter((id) => allowed.has(id))));
+}
+
+function filterExtractionForProject(input: {
+  extraction: EntityExtraction;
+  hasCompetitorContext: boolean;
+}) {
+  const filtered: EntityExtraction = {
+    people: input.extraction.people,
+    companies: [],
+    competitors: [],
+  };
+  const dropped: EntityFilterCounts = { companies: 0, competitors: 0 };
+  const companyKeys = new Set<string>();
+  const competitorKeys = new Set<string>();
+
+  for (const company of input.extraction.companies) {
+    const key = canonicalOrgKey(company.name);
+    if (!key || isRejectedCompanyName(company.name)) {
+      dropped.companies += 1;
+      continue;
+    }
+    if (companyKeys.has(key)) {
+      dropped.companies += 1;
+      continue;
+    }
+    companyKeys.add(key);
+    filtered.companies.push(company);
+  }
+
+  if (!input.hasCompetitorContext) {
+    dropped.competitors += input.extraction.competitors.length;
+    return { extraction: filtered, dropped };
+  }
+
+  for (const competitor of input.extraction.competitors) {
+    const key = canonicalOrgKey(competitor.name);
+    if (!key || isRejectedCompetitorName(competitor.name)) {
+      dropped.competitors += 1;
+      continue;
+    }
+    if (competitorKeys.has(key)) {
+      dropped.competitors += 1;
+      continue;
+    }
+    competitorKeys.add(key);
+    filtered.competitors.push(competitor);
+  }
+
+  return { extraction: filtered, dropped };
 }
 
 function evidenceIdsForResolution(
@@ -185,7 +334,7 @@ async function findOrCreateCompany(input: {
   existing: Map<string, ExistingCompany>;
   supabase: ReturnType<typeof createServiceClient>;
 }) {
-  const normalized = normalizeName(input.name);
+  const normalized = canonicalOrgKey(input.name);
   const existing = input.existing.get(normalized);
   if (existing) return existing.id;
 
@@ -203,7 +352,7 @@ async function findOrCreateCompany(input: {
     throw new Error(`Failed to create company ${input.name}: ${error?.message}`);
   }
 
-  input.existing.set(normalized, { id: data.id, name: data.name });
+  input.existing.set(canonicalOrgKey(data.name), { id: data.id, name: data.name });
   return data.id as string;
 }
 
@@ -364,6 +513,25 @@ export const extractEntities = inngest.createFunction(
         );
       });
 
+      const project = await step.run("fetch-project-frame", async () => {
+        const { data, error } = await supabase
+          .from("projects")
+          .select("name, frame, frame_data")
+          .eq("org_id", org_id)
+          .eq("id", project_id)
+          .single();
+
+        if (error || !data) {
+          throw new Error(
+            `Failed to fetch project frame for entity extraction: ${error?.message ?? "missing project"}`
+          );
+        }
+
+        return data as ProjectEntityContext;
+      });
+      const projectFrame = formatProjectFrame(project);
+      const hasCompetitorContext = hasProductCompetitionContext(project);
+
       if (evidence.length === 0) {
         await step.run("complete-empty", async () => {
           await supabase
@@ -393,6 +561,7 @@ export const extractEntities = inngest.createFunction(
               role: "user",
               content: buildEntityExtractionPrompt({
                 evidence: formatEvidence(evidence),
+                projectFrame,
               }),
             },
           ],
@@ -411,10 +580,15 @@ export const extractEntities = inngest.createFunction(
         const { extraction: parsedExtraction, dropped } = parseEntityExtraction(
           extractJsonObject(result.content)
         );
+        const filtered = filterExtractionForProject({
+          extraction: parsedExtraction,
+          hasCompetitorContext,
+        });
 
         return {
-          extraction: parsedExtraction,
+          extraction: filtered.extraction,
           dropped,
+          filtered: filtered.dropped,
           model_used: result.model,
         };
       });
@@ -451,7 +625,7 @@ export const extractEntities = inngest.createFunction(
         );
         const existingCompanies = new Map<string, ExistingCompany>(
           ((companiesResult.data ?? []) as ExistingCompany[]).map((company) => [
-            normalizeName(company.name),
+            canonicalOrgKey(company.name),
             company,
           ])
         );
@@ -474,7 +648,7 @@ export const extractEntities = inngest.createFunction(
         const toolOrProductOrgNames = new Set(
           entityResolutions
             .filter((resolution) => resolution.is_tool_or_product)
-            .map((resolution) => normalizeName(resolution.org_name ?? ""))
+            .map((resolution) => canonicalOrgKey(resolution.org_name ?? ""))
             .filter(Boolean)
         );
         let companiesResolved = 0;
@@ -486,7 +660,7 @@ export const extractEntities = inngest.createFunction(
           if (resolution.is_tool_or_product || !resolution.company_id) continue;
           const company = existingCompaniesById.get(resolution.company_id);
           if (company) {
-            companyByName.set(normalizeName(resolution.org_name ?? company.name), company.id);
+            companyByName.set(canonicalOrgKey(resolution.org_name ?? company.name), company.id);
           }
         }
 
@@ -510,8 +684,8 @@ export const extractEntities = inngest.createFunction(
         ];
 
         for (const company of companyInputs) {
-          const key = normalizeName(company.name);
-          if (!key || toolOrProductOrgNames.has(key)) continue;
+          const key = canonicalOrgKey(company.name);
+          if (!key || isRejectedCompanyName(company.name) || toolOrProductOrgNames.has(key)) continue;
           if (companyByName.has(key)) continue;
           const companyId = await findOrCreateCompany({
             org_id,
@@ -532,8 +706,9 @@ export const extractEntities = inngest.createFunction(
         }
 
         for (const company of extraction.extraction.companies) {
-          if (toolOrProductOrgNames.has(normalizeName(company.name))) continue;
-          const companyId = companyByName.get(normalizeName(company.name));
+          const key = canonicalOrgKey(company.name);
+          if (toolOrProductOrgNames.has(key) || isRejectedCompanyName(company.name)) continue;
+          const companyId = companyByName.get(key);
           if (!companyId) continue;
           for (const evidenceId of filterEvidenceIds(
             company.evidence_ids,
@@ -589,7 +764,7 @@ export const extractEntities = inngest.createFunction(
           const companyId = resolution?.company_id
             ? resolution.company_id
             : companyName
-              ? companyByName.get(normalizeName(companyName)) ?? null
+              ? companyByName.get(canonicalOrgKey(companyName)) ?? null
               : null;
           const existingById = resolution?.person_id
             ? existingPeopleById.get(resolution.person_id)
@@ -633,7 +808,9 @@ export const extractEntities = inngest.createFunction(
 
         // Resolve competitors
         for (const competitor of extraction.extraction.competitors) {
-          const slug = competitor.slug
+          if (isRejectedCompetitorName(competitor.name)) continue;
+          const canonicalName = canonicalOrgKey(competitor.name);
+          const slug = (canonicalName || competitor.slug)
             .toLowerCase()
             .replace(/[^a-z0-9-]/g, "-")
             .replace(/-+/g, "-")
@@ -689,7 +866,12 @@ export const extractEntities = inngest.createFunction(
             // Persist partial-drop counts so an apparently-successful extraction
             // that silently dropped malformed entities is auditable (Codex P3
             // review of 88f77ad).
-            output: { ...output, entities_dropped: extraction.dropped },
+            output: {
+              ...output,
+              entities_dropped: extraction.dropped,
+              entities_filtered: extraction.filtered,
+              competitor_context_present: hasCompetitorContext,
+            },
             model_used: extraction.model_used,
             completed_at: new Date().toISOString(),
           })

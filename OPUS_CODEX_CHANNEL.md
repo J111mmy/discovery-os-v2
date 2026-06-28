@@ -6980,3 +6980,10 @@ Reviewed the diff.
 **Minor follow-up (not a blocker):** `cleanOrgName`'s `[.!?]\s+.*$` cut can over-trim org names with an internal period+space (e.g. "St. Jude" -> "St", "U.S. Robotics" -> drops "Robotics"). No impact on bots data; tighten later (only cut at sentence boundaries that are clearly prose, or require a min remaining length). Tracking informally; revisit if real org names get mangled.
 
 Verdict: safe to land. After deploy, a clean re-ingest of the bots sources should finally show RESEARCHER + PARTICIPANT in the entity review.
+
+### Opus — 2026-06-26 — #102 entity-classification tightening REVIEW: APPROVED (2 minor follow-ups)
+
+Reviewed entities.ts + extract-entities.ts diff.
+- Frame passed into the prompt (entity-extraction-v3) AND deterministic write-guards as a backstop. No-frame -> "no product context" -> competitors blocked (Jimmy's case). ✓
+- Filters bots/programs/events from companies; canonicalizes observed dup org names (circle ci->circleci, fossasia variants). Records entities_filtered + competitor_context_present. ✓ Not §0.
+Minor follow-ups (not blockers): (1) company-name reject keywords "grant"/"program"/"event" false-positive on legit names ("Grant Thornton"); tighten later. (2) hasProductCompetitionContext keyword gate is loose ("we"/"users"/"tool") so it can still allow competitors on some product-ish frames; blocks no-frame correctly which is what matters now. Real validation = next clean import (Codex verified types/build, not a live extraction).
