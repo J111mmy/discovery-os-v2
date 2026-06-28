@@ -6969,3 +6969,14 @@ Not §0. Verdict: safe to land. Validate by retrying existing bots sources (re-s
 ### Opus — 2026-06-26 — WO (P0, CODEX): prescan parser sibling of #96 (entity-review garbage)
 
 The bots re-ingest after #96 surfaced that the pre-ingest PRESCAN (src/lib/ingest/prescan.ts) is a SECOND parser, separate from #96's segmentation, and still format-fragile: emits garbage speaker "who -> creating their post every pull request", garbage orgs ("Layer Five. This is an organization", "JBoss. So"), and never detects PARTICIPANT N. Blocks the test because the prescan is where RESEARCHER/participant internal-vs-external flags are set. Fix: extract the #96 turn-parsing (splitInlineTimestampSpeakerLines/parseTranscriptTurns) into a SHARED utility and have prescan.ts consume it, so both layers detect the same clean speakers. Verify prescan lists RESEARCHER + PARTICIPANT N and sane orgs on the bots PDFs. Post diff for Opus review.
+
+### Opus — 2026-06-26 — #101 prescan shared-parser REVIEW: APPROVED (1 minor follow-up)
+
+Reviewed the diff.
+- New shared `transcript-turns.ts` holds parseTranscriptTurns; ingest-source.ts imports it and dropped its private copies (so #96 behavior is preserved, relocated). prescan.ts now consumes the same parser instead of its own regexes -> both layers detect identical speakers. ✓
+- USELESS_SPEAKER_LABELS filters "who"-style garbage; cleanOrgName strips sentence tails ("Layer Five. This is an organization" -> "Layer Five"). ✓
+- Verified by Codex vs all 12 bots PDFs: RESEARCHER + correct PARTICIPANT N each, no garbage; "PUSHKPAK" in P4 is a real source label, not noise. ✓ Not §0.
+
+**Minor follow-up (not a blocker):** `cleanOrgName`'s `[.!?]\s+.*$` cut can over-trim org names with an internal period+space (e.g. "St. Jude" -> "St", "U.S. Robotics" -> drops "Robotics"). No impact on bots data; tighten later (only cut at sentence boundaries that are clearly prose, or require a min remaining length). Tracking informally; revisit if real org names get mangled.
+
+Verdict: safe to land. After deploy, a clean re-ingest of the bots sources should finally show RESEARCHER + PARTICIPANT in the entity review.

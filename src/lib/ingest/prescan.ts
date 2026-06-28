@@ -1,4 +1,5 @@
 import type { ProjectEntityRole } from "@/lib/ingest/entity-resolutions";
+import { parseTranscriptTurns } from "@/lib/ingest/transcript-turns";
 import { normalizeSpeakerName } from "@/lib/speakers/resolve";
 import type { SourceType } from "@/types/database";
 
@@ -83,6 +84,18 @@ const TOOL_OR_PRODUCT_NAMES = new Set([
   "hubspot",
 ]);
 
+const USELESS_SPEAKER_LABELS = new Set([
+  "and",
+  "how",
+  "that",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "why",
+]);
+
 function clampScore(value: number) {
   return Number(Math.max(0, Math.min(1, value)).toFixed(3));
 }
@@ -113,6 +126,7 @@ function isUsefulLabel(label: string) {
   if (!normalized) return false;
   if (normalized.length < 2) return false;
   if (/^\d+$/.test(normalized)) return false;
+  if (USELESS_SPEAKER_LABELS.has(normalized)) return false;
   return true;
 }
 
@@ -125,29 +139,10 @@ function pushUniqueLabel(labels: Map<string, string>, label: string) {
 
 function parseTranscriptSpeakerLabels(rawText: string, type: SourceType) {
   const labels = new Map<string, string>();
-  const lines = rawText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const speakerColonLine =
-    /^(?:\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s+)?([A-Za-z0-9_@.' -]{2,80}):\s+\S/;
-  const timestampSpeakerLine =
-    /^\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s+([A-Za-z0-9_@.' -]{2,80})(?::)?\s+\S/;
-  const speakerTimestampLine =
-    /^([A-Za-z0-9_@.' -]{2,80})\s+\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s+\S/;
+  const turns = parseTranscriptTurns(rawText);
 
-  for (const line of lines) {
-    const colon = line.match(speakerColonLine)?.[1];
-    if (colon) {
-      pushUniqueLabel(labels, colon);
-      continue;
-    }
-
-    const timestampSpeaker = line.match(timestampSpeakerLine)?.[1];
-    if (timestampSpeaker) {
-      pushUniqueLabel(labels, timestampSpeaker);
-      continue;
-    }
-
-    const speakerTimestamp = line.match(speakerTimestampLine)?.[1];
-    if (speakerTimestamp) pushUniqueLabel(labels, speakerTimestamp);
+  for (const turn of turns) {
+    pushUniqueLabel(labels, turn.speaker);
   }
 
   if (!TRANSCRIPT_LIKE_TYPES.has(type) && labels.size < 2) return [];
@@ -161,6 +156,20 @@ function cleanName(value: string | null | undefined) {
     .replace(/[.;:]+$/g, "")
     .trim();
   return cleaned || null;
+}
+
+function cleanOrgName(value: string | null | undefined) {
+  const cleaned = cleanName(value);
+  if (!cleaned) return null;
+
+  const sentenceBounded = cleaned
+    .replace(/[.!?]\s+.*$/g, "")
+    .replace(/\s+\b(?:so|this|these|those|there|it|it's|i|we|you|they)\b.*$/i, "")
+    .replace(/[.;:]+$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  return sentenceBounded || null;
 }
 
 function parseInlineIdentityNotes(rawText: string) {
@@ -191,7 +200,7 @@ function parseInlineIdentityNotes(rawText: string) {
     const note: IdentityNote = {
       raw_label: rawLabel.trim(),
       suggested_name: suggestedName,
-      suggested_org_name: cleanName(orgMatch?.[1] ?? null),
+      suggested_org_name: cleanOrgName(orgMatch?.[1] ?? null),
       role_hint: cleanName(roleMatch?.[1] ?? null),
     };
     notes.set(normalizeSpeakerName(note.raw_label), note);
@@ -210,13 +219,12 @@ function detectMentionedOrgs(rawText: string, identityNotes: IdentityNote[]) {
   }
 
   const orgPatterns = [
-    /\b(?:works\s+(?:for|at)|from|at)\s+([A-Z][A-Za-z0-9 &'’.-]{1,80})/g,
     /\b(?:company|organisation|organization|employer)\s+(?:is|was|called|named)\s+([A-Z][A-Za-z0-9 &'’.-]{1,80})/g,
   ];
 
   for (const pattern of orgPatterns) {
     for (const match of Array.from(rawText.matchAll(pattern))) {
-      const name = cleanName(match[1]);
+      const name = cleanOrgName(match[1]);
       if (!name) continue;
       const key = normalizeSpeakerName(name);
       if (!key || TOOL_OR_PRODUCT_NAMES.has(key)) continue;
