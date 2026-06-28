@@ -30,6 +30,10 @@ The full specification is in `Discovery-OS-v2-PRD-final.docx` (in the parent Dis
 
 **Cost-safety law (extends §0.6) — Vercel HOBBY = 60s function cap:** the app runs on Vercel Hobby, so no single Inngest step may run an LLM call that can exceed ~55s. Heavy generation MUST be chunked into multiple sub-60s steps (reference: `generate-opportunities.ts` batches problems). Every USER-TRIGGERED LLM-spend agent MUST have BOTH (a) `concurrency: { limit: 1, key: "event.data.project_id" }` on the Inngest function, AND (b) an in-flight guard in its trigger action — query `agent_runs` for a `running` run of that `agent_type` for the project and no-op if one exists. This prevents accidental double-spend (a single doc/op should never cost two runs). Reference pattern: `runProjectOpportunitiesAction`, `runProjectOutcomeAssessmentAction`.
 
+**Cost-safety law — BOUND maxTokens + DON'T retry timeouts (added 2026-06-28, #112):** two ways a chunked agent still burns money even when chunking is correct:
+- **Bound per-call `maxTokens` to the actual output need.** The premium tier defaults to `maxTokens: 16000` (`models.ts`). For a batched/high-frequency call that only emits a small JSON payload (e.g. 1-4 problems), pass an explicit `maxTokens` override (~3000-4000) on the `callLLM`. Leaving the 16k default does two bad things: the call can't finish inside the ~50s sub-60s budget (so it times out every time), and worst-case cost per call is 4-5x what it needs to be. Match the output budget to the output, always.
+- **Never retry a timeout at full premium cost.** `callLLM` is non-streaming (`messages.create`), so when the client times out the model STILL completes server-side and bills full input+output — we just discard it. With `retries: 2` a single timed-out step bills 3 full generations for zero result (ref: #112, ~$2 on a fully-failed discover-problems run). For LLM-spend functions, keep `retries` low (1, sometimes 0) and/or fail fast on timeout errors. A timeout is rarely transient; retrying it identically just re-burns the spend.
+
 ---
 
 ## 0. SECURITY REVIEW GATE — NON-NEGOTIABLE

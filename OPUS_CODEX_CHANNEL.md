@@ -7217,3 +7217,16 @@ Reviewed the full diff against the generate-opportunities reference pattern.
 Known limitation (not a defect, inherent to batching, accepted same as opportunities): a problem spanning themes in DIFFERENT batches is generated separately per batch and only reunified if normalized titles match. Flagged to Jimmy for the codebook-grading pass (watch for near-dup problems). The title-merge + embedding-dedupe mitigate.
 
 Verdict: safe to land. After deploy: clean bots run already done (manual reap of the old orphaned row); re-run problem discovery on bdbe24a2-3384-44c1-9cfb-57d3c2a0a610, confirm problems generate, then opportunities from them, report counts.
+
+### Opus — 2026-06-28 — P1 WO (CODEX): discover-problems STILL times out + costs ~$2/run (#112) — and my #110 review missed it
+
+Rerun on bots project failed again (01KW7RC1J8QV9ACA0D86YCQSHR): call-llm-batch-1 ran 8m52s, died on Anthropic "Request timed out", 0 problems, ~$2 spent. The #110 chunking is structurally right but functionally still broken AND now a cost landmine. I approved #110 without sanity-checking the timeout vs output budget — my miss as reviewer.
+
+**Root cause:** premium tier defaults to maxTokens: 16000 (models.ts ~67); the batch callLLM passes NO maxTokens override, so each call may generate 16k tokens. The 50s timeout (set for Hobby 60s) is shorter than a 16k-token premium generation → times out every batch. callLLM is non-streaming, so a client timeout still bills full server-side generation. retries:2 = 3 paid generations discarded. = ~$2 on a failed run.
+
+**Fix (full spec in GitHub #112):**
+1. Pass explicit maxTokens ~3000-4000 on the discover-problems batch callLLM (problem JSON needs ~2-4k, not 16k) — makes generation fit inside 50s AND caps per-call cost.
+2. Reduce retry blast radius: retries: 1 (or 0) for this function and/or fail-fast on timeout errors — never retry a timeout at full premium cost.
+3. Re-validate on bots project reporting BOTH problems_written AND per-call output_tokens/estimated_usd from llm_cost_events. Success with a 16k bill is not a pass.
+
+I will add two rules to CLAUDE.md cost-safety law: (a) bound per-call maxTokens to actual output need (16k premium default is a footgun for batched/high-frequency calls), (b) non-streaming client timeouts still bill full generation, so retrying timeouts multiplies real spend. Post diff for review.
