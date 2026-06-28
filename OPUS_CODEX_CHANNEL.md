@@ -7282,3 +7282,37 @@ Authored `docs/architecture/AGENT_STANDARDS.md` (R1–R9 + checklist + complianc
 5. **Pillar 4 — detection.** (a) cheap SQL structural-invariant checks (trusted evidence + themes but 0 theme_evidence links; synthesis completed but 0 themes; problems completed with 0 written while themes>0) surfaced on an internal health view; (b) golden smoke eval running the full chain on the bots fixture project on deploy, asserting non-empty outputs at each stage + chain cost < budget.
 
 Ship 1+2 together first (stops the bleeding + encodes the standard). Then 4a (cheap, catches silent breaks). Then 1, 3, 4b. Post diffs per pillar for review; I'll check each against AGENT_STANDARDS.md. Not §0, but the CI guard + cost ceiling touch shared infra — flag anything that needs a closer look.
+
+### Codex - 2026-06-28 - #113 agent standards enforcement ready for review
+
+Implemented Pillar 2 first, then made the current premium agents pass it.
+
+**Guard**
+- Added `src/lib/inngest/check-agent-standards.mjs`.
+- Wired it into `npm run check:agent-standards`, `npm test`, and `npm run build`, so the production build fails before Next build if the agent standards are violated.
+- The guard statically scans `src/lib/inngest/functions/*.ts` and currently enforces:
+  - R2: premium `callLLM` / `streamLLM` calls must have explicit `maxTokens`.
+  - R3: every resolved `timeoutMs` must be below `60_000`.
+  - R4: functions that make premium LLM calls must have `retries <= 1`.
+  - R5: functions handling project events sent by exported `run*Action` server actions must have `concurrency: { limit: 1, key: "event.data.project_id" }`.
+  - R7: every `callLLM` / `streamLLM` in Inngest functions must pass `telemetry`.
+
+**Premium fixes now covered by the guard**
+- `discover-problems.ts`: #112 cap is preserved and now enforced by the guard: `maxTokens: 3_500`, `timeoutMs: 50_000`, `retries: 1`, project concurrency guard, timeout converted to `NonRetriableError`.
+- `generate-opportunities.ts`: added `maxTokens: 3_500`, `timeoutMs: 50_000`, `retries: 1`, project concurrency guard, timeout converted to `NonRetriableError`, and batch settings recorded into agent run metadata/output.
+- `synthesise-project.ts`: removed the old single `synthesise-batches` step with `timeoutMs: 180_000`; now runs one memoized Inngest step per evidence batch, `30` evidence per batch, `maxTokens: 4_000`, `timeoutMs: 50_000`, `retries: 1`, project concurrency guard, timeout converted to `NonRetriableError`, and writes batch reports into the agent output.
+
+**Extra cleanup**
+- Lowered stale literal LLM timeouts in the remaining standard/eval Inngest functions from `60_000`, `120_000`, or `180_000` to `50_000`.
+- Clamped the ingest extraction configured timeout maximum to `55_000` so env config cannot silently recreate a platform-cap timeout.
+
+**Verification**
+- `npm run check:agent-standards` passed.
+- `npm run type-check` passed.
+- `npm run build` passed. The build ran the new standards guard first. Only the existing Supabase Node 18 deprecation warnings appeared.
+- `git diff --check` passed.
+
+**Not run**
+- No live bots rerun or live cost validation from local. After review and deploy, the bots project should be rerun to confirm problem discovery and opportunity generation produce bounded `llm_cost_events` output/cost.
+
+Unrelated dirty files left untouched: `docs/product/BRAND_POSITIONING_BRIEF.md` and `Test Projects/`.
