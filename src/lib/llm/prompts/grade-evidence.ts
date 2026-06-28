@@ -58,6 +58,13 @@ export type GradeResult = {
   reason: string;
 };
 
+export type GradeParseResult = {
+  grades: GradeResult[];
+  invalid_count: number;
+  mode: "json_array" | "object_scan" | "none";
+  error: string | null;
+};
+
 export function buildGradeEvidencePrompt(params: {
   researchContext: string;
   evidence: Array<{ id: string; content: string; classification: string | null }>;
@@ -108,36 +115,152 @@ export function formatResearchContext(context: Record<string, unknown> | null): 
     : "No research context set. Grade conservatively.";
 }
 
-export function parseGradeResults(raw: string): GradeResult[] | null {
-  try {
-    const cleaned = raw
-      .trim()
-      .replace(/^```(?:json)?\n?/, "")
-      .replace(/\n?```$/, "");
-    const parsed = JSON.parse(cleaned) as unknown;
+function stripJsonFence(raw: string) {
+  return raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+}
 
-    if (!Array.isArray(parsed)) return null;
+function parseGradeItem(item: unknown): GradeResult | null {
+  if (
+    typeof item === "object" &&
+    item !== null &&
+    typeof (item as Record<string, unknown>).id === "string" &&
+    ["trusted", "uncertain", "weak"].includes((item as Record<string, unknown>).grade as string)
+  ) {
+    return {
+      id: (item as Record<string, unknown>).id as string,
+      grade: (item as Record<string, unknown>).grade as EvidenceGrade,
+      reason:
+        typeof (item as Record<string, unknown>).reason === "string"
+          ? ((item as Record<string, unknown>).reason as string)
+          : "",
+    };
+  }
 
-    const results: GradeResult[] = [];
-    for (const item of parsed) {
-      if (
-        typeof item === "object" &&
-        item !== null &&
-        typeof (item as Record<string, unknown>).id === "string" &&
-        ["trusted", "uncertain", "weak"].includes((item as Record<string, unknown>).grade as string)
-      ) {
-        results.push({
-          id: (item as Record<string, unknown>).id as string,
-          grade: (item as Record<string, unknown>).grade as EvidenceGrade,
-          reason:
-            typeof (item as Record<string, unknown>).reason === "string"
-              ? ((item as Record<string, unknown>).reason as string)
-              : "",
-        });
+  return null;
+}
+
+function parseGradeArray(value: unknown) {
+  if (!Array.isArray(value)) return { grades: [] as GradeResult[], invalid_count: 0 };
+
+  const grades: GradeResult[] = [];
+  let invalidCount = 0;
+  for (const item of value) {
+    const grade = parseGradeItem(item);
+    if (grade) grades.push(grade);
+    else invalidCount += 1;
+  }
+
+  return { grades, invalid_count: invalidCount };
+}
+
+function extractCompleteJsonObjects(raw: string) {
+  const objects: string[] = [];
+  const start = raw.indexOf("[");
+  const text = start >= 0 ? raw.slice(start) : raw;
+  let inString = false;
+  let escaped = false;
+  let depth = 0;
+  let objectStart = -1;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
       }
+      continue;
     }
 
-    return results.length > 0 ? results : null;
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{") {
+      if (depth === 0) objectStart = i;
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}") {
+      if (depth === 0) continue;
+      depth -= 1;
+      if (depth === 0 && objectStart >= 0) {
+        objects.push(text.slice(objectStart, i + 1));
+        objectStart = -1;
+      }
+    }
+  }
+
+  return objects;
+}
+
+export function parseGradeResultsDetailed(raw: string): GradeParseResult {
+  const cleaned = stripJsonFence(raw);
+  const arrayStart = cleaned.indexOf("[");
+  const arrayEnd = cleaned.lastIndexOf("]");
+
+  if (arrayStart >= 0 && arrayEnd > arrayStart) {
+    try {
+      const parsed = JSON.parse(cleaned.slice(arrayStart, arrayEnd + 1)) as unknown;
+      const arrayResult = parseGradeArray(parsed);
+      if (arrayResult.grades.length > 0) {
+        return {
+          ...arrayResult,
+          mode: "json_array",
+          error: null,
+        };
+      }
+    } catch {
+      // Fall through to object scanning. This keeps wrapped or partially
+      // malformed responses from nuking the entire batch.
+    }
+  }
+
+  const objects = extractCompleteJsonObjects(cleaned);
+  const grades: GradeResult[] = [];
+  let invalidCount = 0;
+
+  for (const object of objects) {
+    try {
+      const grade = parseGradeItem(JSON.parse(object) as unknown);
+      if (grade) grades.push(grade);
+      else invalidCount += 1;
+    } catch {
+      invalidCount += 1;
+    }
+  }
+
+  if (grades.length > 0) {
+    return {
+      grades,
+      invalid_count: invalidCount,
+      mode: "object_scan",
+      error: null,
+    };
+  }
+
+  return {
+    grades: [],
+    invalid_count: invalidCount,
+    mode: "none",
+    error: "No parseable grade objects found",
+  };
+}
+
+export function parseGradeResults(raw: string): GradeResult[] | null {
+  try {
+    const parsed = parseGradeResultsDetailed(raw);
+    return parsed.grades.length > 0 ? parsed.grades : null;
   } catch {
     return null;
   }
