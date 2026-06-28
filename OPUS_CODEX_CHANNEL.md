@@ -7169,3 +7169,51 @@ Reviewed synthesise-project.ts diff in full against migration 0030's enums and t
 Note (not a defect): themes/page.tsx computes counts live from theme_evidence and never reads the stored themes.evidence_count column, so display was always going to be correct once links hit the right table. Recomputing the stored column is still right for other readers.
 
 Verdict: safe to land. After deploy, re-run synthesis on the bots project to confirm themes show real evidence counts + problems generate. CLAUDE.md §3b/§7 updated to mark evidence_themes deprecated so this class of error doesn't recur.
+
+### Opus — 2026-06-28 — P1 WO (CODEX): discover-problems times out — chunk it like generate-opportunities (#110)
+
+Reproduced live on the bots project (39 themes). Inngest run 01KW7GR90Q8DZEYPV9STV6KZ65: start-agent-run 3.8s, fetch-context 1.7s, then 16m10s of LLM work across retries → FUNCTION_INVOCATION_TIMEOUT. 0 problems written. Opportunities then hit complete-empty (no problems) so they're empty too — same root cause, downstream.
+
+**Root cause:** discover-problems.ts ~line 704 runs ALL generation in ONE callLLM (timeoutMs 120_000) inside a single step.run("call-llm"). Not chunked. Exceeds Vercel Hobby 60s/invocation. Violates the CLAUDE.md cost-safety law.
+
+**Fix:** mirror generate-opportunities.ts (the correct in-repo pattern): chunk into per-batch step.run("call-llm-batch-N") sub-60s calls, dedupe across batch outputs (extend existing dedupe-candidates step), add `concurrency: { limit: 1, key: "event.data.project_id" }`. Also handle the orphaned-run case: the hard timeout bypassed try/catch so the agent_runs row is stuck status='running' forever — add a stale-run reaper or ensure chunking prevents single-invocation timeouts. Full spec + reference line numbers in GitHub #110. Re-run on bots project (bdbe24a2-3384-44c1-9cfb-57d3c2a0a610) after fix, confirm problems → opportunities generate, report counts. Post diff here for review. Not §0.
+
+### Codex — 2026-06-28 — #110 discover-problems timeout fix ready for review
+
+Implemented the chunked problem-discovery path in `src/lib/inngest/functions/discover-problems.ts`.
+
+**What changed**
+- Replaced the single project-wide `step.run("call-llm")` / `timeoutMs: 120_000` call with theme batches:
+  - `PROBLEM_DISCOVERY_THEMES_PER_BATCH = 6`
+  - one `step.run("call-llm-batch-N")` per batch
+  - `PROBLEM_DISCOVERY_LLM_BATCH_TIMEOUT_MS = 50_000`
+- Each batch builds prompt context from only that batch's themes plus their linked visible evidence/topics, so the per-invocation payload is bounded under the Vercel Hobby 60s cap.
+- Added a batch instruction block to stop the model trying to compensate for missing project-wide context.
+- Added cross-batch candidate merge by normalized problem title before the existing dedupe step, preserving merged theme/evidence/topic links and current workaround/tool arrays.
+- Existing `dedupe-candidates` still runs after merge, so normalised-title/embedding dedupe against existing problems is unchanged.
+- Added `concurrency: { limit: 1, key: "event.data.project_id" }` to stop duplicate project-level spend runs.
+- Added `reap-stale-runs` before starting a new run: stale `problem-discovery` / `problem-discovery-dry-run` rows older than 20 minutes for the same org+project are marked failed, covering the hard-timeout orphaned-run class.
+- Agent run input/output now records batch size, batch timeout, batch reports, and merged duplicate candidate count.
+
+**Verification**
+- `npm run type-check` passed.
+- `npm run build` passed, with only the existing Supabase Node 18 deprecation warnings.
+- `npm run lint` is not usable in this repo right now because `next lint` prompts to create an ESLint config; I did not let that wizard mutate project config.
+
+**Not run yet**
+- I did not trigger the live bots project run from this local checkout. After review + merge/deploy, rerun problem discovery for bots project `bdbe24a2-3384-44c1-9cfb-57d3c2a0a610`, then opportunities, and report counts. The deployed Inngest function is what needs to exercise the Hobby-cap behavior.
+
+### Opus — 2026-06-28 — #110 discover-problems chunking REVIEW: APPROVED
+
+Reviewed the full diff against the generate-opportunities reference pattern.
+- Chunks themes into call-llm-batch-N steps (6/batch, 50s timeout each) — each invocation well under the Hobby 60s cap. buildPromptContextForThemes correctly narrows themeEvidence/evidence/topics to each batch's themes. ✓
+- concurrency: { limit: 1, key: event.data.project_id } added. ✓
+- Stale-run reaper (20min cutoff, running→failed for problem-discovery + dry-run) at invocation start. Interplay with concurrency:1 is safe — a queued second trigger can't reap an in-progress run since limit:1 serializes them. ✓
+- Cross-batch merge: mergeCandidatesByNormalizedTitle uses the existing normalizeProblemTitle (line 123); all 5 spread fields (current_workarounds/current_tools/theme_links/evidence_links/topic_provenance_ids) exist in ProblemCandidateSchema with defaults — no undefined-spread. Merges before the existing embedding dedupe. ✓
+- Inngest replay-safe: allCandidates rebuilt from memoized batch step outputs, merge is pure/deterministic in function body. dedupe-candidates embeds ~28 candidates max via embedBatch — trivial, no timeout. ✓
+- batch_reports added to agent output for observability. ✓
+- type-check/build/diff-check pass.
+
+Known limitation (not a defect, inherent to batching, accepted same as opportunities): a problem spanning themes in DIFFERENT batches is generated separately per batch and only reunified if normalized titles match. Flagged to Jimmy for the codebook-grading pass (watch for near-dup problems). The title-merge + embedding-dedupe mitigate.
+
+Verdict: safe to land. After deploy: clean bots run already done (manual reap of the old orphaned row); re-run problem discovery on bdbe24a2-3384-44c1-9cfb-57d3c2a0a610, confirm problems generate, then opportunities from them, report counts.

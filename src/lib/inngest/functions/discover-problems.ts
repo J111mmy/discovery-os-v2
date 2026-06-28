@@ -22,6 +22,9 @@ const PROBLEM_DEDUPE_SIMILARITY_THRESHOLD = 0.86;
 const MAX_THEMES_FOR_PROMPT = 24;
 const MAX_EVIDENCE_PER_THEME = 8;
 const MAX_EVIDENCE_FOR_PROMPT = 120;
+const PROBLEM_DISCOVERY_THEMES_PER_BATCH = 6;
+const PROBLEM_DISCOVERY_LLM_BATCH_TIMEOUT_MS = 50_000;
+const STALE_PROBLEM_DISCOVERY_RUN_MS = 20 * 60 * 1000;
 
 type ThemeRow = {
   id: string;
@@ -129,6 +132,26 @@ function uniqueStrings(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
 
+function chunkArray<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function mergeByKey<T>(items: T[], getKey: (item: T) => string) {
+  const seen = new Set<string>();
+  const merged: T[] = [];
+  for (const item of items) {
+    const key = getKey(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(item);
+  }
+  return merged;
+}
+
 function truncate(value: string, max = 900) {
   const trimmed = value.trim();
   if (trimmed.length <= max) return trimmed;
@@ -141,6 +164,48 @@ function problemText(problem: Pick<ExistingProblemRow, "title" | "description" |
 
 function candidateText(candidate: Pick<ProblemCandidate, "title" | "statement" | "description">) {
   return [candidate.title, candidate.statement, candidate.description].filter(Boolean).join(". ");
+}
+
+function mergeCandidatesByNormalizedTitle(candidates: ProblemCandidate[]) {
+  const indexByTitle = new Map<string, number>();
+  const merged: ProblemCandidate[] = [];
+  let mergedDuplicates = 0;
+
+  for (const candidate of candidates) {
+    const key = normalizeProblemTitle(candidate.title);
+    const existingIndex = key ? indexByTitle.get(key) : undefined;
+
+    if (existingIndex == null) {
+      if (key) indexByTitle.set(key, merged.length);
+      merged.push(candidate);
+      continue;
+    }
+
+    const existing = merged[existingIndex];
+    merged[existingIndex] = {
+      ...existing,
+      current_workarounds: uniqueStrings([
+        ...existing.current_workarounds,
+        ...candidate.current_workarounds,
+      ]).slice(0, 8),
+      current_tools: uniqueStrings([...existing.current_tools, ...candidate.current_tools]).slice(0, 8),
+      theme_links: mergeByKey(
+        [...existing.theme_links, ...candidate.theme_links],
+        (link) => `${link.theme_id}:${link.relationship}`
+      ),
+      evidence_links: mergeByKey(
+        [...existing.evidence_links, ...candidate.evidence_links],
+        (link) => `${link.evidence_id}:${link.relationship}`
+      ),
+      topic_provenance_ids: uniqueStrings([
+        ...existing.topic_provenance_ids,
+        ...candidate.topic_provenance_ids,
+      ]),
+    };
+    mergedDuplicates += 1;
+  }
+
+  return { candidates: merged, merged_duplicates: mergedDuplicates };
 }
 
 function cosineSimilarity(left: number[], right: number[]) {
@@ -262,6 +327,36 @@ function formatResearchDataForPrompt({
   return [`TOPICS:\n${topicBlock}`, `THEMES:\n${themeBlocks.join("\n\n---\n\n")}`].join(
     "\n\n======\n\n"
   );
+}
+
+type ProblemDiscoveryPromptContext = {
+  themes: ThemeRow[];
+  themeEvidence: ThemeEvidenceRow[];
+  evidence: EvidenceRow[];
+  evidenceTopics: EvidenceTopicRow[];
+  topics: TopicRow[];
+};
+
+function buildPromptContextForThemes(
+  context: ProblemDiscoveryPromptContext,
+  themes: ThemeRow[]
+): ProblemDiscoveryPromptContext {
+  const themeIds = new Set(themes.map((theme) => theme.id));
+  const themeEvidence = context.themeEvidence.filter((link) => themeIds.has(link.theme_id));
+  const evidenceIds = new Set(themeEvidence.map((link) => link.evidence_id));
+  const evidence = context.evidence.filter((row) => evidenceIds.has(row.id));
+  const visibleEvidenceIds = new Set(evidence.map((row) => row.id));
+  const evidenceTopics = context.evidenceTopics.filter((link) => visibleEvidenceIds.has(link.evidence_id));
+  const topicIds = new Set(evidenceTopics.map((link) => link.topic_id));
+  const topics = context.topics.filter((topic) => topicIds.has(topic.id));
+
+  return {
+    themes,
+    themeEvidence,
+    evidence,
+    evidenceTopics,
+    topics,
+  };
 }
 
 function sanitizeCandidate(
@@ -474,7 +569,12 @@ async function writeTypedLinks({
 }
 
 export const discoverProblems = inngest.createFunction(
-  { id: "discover-problems", name: "Discover Problems", retries: 2 },
+  {
+    id: "discover-problems",
+    name: "Discover Problems",
+    retries: 2,
+    concurrency: { limit: 1, key: "event.data.project_id" },
+  },
   { event: "project/problems.requested" },
   async ({ event, step }) => {
     const { org_id, project_id } = event.data;
@@ -483,6 +583,26 @@ export const discoverProblems = inngest.createFunction(
     let agentRunId: string | null = null;
 
     try {
+      await step.run("reap-stale-runs", async () => {
+        const cutoff = new Date(Date.now() - STALE_PROBLEM_DISCOVERY_RUN_MS).toISOString();
+        const { error } = await supabase
+          .from("agent_runs")
+          .update({
+            status: "failed",
+            error: "Marked failed after stale problem discovery timeout.",
+            completed_at: new Date().toISOString(),
+          })
+          .eq("org_id", org_id)
+          .eq("project_id", project_id)
+          .in("agent_type", ["problem-discovery", "problem-discovery-dry-run"])
+          .eq("status", "running")
+          .lt("started_at", cutoff);
+
+        if (error) {
+          throw new Error(`Failed to reap stale problem discovery runs: ${error.message}`);
+        }
+      });
+
       agentRunId = await step.run("start-agent-run", async () => {
         const { data, error } = await supabase
           .from("agent_runs")
@@ -494,6 +614,8 @@ export const discoverProblems = inngest.createFunction(
               prompt_version: PROBLEM_DISCOVERY_PROMPT_VERSION,
               dedupe_similarity_threshold: PROBLEM_DEDUPE_SIMILARITY_THRESHOLD,
               dry_run: dryRun,
+              batch_size: PROBLEM_DISCOVERY_THEMES_PER_BATCH,
+              batch_timeout_ms: PROBLEM_DISCOVERY_LLM_BATCH_TIMEOUT_MS,
             },
           })
           .select("id")
@@ -676,6 +798,8 @@ export const discoverProblems = inngest.createFunction(
               status: "completed",
               output: {
                 dry_run: dryRun,
+                batch_size: PROBLEM_DISCOVERY_THEMES_PER_BATCH,
+                batch_timeout_ms: PROBLEM_DISCOVERY_LLM_BATCH_TIMEOUT_MS,
                 themes: context.themes.length,
                 theme_evidence_links: context.themeEvidence.length,
                 adjacent_evidence_excluded: context.adjacentEvidenceExcluded,
@@ -690,85 +814,154 @@ export const discoverProblems = inngest.createFunction(
         return { themes: context.themes.length, problems_written: 0 };
       }
 
-      const { candidates, model_used, dropped_candidates } = await step.run("call-llm", async () => {
-        const evidenceById = new Map(context.evidence.map((row) => [row.id, row]));
-        const topicById = new Map(context.topics.map((topic) => [topic.id, topic]));
-        const researchData = formatResearchDataForPrompt({
-          themes: context.themes,
-          themeEvidence: context.themeEvidence,
-          evidenceById,
-          evidenceTopics: context.evidenceTopics,
-          topicById,
-        });
+      const themeBatches = chunkArray(context.themes, PROBLEM_DISCOVERY_THEMES_PER_BATCH);
+      const batchReports: Array<{
+        batch: number;
+        themes: number;
+        theme_ids: string[];
+        theme_evidence_links: number;
+        evidence_supplied: number;
+        topics_supplied: number;
+        candidates: number;
+        dropped_candidates: number;
+        model_used: string | null;
+        skipped_reason?: string;
+      }> = [];
+      const allCandidates: ProblemCandidate[] = [];
 
-        const result = await callLLM({
-          tier: "premium",
-          // Strict-JSON extraction — request a lower temperature than the premium default
-          // for more reliable schema/enum compliance. Per-call override only; tier default
-          // unchanged. NOTE: inert while premium routes to gpt-5* (those ignore temperature);
-          // takes effect if premium is re-routed to a temperature-supporting model. The
-          // per-candidate parser is the real safety net regardless.
-          temperature: 0.25,
-          system:
-            "You surface structured product problems from research evidence. Return strict JSON only.",
-          messages: [
-            {
-              role: "user",
-              content: buildProblemDiscoveryPrompt({
-                frame: context.frame || "No project frame set.",
-                researchData,
-              }),
-            },
-          ],
-          timeoutMs: 120_000,
-          telemetry: {
-            orgId: org_id,
-            projectId: project_id,
-            agentRunId,
-            agentType: dryRun ? "problem-discovery-dry-run" : "problem-discovery",
-            step: "call-llm",
-          },
-        });
+      for (let batchIndex = 0; batchIndex < themeBatches.length; batchIndex += 1) {
+        const batchThemes = themeBatches[batchIndex];
+        const batchNumber = batchIndex + 1;
+        const batchContext = buildPromptContextForThemes(context, batchThemes);
 
-        // Resilient parse: extractJsonArray still throws if the response is not a
-        // parseable JSON array at all. But a single malformed candidate must not
-        // fail the whole batch — validate each element individually, keep the valid
-        // ones, and drop (with a warning) the invalid ones for observability.
-        const rawArray = extractJsonArray(result.content);
-        if (!Array.isArray(rawArray)) {
-          throw new Error("Problem discovery did not return a JSON array");
+        if (batchContext.themeEvidence.length === 0 || batchContext.evidence.length === 0) {
+          batchReports.push({
+            batch: batchNumber,
+            themes: batchContext.themes.length,
+            theme_ids: batchContext.themes.map((theme) => theme.id),
+            theme_evidence_links: batchContext.themeEvidence.length,
+            evidence_supplied: batchContext.evidence.length,
+            topics_supplied: batchContext.topics.length,
+            candidates: 0,
+            dropped_candidates: 0,
+            model_used: null,
+            skipped_reason:
+              batchContext.themeEvidence.length === 0 ? "no_supported_theme_evidence" : "no_supported_evidence",
+          });
+          continue;
         }
 
-        let droppedCount = 0;
-        const validCandidates: ProblemCandidate[] = [];
-        rawArray.forEach((element, index) => {
-          const parsedCandidate = ProblemCandidateSchema.safeParse(element);
-          if (parsedCandidate.success) {
-            validCandidates.push(parsedCandidate.data);
-            return;
+        const batchResult = await step.run(`call-llm-batch-${batchNumber}`, async () => {
+          const evidenceById = new Map(batchContext.evidence.map((row) => [row.id, row]));
+          const topicById = new Map(batchContext.topics.map((topic) => [topic.id, topic]));
+          const researchData = formatResearchDataForPrompt({
+            themes: batchContext.themes,
+            themeEvidence: batchContext.themeEvidence,
+            evidenceById,
+            evidenceTopics: batchContext.evidenceTopics,
+            topicById,
+          });
+
+          const result = await callLLM({
+            tier: "premium",
+            // Strict-JSON extraction — request a lower temperature than the premium default
+            // for more reliable schema/enum compliance. Per-call override only; tier default
+            // unchanged. NOTE: inert while premium routes to gpt-5* (those ignore temperature);
+            // takes effect if premium is re-routed to a temperature-supporting model. The
+            // per-candidate parser is the real safety net regardless.
+            temperature: 0.25,
+            system:
+              "You surface structured product problems from research evidence. Return strict JSON only.",
+            messages: [
+              {
+                role: "user",
+                content: `${buildProblemDiscoveryPrompt({
+                  frame: context.frame || "No project frame set.",
+                  researchData,
+                })}
+
+BATCH EXECUTION:
+- This is batch ${batchNumber} of ${themeBatches.length}.
+- Generate 1-4 high-quality problems for this batch only.
+- Other batches cover other themes; do not compensate for missing project-wide context.
+- Return strict JSON only.`,
+              },
+            ],
+            timeoutMs: PROBLEM_DISCOVERY_LLM_BATCH_TIMEOUT_MS,
+            telemetry: {
+              orgId: org_id,
+              projectId: project_id,
+              agentRunId,
+              agentType: dryRun ? "problem-discovery-dry-run" : "problem-discovery",
+              step: `call-llm-batch-${batchNumber}`,
+            },
+          });
+
+          // Resilient parse: extractJsonArray still throws if the response is not a
+          // parseable JSON array at all. But a single malformed candidate must not
+          // fail the whole batch — validate each element individually, keep the valid
+          // ones, and drop (with a warning) the invalid ones for observability.
+          const rawArray = extractJsonArray(result.content);
+          if (!Array.isArray(rawArray)) {
+            throw new Error(`Problem discovery batch ${batchNumber} did not return a JSON array`);
           }
-          droppedCount += 1;
-          const failingPaths = parsedCandidate.error.issues
-            .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
-            .join("; ");
-          console.warn(
-            `[discover-problems] dropped invalid problem candidate at index ${index}: ${failingPaths}`
-          );
+
+          let droppedCount = 0;
+          const validCandidates: ProblemCandidate[] = [];
+          rawArray.forEach((element, index) => {
+            const parsedCandidate = ProblemCandidateSchema.safeParse(element);
+            if (parsedCandidate.success) {
+              validCandidates.push(parsedCandidate.data);
+              return;
+            }
+            droppedCount += 1;
+            const failingPaths = parsedCandidate.error.issues
+              .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+              .join("; ");
+            console.warn(
+              `[discover-problems] dropped invalid problem candidate in batch ${batchNumber} at index ${index}: ${failingPaths}`
+            );
+          });
+
+          const allowedThemeIds = new Set(batchContext.themes.map((theme) => theme.id));
+          const allowedEvidenceIds = new Set(batchContext.evidence.map((row) => row.id));
+          const allowedTopicIds = new Set(batchContext.topics.map((topic) => topic.id));
+          const sanitized = validCandidates
+            .map((candidate) =>
+              sanitizeCandidate(candidate, allowedThemeIds, allowedEvidenceIds, allowedTopicIds)
+            )
+            .filter((candidate) =>
+              candidate.evidence_links.some((link) =>
+                ["supporting", "example"].includes(link.relationship)
+              )
+            );
+
+          return { candidates: sanitized, model_used: result.model, dropped_candidates: droppedCount };
         });
 
-        const allowedThemeIds = new Set(context.themes.map((theme) => theme.id));
-        const allowedEvidenceIds = new Set(context.evidence.map((row) => row.id));
-        const allowedTopicIds = new Set(context.topics.map((topic) => topic.id));
-        const sanitized = validCandidates
-          .map((candidate) => sanitizeCandidate(candidate, allowedThemeIds, allowedEvidenceIds, allowedTopicIds))
-          .filter((candidate) =>
-            candidate.evidence_links.some((link) =>
-              ["supporting", "example"].includes(link.relationship)
-            )
-          );
+        allCandidates.push(...batchResult.candidates);
+        batchReports.push({
+          batch: batchNumber,
+          themes: batchContext.themes.length,
+          theme_ids: batchContext.themes.map((theme) => theme.id),
+          theme_evidence_links: batchContext.themeEvidence.length,
+          evidence_supplied: batchContext.evidence.length,
+          topics_supplied: batchContext.topics.length,
+          candidates: batchResult.candidates.length,
+          dropped_candidates: batchResult.dropped_candidates,
+          model_used: batchResult.model_used,
+        });
+      }
 
-        return { candidates: sanitized, model_used: result.model, dropped_candidates: droppedCount };
-      });
+      const mergedCandidates = mergeCandidatesByNormalizedTitle(allCandidates);
+      const candidates = mergedCandidates.candidates;
+      const model_used = uniqueStrings(
+        batchReports.map((report) => report.model_used).filter((model): model is string => Boolean(model))
+      ).join(", ");
+      const dropped_candidates = batchReports.reduce(
+        (total, report) => total + report.dropped_candidates,
+        0
+      );
 
       const plans = await step.run("dedupe-candidates", async () =>
         buildDedupePlans({
@@ -888,6 +1081,11 @@ export const discoverProblems = inngest.createFunction(
           dedupe_methods: dedupeMethods,
           similarity_histogram: similarityHistogram,
           planned_writes: dryRun ? plans.length - skipped : 0,
+          theme_batches: themeBatches.length,
+          batch_size: PROBLEM_DISCOVERY_THEMES_PER_BATCH,
+          batch_timeout_ms: PROBLEM_DISCOVERY_LLM_BATCH_TIMEOUT_MS,
+          batch_reports: batchReports,
+          merged_duplicate_candidates: mergedCandidates.merged_duplicates,
           adjacent_evidence_excluded: context.adjacentEvidenceExcluded,
           internal_evidence_excluded: context.internalEvidenceExcluded,
         };
