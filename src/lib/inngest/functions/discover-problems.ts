@@ -2,6 +2,7 @@
 // Triggered by project/problems.requested (emitted by synthesise-project after themes are written).
 
 import { z } from "zod";
+import { NonRetriableError } from "inngest";
 import { inngest } from "../client";
 import { createServiceClient } from "@/lib/supabase/server";
 import { callLLM, embedBatch } from "@/lib/llm/client";
@@ -24,6 +25,7 @@ const MAX_EVIDENCE_PER_THEME = 8;
 const MAX_EVIDENCE_FOR_PROMPT = 120;
 const PROBLEM_DISCOVERY_THEMES_PER_BATCH = 6;
 const PROBLEM_DISCOVERY_LLM_BATCH_TIMEOUT_MS = 50_000;
+const PROBLEM_DISCOVERY_BATCH_MAX_TOKENS = 3_500;
 const STALE_PROBLEM_DISCOVERY_RUN_MS = 20 * 60 * 1000;
 
 type ThemeRow = {
@@ -130,6 +132,11 @@ function normalizeProblemTitle(title: string) {
 
 function uniqueStrings(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function isTimeoutError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b(timed out|timeout|aborted|deadline)\b/i.test(message);
 }
 
 function chunkArray<T>(items: T[], size: number) {
@@ -572,7 +579,7 @@ export const discoverProblems = inngest.createFunction(
   {
     id: "discover-problems",
     name: "Discover Problems",
-    retries: 2,
+    retries: 1,
     concurrency: { limit: 1, key: "event.data.project_id" },
   },
   { event: "project/problems.requested" },
@@ -616,6 +623,7 @@ export const discoverProblems = inngest.createFunction(
               dry_run: dryRun,
               batch_size: PROBLEM_DISCOVERY_THEMES_PER_BATCH,
               batch_timeout_ms: PROBLEM_DISCOVERY_LLM_BATCH_TIMEOUT_MS,
+              batch_max_tokens: PROBLEM_DISCOVERY_BATCH_MAX_TOKENS,
             },
           })
           .select("id")
@@ -800,6 +808,7 @@ export const discoverProblems = inngest.createFunction(
                 dry_run: dryRun,
                 batch_size: PROBLEM_DISCOVERY_THEMES_PER_BATCH,
                 batch_timeout_ms: PROBLEM_DISCOVERY_LLM_BATCH_TIMEOUT_MS,
+                batch_max_tokens: PROBLEM_DISCOVERY_BATCH_MAX_TOKENS,
                 themes: context.themes.length,
                 theme_evidence_links: context.themeEvidence.length,
                 adjacent_evidence_excluded: context.adjacentEvidenceExcluded,
@@ -862,40 +871,52 @@ export const discoverProblems = inngest.createFunction(
             topicById,
           });
 
-          const result = await callLLM({
-            tier: "premium",
-            // Strict-JSON extraction — request a lower temperature than the premium default
-            // for more reliable schema/enum compliance. Per-call override only; tier default
-            // unchanged. NOTE: inert while premium routes to gpt-5* (those ignore temperature);
-            // takes effect if premium is re-routed to a temperature-supporting model. The
-            // per-candidate parser is the real safety net regardless.
-            temperature: 0.25,
-            system:
-              "You surface structured product problems from research evidence. Return strict JSON only.",
-            messages: [
-              {
-                role: "user",
-                content: `${buildProblemDiscoveryPrompt({
-                  frame: context.frame || "No project frame set.",
-                  researchData,
-                })}
+          let result: Awaited<ReturnType<typeof callLLM>>;
+          try {
+            result = await callLLM({
+              tier: "premium",
+              // Strict-JSON extraction — request a lower temperature than the premium default
+              // for more reliable schema/enum compliance. Per-call override only; tier default
+              // unchanged. NOTE: inert while premium routes to gpt-5* (those ignore temperature);
+              // takes effect if premium is re-routed to a temperature-supporting model. The
+              // per-candidate parser is the real safety net regardless.
+              temperature: 0.25,
+              maxTokens: PROBLEM_DISCOVERY_BATCH_MAX_TOKENS,
+              system:
+                "You surface structured product problems from research evidence. Return strict JSON only.",
+              messages: [
+                {
+                  role: "user",
+                  content: `${buildProblemDiscoveryPrompt({
+                    frame: context.frame || "No project frame set.",
+                    researchData,
+                  })}
 
 BATCH EXECUTION:
 - This is batch ${batchNumber} of ${themeBatches.length}.
 - Generate 1-4 high-quality problems for this batch only.
 - Other batches cover other themes; do not compensate for missing project-wide context.
 - Return strict JSON only.`,
+                },
+              ],
+              timeoutMs: PROBLEM_DISCOVERY_LLM_BATCH_TIMEOUT_MS,
+              telemetry: {
+                orgId: org_id,
+                projectId: project_id,
+                agentRunId,
+                agentType: dryRun ? "problem-discovery-dry-run" : "problem-discovery",
+                step: `call-llm-batch-${batchNumber}`,
               },
-            ],
-            timeoutMs: PROBLEM_DISCOVERY_LLM_BATCH_TIMEOUT_MS,
-            telemetry: {
-              orgId: org_id,
-              projectId: project_id,
-              agentRunId,
-              agentType: dryRun ? "problem-discovery-dry-run" : "problem-discovery",
-              step: `call-llm-batch-${batchNumber}`,
-            },
-          });
+            });
+          } catch (error) {
+            if (isTimeoutError(error)) {
+              throw new NonRetriableError(
+                `Problem discovery LLM batch ${batchNumber} timed out; not retrying to avoid duplicate premium spend.`,
+                { cause: error }
+              );
+            }
+            throw error;
+          }
 
           // Resilient parse: extractJsonArray still throws if the response is not a
           // parseable JSON array at all. But a single malformed candidate must not
@@ -1084,6 +1105,7 @@ BATCH EXECUTION:
           theme_batches: themeBatches.length,
           batch_size: PROBLEM_DISCOVERY_THEMES_PER_BATCH,
           batch_timeout_ms: PROBLEM_DISCOVERY_LLM_BATCH_TIMEOUT_MS,
+          batch_max_tokens: PROBLEM_DISCOVERY_BATCH_MAX_TOKENS,
           batch_reports: batchReports,
           merged_duplicate_candidates: mergedCandidates.merged_duplicates,
           adjacent_evidence_excluded: context.adjacentEvidenceExcluded,

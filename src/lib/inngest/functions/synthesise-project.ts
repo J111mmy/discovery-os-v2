@@ -1,6 +1,7 @@
 // Project synthesis — clusters trusted evidence into reusable themes.
 
 import { z } from "zod";
+import { NonRetriableError } from "inngest";
 import { inngest } from "../client";
 import { createServiceClient } from "@/lib/supabase/server";
 import { callLLM } from "@/lib/llm/client";
@@ -31,6 +32,14 @@ const SynthesisedThemeSchema = z.object({
 });
 
 const REPLACEABLE_THEME_EVIDENCE_SOURCES = ["ai", "imported"] as const;
+const PROJECT_SYNTHESIS_EVIDENCE_PER_BATCH = 30;
+const PROJECT_SYNTHESIS_LLM_BATCH_TIMEOUT_MS = 50_000;
+const PROJECT_SYNTHESIS_BATCH_MAX_TOKENS = 4_000;
+
+function isTimeoutError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b(timed out|timeout|aborted|deadline)\b/i.test(message);
+}
 
 // Resilient parse: a single malformed theme must not fail the whole batch —
 // validate per-element, drop (with a warning) the invalid ones, keep the
@@ -148,7 +157,12 @@ async function completeRun(input: {
 }
 
 export const synthesiseProject = inngest.createFunction(
-  { id: "synthesise-project", name: "Synthesise Project", retries: 2 },
+  {
+    id: "synthesise-project",
+    name: "Synthesise Project",
+    retries: 1,
+    concurrency: { limit: 1, key: "event.data.project_id" },
+  },
   { event: "project/synthesis.requested" },
   async ({ event, step }) => {
     const { org_id, project_id } = event.data;
@@ -163,7 +177,12 @@ export const synthesiseProject = inngest.createFunction(
             org_id,
             project_id,
             agent_type: "project-synthesis",
-            input: { prompt_version: PROJECT_SYNTHESIS_PROMPT_VERSION },
+            input: {
+              prompt_version: PROJECT_SYNTHESIS_PROMPT_VERSION,
+              batch_size: PROJECT_SYNTHESIS_EVIDENCE_PER_BATCH,
+              batch_timeout_ms: PROJECT_SYNTHESIS_LLM_BATCH_TIMEOUT_MS,
+              batch_max_tokens: PROJECT_SYNTHESIS_BATCH_MAX_TOKENS,
+            },
           })
           .select("id")
           .single();
@@ -230,53 +249,90 @@ export const synthesiseProject = inngest.createFunction(
         return { trusted_evidence: 0, themes_created: 0, links_created: 0 };
       }
 
-      const synthesis = await step.run("synthesise-batches", async () => {
-        const batches = chunk(trustedEvidence, 30);
-        const themes: z.infer<typeof SynthesisedThemeSchema>[] = [];
-        const models = new Set<string>();
-        let droppedThemes = 0;
+      const batches = chunk(trustedEvidence, PROJECT_SYNTHESIS_EVIDENCE_PER_BATCH);
+      const themes: z.infer<typeof SynthesisedThemeSchema>[] = [];
+      const models = new Set<string>();
+      let droppedThemes = 0;
+      const batchReports: Array<{
+        batch: number;
+        evidence_supplied: number;
+        themes: number;
+        dropped_themes: number;
+        model_used: string | null;
+      }> = [];
 
-        for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
-          const batch = batches[batchIndex];
-          const result = await callLLM({
-            tier: "premium",
-            system:
-              "You cluster trusted research evidence into concise themes. Return strict JSON only.",
-            messages: [
-              {
-                role: "user",
-                content: buildProjectSynthesisPrompt({
-                  themes: formatExistingThemes(existingThemes),
-                  evidence: formatEvidenceBatch(batch),
-                }),
-              },
-            ],
-            timeoutMs: 180_000,
-            telemetry: {
-              orgId: org_id,
-              projectId: project_id,
-              agentRunId,
-              agentType: "project-synthesis",
-              step: `synthesise-batch-${String(batchIndex + 1).padStart(4, "0")}`,
-            },
-          });
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+        const batch = batches[batchIndex];
+        const batchNumber = batchIndex + 1;
+        const batchResult = await step.run(
+          `synthesise-batch-${String(batchNumber).padStart(4, "0")}`,
+          async () => {
+            let result: Awaited<ReturnType<typeof callLLM>>;
+            try {
+              result = await callLLM({
+                tier: "premium",
+                maxTokens: PROJECT_SYNTHESIS_BATCH_MAX_TOKENS,
+                system:
+                  "You cluster trusted research evidence into concise themes. Return strict JSON only.",
+                messages: [
+                  {
+                    role: "user",
+                    content: buildProjectSynthesisPrompt({
+                      themes: formatExistingThemes(existingThemes),
+                      evidence: formatEvidenceBatch(batch),
+                    }),
+                  },
+                ],
+                timeoutMs: PROJECT_SYNTHESIS_LLM_BATCH_TIMEOUT_MS,
+                telemetry: {
+                  orgId: org_id,
+                  projectId: project_id,
+                  agentRunId,
+                  agentType: "project-synthesis",
+                  step: `synthesise-batch-${String(batchNumber).padStart(4, "0")}`,
+                },
+              });
+            } catch (error) {
+              if (isTimeoutError(error)) {
+                throw new NonRetriableError(
+                  `Project synthesis LLM batch ${batchNumber} timed out; not retrying to avoid duplicate premium spend.`,
+                  { cause: error }
+                );
+              }
+              throw error;
+            }
 
-          models.add(result.model);
-          // Resilient parse: extractJsonArray still throws if the response is
-          // not a parseable JSON array at all. A single malformed theme within
-          // the array must not fail the whole batch — see parseSynthesisedThemes.
-          const batchResult = parseSynthesisedThemes(extractJsonArray(result.content));
+            // Resilient parse: extractJsonArray still throws if the response is
+            // not a parseable JSON array at all. A single malformed theme within
+            // the array must not fail the whole batch — see parseSynthesisedThemes.
+            const parsed = parseSynthesisedThemes(extractJsonArray(result.content));
 
-          themes.push(...batchResult.themes);
-          droppedThemes += batchResult.dropped;
-        }
+            return {
+              themes: parsed.themes,
+              dropped_themes: parsed.dropped,
+              model_used: result.model,
+            };
+          }
+        );
 
-        return {
-          themes,
-          dropped_themes: droppedThemes,
-          model_used: Array.from(models).join(", "),
-        };
-      });
+        themes.push(...batchResult.themes);
+        droppedThemes += batchResult.dropped_themes;
+        if (batchResult.model_used) models.add(batchResult.model_used);
+        batchReports.push({
+          batch: batchNumber,
+          evidence_supplied: batch.length,
+          themes: batchResult.themes.length,
+          dropped_themes: batchResult.dropped_themes,
+          model_used: batchResult.model_used,
+        });
+      }
+
+      const synthesis = {
+        themes,
+        dropped_themes: droppedThemes,
+        model_used: Array.from(models).join(", "),
+        batch_reports: batchReports,
+      };
 
       const output = await step.run("write-themes", async () => {
         const allowedEvidenceIds = new Set(trustedEvidence.map((record) => record.id));
@@ -422,6 +478,11 @@ export const synthesiseProject = inngest.createFunction(
           themes_parsed: synthesis.themes.length,
           themes_dropped: synthesis.dropped_themes,
           links_created: linksCreated,
+          synthesis_batches: batches.length,
+          batch_size: PROJECT_SYNTHESIS_EVIDENCE_PER_BATCH,
+          batch_timeout_ms: PROJECT_SYNTHESIS_LLM_BATCH_TIMEOUT_MS,
+          batch_max_tokens: PROJECT_SYNTHESIS_BATCH_MAX_TOKENS,
+          batch_reports: synthesis.batch_reports,
         };
       });
 

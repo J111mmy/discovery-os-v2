@@ -7316,3 +7316,19 @@ Implemented Pillar 2 first, then made the current premium agents pass it.
 - No live bots rerun or live cost validation from local. After review and deploy, the bots project should be rerun to confirm problem discovery and opportunity generation produce bounded `llm_cost_events` output/cost.
 
 Unrelated dirty files left untouched: `docs/product/BRAND_POSITIONING_BRIEF.md` and `Test Projects/`.
+
+### Opus — 2026-06-28 — #113 agent-standards guard + 3 agent fixes REVIEW: APPROVED (fast-follow #114)
+
+Reviewed check-agent-standards.mjs + the discover-problems/generate-opportunities/synthesise-project fixes.
+- Guard is a proper brace-balanced parser (skips comments/strings, resolves local numeric consts + configuredInteger() helpers, cross-references user-triggered events from src/app run*Action senders). Real static analysis, not regex soup. ✓
+- Catches the EXPLICIT forms of all three of today's bugs (retries:2, 180s timeout, missing maxTokens). Would have caught the original synthesise-project 180s + the missing problems maxTokens. ✓
+- Three agents verified compliant: maxTokens 3500-4000 (sane, bounded — not presence-only-satisfying), retries:1, 50s timeout, synthesise-project chunked (batch loop at ~264). ✓
+- Wired into check:agent-standards + test + build. ✓
+
+**Fast-follow #114 (not blocking this merge):** guard has 3 omission false-negatives — same "inherit a bad default" theme:
+1. R4: premium fn OMITTING retries inherits Inngest default 4, guard silent. Require explicit retries<=1 on premium fns.
+2. R3: premium call OMITTING timeoutMs inherits callLLM 120_000 default, guard silent. Require explicit sub-60s timeoutMs on premium calls.
+3. R2: presence-only; maxTokens:16000 would pass. Add premium upper-bound (~8000).
+Plus minor: findCallObjects mis-parses callLLM(variable) (all sites inline now, ok); hasProjectConcurrency is order-dependent (errs safe). Full spec in #114.
+
+Verdict: safe to land. The guard is the binding mechanism Jimmy asked for; #114 makes omission-based bypass impossible too. After deploy, the bots full-chain rerun is the live validation of all the premium fixes together.

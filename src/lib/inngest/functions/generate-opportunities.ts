@@ -3,6 +3,7 @@
 // a zero-write dry run + review before the first writing run.
 
 import { z } from "zod";
+import { NonRetriableError } from "inngest";
 import { inngest } from "../client";
 import { createServiceClient } from "@/lib/supabase/server";
 import { callLLM, embedBatch } from "@/lib/llm/client";
@@ -23,6 +24,7 @@ import {
 const OPPORTUNITY_DEDUPE_SIMILARITY_THRESHOLD = 0.88;
 const OPPORTUNITY_PROBLEMS_PER_BATCH = 5;
 const OPPORTUNITY_LLM_BATCH_TIMEOUT_MS = 50_000;
+const OPPORTUNITY_BATCH_MAX_TOKENS = 3_500;
 const MAX_EVIDENCE_PER_PROBLEM = 6;
 const MAX_EVIDENCE_FOR_PROMPT = 90;
 
@@ -162,6 +164,11 @@ function asStringArray(value: unknown): string[] {
 
 function uniqueStrings(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function isTimeoutError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b(timed out|timeout|aborted|deadline)\b/i.test(message);
 }
 
 function chunkArray<T>(items: T[], size: number) {
@@ -589,7 +596,12 @@ function canLinkOpportunity(opportunity: ExistingOpportunityRow) {
 }
 
 export const generateOpportunities = inngest.createFunction(
-  { id: "generate-opportunities", name: "Generate Opportunities", retries: 2 },
+  {
+    id: "generate-opportunities",
+    name: "Generate Opportunities",
+    retries: 1,
+    concurrency: { limit: 1, key: "event.data.project_id" },
+  },
   { event: "project/opportunities.requested" },
   async ({ event, step }) => {
     const { org_id, project_id } = event.data;
@@ -609,6 +621,9 @@ export const generateOpportunities = inngest.createFunction(
               prompt_version: OPPORTUNITY_GENERATION_PROMPT_VERSION,
               dedupe_similarity_threshold: OPPORTUNITY_DEDUPE_SIMILARITY_THRESHOLD,
               dry_run: dryRun,
+              batch_size: OPPORTUNITY_PROBLEMS_PER_BATCH,
+              batch_timeout_ms: OPPORTUNITY_LLM_BATCH_TIMEOUT_MS,
+              batch_max_tokens: OPPORTUNITY_BATCH_MAX_TOKENS,
             },
           })
           .select("id")
@@ -830,6 +845,7 @@ export const generateOpportunities = inngest.createFunction(
                 dry_run: dryRun,
                 batch_size: OPPORTUNITY_PROBLEMS_PER_BATCH,
                 batch_timeout_ms: OPPORTUNITY_LLM_BATCH_TIMEOUT_MS,
+                batch_max_tokens: OPPORTUNITY_BATCH_MAX_TOKENS,
                 problems: context.problems.length,
                 problem_evidence_links: context.problemEvidence.length,
                 evidence_supplied: context.evidence.length,
@@ -891,35 +907,47 @@ export const generateOpportunities = inngest.createFunction(
             evidenceById,
           });
 
-          const result = await callLLM({
-            tier: "premium",
-            temperature: 0.25,
-            system:
-              "You generate evidence-backed product opportunities from research problems. Return strict JSON only.",
-            messages: [
-              {
-                role: "user",
-                content: `${buildOpportunityGenerationPrompt({
-                  frame: context.frame || "No project frame set.",
-                  researchData,
-                })}
+          let result: Awaited<ReturnType<typeof callLLM>>;
+          try {
+            result = await callLLM({
+              tier: "premium",
+              temperature: 0.25,
+              maxTokens: OPPORTUNITY_BATCH_MAX_TOKENS,
+              system:
+                "You generate evidence-backed product opportunities from research problems. Return strict JSON only.",
+              messages: [
+                {
+                  role: "user",
+                  content: `${buildOpportunityGenerationPrompt({
+                    frame: context.frame || "No project frame set.",
+                    researchData,
+                  })}
 
 BATCH EXECUTION:
 - This is batch ${batchNumber} of ${problemBatches.length}.
 - Generate 1-3 high-quality opportunities for this batch only.
 - Other batches cover other problems; do not compensate for missing project-wide context.
 - Return strict JSON only.`,
+                },
+              ],
+              timeoutMs: OPPORTUNITY_LLM_BATCH_TIMEOUT_MS,
+              telemetry: {
+                orgId: org_id,
+                projectId: project_id,
+                agentRunId,
+                agentType: dryRun ? "opportunity-generation-dry-run" : "opportunity-generation",
+                step: `call-llm-batch-${batchNumber}`,
               },
-            ],
-            timeoutMs: OPPORTUNITY_LLM_BATCH_TIMEOUT_MS,
-            telemetry: {
-              orgId: org_id,
-              projectId: project_id,
-              agentRunId,
-              agentType: dryRun ? "opportunity-generation-dry-run" : "opportunity-generation",
-              step: `call-llm-batch-${batchNumber}`,
-            },
-          });
+            });
+          } catch (error) {
+            if (isTimeoutError(error)) {
+              throw new NonRetriableError(
+                `Opportunity generation LLM batch ${batchNumber} timed out; not retrying to avoid duplicate premium spend.`,
+                { cause: error }
+              );
+            }
+            throw error;
+          }
 
           const rawArray = extractJsonArray(result.content);
           if (!Array.isArray(rawArray)) {
@@ -1129,6 +1157,7 @@ BATCH EXECUTION:
           problem_batches: problemBatches.length,
           batch_size: OPPORTUNITY_PROBLEMS_PER_BATCH,
           batch_timeout_ms: OPPORTUNITY_LLM_BATCH_TIMEOUT_MS,
+          batch_max_tokens: OPPORTUNITY_BATCH_MAX_TOKENS,
           batch_reports: batchReports,
           merged_duplicate_candidates: mergedCandidates.merged_duplicates,
           adjacent_evidence_excluded: context.adjacentEvidenceExcluded,

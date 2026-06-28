@@ -7,7 +7,9 @@
   },
   "scripts": {
     "dev": "next dev -p 4321",
-    "build": "next build",
+    "build": "npm run check:agent-standards && next build",
+    "test": "npm run check:agent-standards",
+    "check:agent-standards": "node src/lib/inngest/check-agent-standards.mjs",
     "check:artifact-html-sanitizer": "node src/lib/sanitize/check-artifact-html-sanitizer.mjs",
     "backfill:artifact-html": "node src/lib/sanitize/backfill-artifact-html.mjs",
     "backfill:problem-typed-links": "node src/lib/research-ontology/backfill-problem-typed-links.mjs",
