@@ -289,7 +289,7 @@ function isSpeakerNameLine(value: string) {
     trimmed.length <= 80 &&
     !isInitialLine(trimmed) &&
     !isTimestamp(trimmed) &&
-    /^[A-Z][A-Za-z .'-]+$/.test(trimmed)
+    /^[A-Z][A-Za-z0-9 .'-]+$/.test(trimmed)
   );
 }
 
@@ -326,14 +326,72 @@ function getLines(text: string): TextLine[] {
   return lines;
 }
 
+const inlineTimestampSpeakerBoundary =
+  /\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s+([A-Za-z][A-Za-z0-9 .'-]{1,80}):\s*/g;
+
+function isInlineSpeakerBoundaryLabel(value: string) {
+  const normalized = normalizeName(value);
+  return normalized !== "am" && normalized !== "pm";
+}
+
+function buildTextLine(raw: string, start: number): TextLine | null {
+  if (raw.length === 0) return null;
+
+  const end = start + raw.length;
+  const leading = raw.match(/^\s*/)?.[0].length ?? 0;
+  const trailing = raw.match(/\s*$/)?.[0].length ?? 0;
+  const trimmedStart = start + leading;
+  const trimmedEnd = Math.max(trimmedStart, end - trailing);
+
+  return {
+    raw,
+    trimmed: raw.trim(),
+    start,
+    end,
+    trimmedStart,
+    trimmedEnd,
+  };
+}
+
+function splitInlineTimestampSpeakerLines(lines: TextLine[]) {
+  const splitLines: TextLine[] = [];
+
+  for (const line of lines) {
+    const boundaries = Array.from(line.raw.matchAll(inlineTimestampSpeakerBoundary))
+      .filter((match) => isInlineSpeakerBoundaryLabel(match[1] ?? ""))
+      .map((match) => match.index ?? 0)
+      .filter((index, position, all) => index >= 0 && all.indexOf(index) === position)
+      .sort((a, b) => a - b);
+
+    if (boundaries.length === 0) {
+      splitLines.push(line);
+      continue;
+    }
+
+    let cursor = 0;
+    for (const boundary of boundaries) {
+      if (boundary > cursor) {
+        const before = buildTextLine(line.raw.slice(cursor, boundary), line.start + cursor);
+        if (before) splitLines.push(before);
+      }
+      cursor = boundary;
+    }
+
+    const last = buildTextLine(line.raw.slice(cursor), line.start + cursor);
+    if (last) splitLines.push(last);
+  }
+
+  return splitLines;
+}
+
 function parseTranscriptTurns(text: string): TranscriptTurn[] {
-  const lines = getLines(text);
+  const lines = splitInlineTimestampSpeakerLines(getLines(text));
   const speakerColonLine =
     /^(?:\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s+)?([A-Za-z][^:\n]{0,80}):\s*(.*)$/;
   const timestampSpeakerLine =
-    /^\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s+([A-Za-z][A-Za-z .'-]{1,80})(?::)?\s*(.*)$/;
+    /^\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s+([A-Za-z][A-Za-z0-9 .'-]{1,80})(?::)?\s*(.*)$/;
   const speakerTimestampLine =
-    /^([A-Za-z][A-Za-z .'-]{1,80})\s+\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s*(.*)$/;
+    /^([A-Za-z][A-Za-z0-9 .'-]{1,80})\s+\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s*(.*)$/;
 
   const turns: TranscriptTurn[] = [];
   let curSpeaker: string | null = null;

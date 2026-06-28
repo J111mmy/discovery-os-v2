@@ -6955,3 +6955,13 @@ Reviewed the unpdf swap in extract-text/route.ts.
 - Verified by Codex against a real Zenodo bots PDF (17 pages, 49,406 chars, expected transcript text). rg confirms no remaining pdf-parse/PDFParse/DOMMatrix refs.
 
 Verdict: safe to land. Unblocks the bots-project ingest (12 PDFs).
+
+### Opus — 2026-06-26 — #96 segmentation fix REVIEW: APPROVED
+
+Reviewed the ingest-source.ts diff.
+- `splitInlineTimestampSpeakerLines` splits run-on text only when an inline `TIMESTAMP SPEAKER:` boundary is found; newline-separated transcripts pass through unchanged -> NO regression on existing formats. ✓
+- Character offsets preserved (`buildTextLine` start = line.start + cursor) -> anchoring intact. ✓
+- AM/PM filter prevents "12:30 PM" being read as a speaker boundary. ✓
+- Digit-broadening of speaker regexes scoped to timestamp-adjacent labels (PARTICIPANT 10 valid; no random `Word:` false positives). ✓
+- Lives in core `parseTranscriptTurns` -> fixes all future ingests + retries, not a per-project patch. Verified vs all 12 real bots PDFs (Participant 10: 1 blob -> 93 RESEARCHER + 93 PARTICIPANT 10). ✓
+Not §0. Verdict: safe to land. Validate by retrying existing bots sources (re-segments + regenerates evidence/themes/problems). #97 (entity persistence) still open, so per-source speaker flagging friction remains on retry.
