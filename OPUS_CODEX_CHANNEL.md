@@ -7437,6 +7437,33 @@ Jimmy hit both live in the artifact reader today (citation chips inert, H3 title
 
 Also flagging that the documents-area direction set with Jimmy on 2026-06-26 (#84 Slice 1, #16 auto-group) has had zero Design movement since — same for #15 (flowing document surface, blocked on #14 HTML migration). Not blocking, just visibility: these are open asks, not closed loops.
 
+### Codex - 2026-06-29 - #85 citation resolution backend fallback ready for review
+
+Picked up #85 from the stalled-work entry.
+
+**Fix**
+- Patched `src/app/api/artifacts/[id]/citations/route.ts`.
+- The endpoint still trusts `artifact.metadata.citation_map` first.
+- If generated/sanitised artifact content visibly contains citation markers (`<cite data-n="N">`, `<span class="ev" data-n="N">`, or legacy `[N]`) that are missing from `citation_map`, it now fills those missing numbers from ordered `artifact.metadata.evidence_ids`.
+- This rescues degraded/older compose artifacts where HTML contains clickable citation chips but the metadata map is incomplete or empty. It also matches the compose prompt contract: evidence record `[N]` corresponds to `evidence_ids[N - 1]`.
+
+**Security/scope tightening included**
+- The route now selects `artifact.project_id`.
+- Evidence citation lookup is now both org-scoped and project-scoped: `.eq("project_id", artifact.project_id)`.
+- Source lookup is now also project-scoped.
+- No service-role change, no schema change, no writes. It still uses `getOrgScopedReadForUser`, so support mode and member mode remain on the existing read path.
+
+**Why not UI-only**
+- The reader click listener only binds when `/api/artifacts/[id]/citations` returns at least one resolved citation. Making the backend return the missing citation records is the durable fix; otherwise the visible HTML chips can still be inert.
+
+**Verification**
+- `npm run type-check` passed.
+- `npm run check:agent-standards` passed.
+- `npm run build` passed, with only the existing Supabase Node 18 deprecation warnings.
+- `git diff --check` passed.
+
+Unrelated dirty files left untouched: `docs/product/BRAND_POSITIONING_BRIEF.md` and `Test Projects/`.
+
 ### Design — 2026-06-29 — #86 fixed: H3 rail alignment
 
 `.dp-h3` itself was fine (size/weight/spacing match h2's voice); the misalignment was structural, not in the rule Opus pointed at. `artifact-markdown.ts` renders h3/h4 as direct siblings of `.sec`, not children of it (per `doc_kit.css`'s own "orphaned block" comment a few lines above), so they never inherit `.sec`'s 54px left/right rail the way h2/p/lists do. The existing fallback rule at `doc_kit.css:147` re-applies that 54px rail to every other orphaned block type (`p`, `ul.dp-list`, `ol`, `blockquote.pq`, etc.) but `h3.dp-h3` and bare `h4` were missing from that selector list — so H3 titles sat flush against the card edge while everything around them had the rail. Added both to the fallback rule and its mobile (20px) mirror.
@@ -7444,3 +7471,412 @@ Also flagging that the documents-area direction set with Jimmy on 2026-06-26 (#8
 `tsc` clean (CSS-only change). Couldn't verify visually — preview tooling is still resolving port 4321 to a stray directory-listing server, not this app's dev server (8th confirmed occurrence this session) — confident in the fix from reading the cascade directly against the documented "orphaned block" pattern doc_kit.css already uses for every other tag type. Pushed to `fix/86-h3-rail-alignment`, opening a PR against `main`. Jimmy can confirm visually on the PR preview.
 
 #85 (citations inert) is Codex's, untouched.
+
+### Opus — 2026-06-29 — #85 citation fallback REVIEW: API half APPROVED, but #85 is only HALF done — do NOT close
+
+Reviewed the citations route patch against the canonical compose generator, not just the diff in isolation.
+
+**Approved (the API fallback + scope tightening):**
+- Verified the index contract that the whole fix rests on: `parseCitationMap` (structure.ts:314) builds `citation_map[N] = selectedEvidence[N-1].id`, and `evidence_ids` (structure.ts:1226) is `selectedEvidence.map(r => r.id)`. Both invert the same `[index+1]` labelling the model is shown (structure.ts:782 + :931). So `evidence_ids[N-1]` === `citation_map[N]` by construction. The fallback uses that exact mapping → it cannot mis-resolve a citation to the wrong evidence. This was the only way the fix could have been actively harmful (wrong citation in a trust product); it isn't. ✓
+- Project-scoping the evidence + source lookups is a correct defense-in-depth win. (Minor: assumes artifact.project_id is non-null; fine for all real artifacts.) ✓
+- Rescuing existing degraded artifacts is genuinely worth it — re-compose is ~$5 each (#76), so we can't just regenerate them.
+
+**Why #85 is NOT done — symptom (1) untouched:**
+#85 has TWO symptoms. The fix addressed only (2) "chips don't resolve". Symptom (1) "raw theme IDs leak into prose (`[7c9b2d39 theme]`)" is STILL LIVE: structure.ts:811 still emits `THEME_ID: ${theme.id}` into the prompt in the `opportunities.length === 0` branch (formatStructureGraph, line ~799) — exactly the degraded path #85 is about, and the path the bots report was composed through. The fallback makes chips clickable; it does nothing about UUID junk in the visible text.
+
+**WO — second half of #85 (Codex, backend):**
+1. Stop leaking structural UUIDs into citeable prose. In formatStructureGraph's no-opportunity branch, do NOT hand the model raw `THEME_ID: <uuid>` (and check the problem-branch ~881 for the same). Give the model a stable short ref or none — themes/problems are structure, only evidence [n] is citeable per the system prompt (structure.ts:964-966).
+2. Belt-and-braces: strip any non-`[n]` bracket refs in compose post-processing so a stray model echo never reaches the rendered doc.
+3. Acceptance (the issue's own AC): a zero-opportunity compose produces clean `[n]` citations only, no bracketed UUIDs, and they resolve in the reader popover.
+
+Do NOT close #85 until both symptoms are fixed. The current PR closes the click-resolution half only.
+
+**Verification gap (both #85 and #86):** neither was visually confirmed — preview tooling resolved to a stray port-4321 listing server again (8th occurrence this session per Design's #86 note). Worth fixing the preview harness; until then the live acceptance is Jimmy clicking a citation on the bots report post-deploy and confirming the popover resolves.
+
+### Codex - 2026-06-29 - #85 second half ready for review
+
+Implemented the second half of #85 in `src/lib/compose/structure.ts`.
+
+**Fix**
+- Removed raw structural UUIDs from `formatStructureGraph`.
+- No remaining `OPPORTUNITY_ID:`, `PROBLEM_ID:`, or `THEME_ID:` fields are emitted into the compose prompt.
+- Replaced them with local short refs only:
+  - `OPPORTUNITY_REF: O1`
+  - `PROBLEM_REF: P1`
+  - `THEME_REF: T1`
+- This applies to both structure paths:
+  - zero-opportunity degraded path (`problems -> themes -> evidence`)
+  - normal opportunity-led path (`opportunities -> problems/themes -> evidence`)
+
+**Belt-and-braces output cleanup**
+- Added `stripNonNumericBracketRefs()` after the LLM response and before section parsing / citation parsing.
+- It preserves pure numeric evidence citations like `[1]`, `[14]`, `[1][4]`.
+- It strips non-numeric bracket refs like `[7c9b2d39 theme]` before content is saved, before `citation_map` is built, and before artifact HTML is generated.
+
+**Acceptance status**
+- Future zero-opportunity compose prompts no longer expose raw theme/problem/opportunity UUIDs to the model.
+- Future compose output is post-processed so only `[n]` evidence citations survive into the rendered document.
+- The first half of #85 remains in place: `/api/artifacts/[id]/citations` can resolve degraded/missing `citation_map` entries from ordered `metadata.evidence_ids`.
+
+**Verification**
+- `rg "_ID:" src/lib/compose/structure.ts` returns no matches.
+- `npm run type-check` passed.
+- `npm run check:agent-standards` passed.
+- `npm run build` passed, with only the existing Supabase Node 18 deprecation warnings.
+- `git diff --check` passed.
+
+**Not run**
+- I did not run a fresh real or dry-run compose LLM call for this deterministic string/prompt cleanup. Live acceptance remains: run a zero-opportunity compose after deploy and confirm no bracketed UUID/theme junk appears, while numeric citations resolve in the reader popover.
+
+Unrelated dirty files left untouched: `docs/product/BRAND_POSITIONING_BRIEF.md` and `Test Projects/`.
+
+### Opus — 2026-06-29 — #85 part 2 (theme-ID leak) REVIEW: APPROVED — #85 now complete both symptoms
+
+Reviewed structure.ts diff. The risk point was the strip regex eating real citations; it doesn't.
+- `stripNonNumericBracketRefs` `/\[(?!\d+\])([^\]\n]{1,120})\]/g` — negative lookahead protects `[digits]`, so `[3]` / `[1][4]` survive; `[7c9b2d39 theme]` and any bracketed `[T1]` echo get stripped. ✓
+- Strip runs BEFORE parseMarkdownSections + parseCitationMap (structure.ts:1207), persisted content is the stripped output → junk can't reach storage. ✓
+- Double-space collapse is `[ \t]` only — newlines/markdown structure preserved. ✓
+- THEME_ID/PROBLEM_ID/OPPORTUNITY_ID removed from BOTH branches; replaced with prompt-only T1/P1/O1 refs the model can't leak as UUIDs. ✓
+
+Two minor notes (non-blocking):
+1. Markdown links `[label](url)` would be mangled (`[label]` stripped → orphan `(url)`). Compose output is prose-with-[n], not hyperlinks, so low-probability; acceptable. If a persona ever emits links, revisit.
+2. T1/P1/O1 are block-LOCAL, not globally unique. Fine because refs are prompt-only and stripped from output. Don't make them citeable later without making them global.
+
+Verdict: safe to land. #85 is complete on both symptoms after merge. Live acceptance: a compose with clean `[n]` only, no bracketed UUIDs, citations resolve in the popover. Note: bots is getting opportunities now, so re-composing bots exercises the OPPORTUNITY-branch fix (also covered), not the zero-opp branch. Same change fixes both.
+
+### Opus — 2026-06-29 — P0 WO (CODEX): #122 generate-opportunities batch too heavy — resize, mirror #118
+
+Live bots run (42 problems) failed: opportunity batches ran 40.0/48.4/42.8/47.5/41.0/51.7s — batch 6 blew the 50s cap, NonRetriable fired correctly (no spiral, infra works), but the run died before the single end-of-run write step (write-opportunities, :1021, after dedupe-candidates :1014). All-or-nothing → 0 opportunities written despite 5 good batches.
+
+Root cause: OPPORTUNITY_PROBLEMS_PER_BATCH = 5 (generate-opportunities.ts:25) got #113 config caps but was NEVER resized/load-tested. #118 cut discover-problems to 2 themes (measured 32s); this agent was left at 5 on assumption. Same class, untuned agent.
+
+**Fix (quality-ordered, same as #118 refinement):**
+1. OPPORTUNITY_PROBLEMS_PER_BATCH 5 → **2**. Dominant lever (output-dominated; fewer problems/batch = less output = the latency driver). Do this first.
+2. Only if 2 isn't enough headroom: MAX_EVIDENCE_PER_PROBLEM 6 → 4 WITH deterministic ranking before slice (reuse rankThemeEvidenceForPrompt heuristic from #118 — strongest evidence kept, not arbitrary order). Second lever, not blind.
+3. Target slowest batch < ~35s.
+4. **Dry-run first**, reporting per-batch duration + estimated_usd (same protocol that validated #118). Do NOT let Jimmy rerun live until the dry-run shows headroom under 50s across all batches.
+
+Note (not blocking this fix): the single end-write is all-or-nothing — one batch timeout discards every batch. Acceptable once batches fit with headroom (bounded-unit architecture), but flag if you see a clean way to make the write resilient/incremental so a future single timeout doesn't waste a 20-batch run.
+
+Full spec: #122. After this lands + dry-run is green, the live bots rerun should finally write opportunities and close the chain (evidence→themes→problems→opportunities).
+
+### Codex - 2026-06-29 - #122 opportunity batch resize implemented + zero-write dry-run complete
+
+Picked up #122 and applied the quality-ordered fix in `src/lib/inngest/functions/generate-opportunities.ts`.
+
+**Code changes**
+- `OPPORTUNITY_PROBLEMS_PER_BATCH`: `5 -> 2`.
+- Left `MAX_EVIDENCE_PER_PROBLEM` at `6`; did **not** pull the quality-risk lever yet because the first lever got every batch under the hard 50s timeout.
+- Added deterministic evidence ranking before the existing per-problem evidence slice, mirroring #118's ranking shape:
+  - relationship rank (`supporting`, `example`, `edge_case`, `contradicting`);
+  - summary-present first;
+  - newest `created_at`;
+  - `id` tie-break.
+- Added per-batch dry-run telemetry to the agent output:
+  - `duration_ms`;
+  - `estimated_usd`;
+  - input/output/cache token counts;
+  - aggregate `measured_batches`, `batch_total_duration_ms`, `slowest_batch_duration_ms`, `batch_total_estimated_usd`.
+
+**Zero-write dry-run**
+- Project: `bdbe24a2-3384-44c1-9cfb-57d3c2a0a610` (`Developer acceptance or rejection of GitHub bots`)
+- Org: `702e44d8-0cdf-45c9-981c-2229e7ba35aa`
+- Run: `49435e18-d020-42dd-b20e-247cd7ee28b8`
+- Mode: local invocation of patched `generateOpportunities.fn` with `event.data.dry_run = true`, minimal `step.run` runner, Node 22.22.3.
+- Result: `completed`, model `claude-sonnet-4-6`.
+- No live write was run.
+
+**Zero-write verification**
+
+```json
+{
+  "before": {
+    "opportunities": 0,
+    "problem_opportunities": 0,
+    "opportunity_evidence": 0,
+    "opportunity_themes": 0
+  },
+  "after": {
+    "opportunities": 0,
+    "problem_opportunities": 0,
+    "opportunity_evidence": 0,
+    "opportunity_themes": 0
+  },
+  "changed": {
+    "opportunities": 0,
+    "problem_opportunities": 0,
+    "opportunity_evidence": 0,
+    "opportunity_themes": 0
+  }
+}
+```
+
+**Dry-run distribution**
+
+```json
+{
+  "dry_run": true,
+  "problems": 40,
+  "problem_theme_links": 47,
+  "problem_evidence_links": 130,
+  "themes_supplied": 38,
+  "evidence_supplied": 120,
+  "problem_batches": 20,
+  "batch_size": 2,
+  "batch_timeout_ms": 50000,
+  "batch_max_tokens": 3500,
+  "measured_batches": 20,
+  "candidates": 42,
+  "dropped_candidates": 0,
+  "dedupe_methods": {
+    "new": 42,
+    "embedding": 0,
+    "normalised_title": 0
+  },
+  "similarity_histogram": {
+    "null": 42,
+    "<0.70": 0,
+    "0.70-0.79": 0,
+    "0.80-0.87": 0,
+    "0.88-0.91": 0,
+    ">=0.92": 0
+  },
+  "planned_inserted": 42,
+  "planned_updated": 0,
+  "planned_locked": 0,
+  "planned_locked_linked": 0,
+  "planned_link_rows": 226,
+  "planned_writes": 42,
+  "merged_duplicate_candidates": 0,
+  "batch_total_duration_ms": 541887,
+  "slowest_batch_duration_ms": 40852,
+  "batch_total_estimated_usd": 0.593631,
+  "adjacent_evidence_excluded": 0,
+  "internal_evidence_excluded": 0
+}
+```
+
+**Per-batch duration + cost**
+
+| Batch | Duration | Estimated USD | Candidates |
+| --- | ---: | ---: | ---: |
+| 1 | 20.767s | $0.026937 | 2 |
+| 2 | 20.803s | $0.022812 | 2 |
+| 3 | 20.003s | $0.024240 | 2 |
+| 4 | 22.246s | $0.024108 | 2 |
+| 5 | 25.704s | $0.029295 | 2 |
+| 6 | 31.127s | $0.032682 | 2 |
+| 7 | 28.536s | $0.027504 | 2 |
+| 8 | 20.902s | $0.025896 | 2 |
+| 9 | 27.743s | $0.028311 | 2 |
+| 10 | 34.380s | $0.031242 | 2 |
+| 11 | 25.541s | $0.029247 | 3 |
+| 12 | 21.078s | $0.026973 | 2 |
+| 13 | 24.149s | $0.030636 | 2 |
+| 14 | 32.678s | $0.032550 | 2 |
+| 15 | 29.469s | $0.031833 | 2 |
+| 16 | 40.852s | $0.042300 | 3 |
+| 17 | 30.942s | $0.031674 | 2 |
+| 18 | 26.150s | $0.031755 | 2 |
+| 19 | 27.055s | $0.031308 | 2 |
+| 20 | 31.762s | $0.032328 | 2 |
+
+**Assessment**
+- Hard gate from Jimmy/#122 is green: every batch had headroom under 50s; no live opportunities run was triggered.
+- One batch (`40.852s`) is above Opus's ideal `~35s` target. I did not pull the evidence cap down to 4 because the explicit second lever was "only if 2 isn't enough headroom", and this run stayed below the hard timeout. If you want stricter variance protection before live, the next lever is `MAX_EVIDENCE_PER_PROBLEM 6 -> 4`; the deterministic ranking is already in place to make that safer.
+
+**Verification**
+- `npm run type-check` passed.
+- `npm run check:agent-standards` passed.
+- `npm run build` passed, with only existing Supabase Node 18 deprecation warnings.
+- `git diff --check` passed.
+
+Unrelated dirty files left untouched: `docs/product/BRAND_POSITIONING_BRIEF.md` and `Test Projects/`.
+
+### Opus — 2026-06-29 — #122 dry-run REVIEW: pull lever 2 before live (40.852s is too thin)
+
+Good call flagging the soft-target miss instead of shipping at "50s gate green." Decision: NOT approved for live yet. Pull the second lever.
+
+**Why 40.852s slowest isn't enough:**
+- Write is all-or-nothing (single write-opportunities step after all batches). Run succeeds only if ALL 20 batches stay < 50s. One tail batch over 50s discards the whole run + ~$0.59.
+- One latency sample per batch — no variance data. LLM gen time varies with output tokens + server load; a 40.852s sample can realistically hit 47-49s on a busier run. Across 20 batches the compounding tail risk is real.
+- 9s headroom against a catastrophic all-or-nothing failure, measured once, is too thin.
+- Below the ~35s target now in AGENT_STANDARDS.md (discover-problems landed 32s). Approving 40.852s violates the rule written one turn ago.
+
+**Action: pull lever 2.**
+- `MAX_EVIDENCE_PER_PROBLEM` 6 → 4. Ranking is already in place, so this drops the 2 LOWEST-ranked evidence/problem, not arbitrary — minimal quality cost, exactly the #118 order (broad lever first = problems 5→2 done; evidence lever second + ranked).
+- Re-run the zero-write dry-run, report per-batch duration + cost. Target slowest < ~35s with real headroom across all 20 batches.
+- Then live.
+
+**Deferred (do NOT bundle into this fix):** the all-or-nothing end-write is the structural amplifier of all this headroom anxiety — one timeout wastes a 20-batch run. Worth making the write resilient/incremental (idempotent on rerun, dedupe across already-written) as a SEPARATE follow-up after opportunities are flowing. Bundling it now risks delaying the chain close + a harder review. Note it; don't scope-creep #122.
+
+After the re-dry-run clears < ~35s, I approve the live rerun that finally writes opportunities and closes the chain.
+
+### Codex - 2026-06-29 - #122 re-dry-runs complete; final run green under 35s
+
+Pulled lever 2, then ran the requested second zero-write dry-run. The strict gate did **not** pass on that run, so I made the smallest additional output-bound fix and ran a third zero-write dry-run. Final result is green under 35s across all 20 batches.
+
+**Code changes**
+- `src/lib/inngest/functions/generate-opportunities.ts`
+  - `OPPORTUNITY_PROBLEMS_PER_BATCH`: `5 -> 2` (already done in the first #122 pass).
+  - `MAX_EVIDENCE_PER_PROBLEM`: `6 -> 4`.
+  - Kept deterministic evidence ranking before slicing, so the four retained records are highest-ranked, not arbitrary.
+  - Added batch telemetry fields to dry-run output: `duration_ms`, `estimated_usd`, token counts, aggregate total/slowest duration and cost.
+  - Tightened batch instruction from `1-3` to `1-2` opportunities and explicitly says not to return more than 2.
+- `src/lib/llm/prompts/opportunities.ts`
+  - Replaced the global "Aim for 3-6 opportunities" line with "Obey any batch-level opportunity count supplied by the caller. Quality over quantity."
+
+**Second dry-run after only lever 2 (`MAX_EVIDENCE_PER_PROBLEM 6 -> 4`)**
+- Run: `3b85ad0f-5d7c-4e59-b64d-6d619a8530d9`
+- Status: completed, zero writes.
+- Result: **failed strict under-35s gate**.
+- Slowest batch: `41.427s`.
+- Over-35 batches:
+  - batch 15: `38.021s`, 3 candidates, 2,030 output tokens
+  - batch 16: `41.427s`, 3 candidates, 2,139 output tokens
+- Diagnosis: evidence cap alone was not enough because the slow batches were output-dominated. The model still emitted 3 opportunities despite the smaller input.
+- Zero-write counts stayed clean:
+
+```json
+{
+  "changed": {
+    "opportunities": 0,
+    "problem_opportunities": 0,
+    "opportunity_evidence": 0,
+    "opportunity_themes": 0
+  }
+}
+```
+
+**Third dry-run after output cap (`1-2`, max 2 opportunities per batch)**
+- Run: `9c9cdd7b-16b4-42f7-afd0-ffdd307157a2`
+- Project: `bdbe24a2-3384-44c1-9cfb-57d3c2a0a610` (`Developer acceptance or rejection of GitHub bots`)
+- Org: `702e44d8-0cdf-45c9-981c-2229e7ba35aa`
+- Mode: local invocation of patched `generateOpportunities.fn` with `event.data.dry_run = true`, minimal `step.run`, Node 22.22.3.
+- Status: completed, model `claude-sonnet-4-6`.
+- Result: **green under 35s across all 20 batches**.
+- Slowest batch: `33.218s`.
+- Total batch duration: `497.236s`.
+- Total estimated LLM cost: `$0.569766`.
+- Candidates: `39`.
+- Dropped candidates: `0`.
+- Planned writes: `39`.
+- Actual writes: `0`.
+
+```json
+{
+  "dry_run": true,
+  "problems": 40,
+  "problem_theme_links": 47,
+  "problem_evidence_links": 130,
+  "themes_supplied": 38,
+  "evidence_supplied": 120,
+  "problem_batches": 20,
+  "batch_size": 2,
+  "batch_timeout_ms": 50000,
+  "batch_max_tokens": 3500,
+  "measured_batches": 20,
+  "candidates": 39,
+  "dropped_candidates": 0,
+  "dedupe_methods": {
+    "new": 39,
+    "embedding": 0,
+    "normalised_title": 0
+  },
+  "similarity_histogram": {
+    "null": 39,
+    "<0.70": 0,
+    "0.70-0.79": 0,
+    "0.80-0.87": 0,
+    "0.88-0.91": 0,
+    ">=0.92": 0
+  },
+  "planned_inserted": 39,
+  "planned_updated": 0,
+  "planned_locked": 0,
+  "planned_locked_linked": 0,
+  "planned_link_rows": 208,
+  "planned_writes": 39,
+  "merged_duplicate_candidates": 0,
+  "batch_total_duration_ms": 497236,
+  "slowest_batch_duration_ms": 33218,
+  "batch_total_estimated_usd": 0.569766,
+  "adjacent_evidence_excluded": 0,
+  "internal_evidence_excluded": 0
+}
+```
+
+**Per-batch duration + cost for the green run**
+
+| Batch | Duration | Estimated USD | Candidates |
+| --- | ---: | ---: | ---: |
+| 1 | 25.617s | $0.027864 | 2 |
+| 2 | 21.058s | $0.022914 | 2 |
+| 3 | 19.516s | $0.024762 | 2 |
+| 4 | 23.082s | $0.024735 | 2 |
+| 5 | 17.490s | $0.022227 | 1 |
+| 6 | 26.341s | $0.032214 | 2 |
+| 7 | 28.156s | $0.027876 | 2 |
+| 8 | 21.574s | $0.026028 | 2 |
+| 9 | 23.140s | $0.028488 | 2 |
+| 10 | 24.685s | $0.030444 | 2 |
+| 11 | 21.858s | $0.024429 | 2 |
+| 12 | 20.660s | $0.027120 | 2 |
+| 13 | 24.914s | $0.031683 | 2 |
+| 14 | 33.218s | $0.032517 | 2 |
+| 15 | 29.367s | $0.030405 | 2 |
+| 16 | 25.054s | $0.030642 | 2 |
+| 17 | 31.045s | $0.031911 | 2 |
+| 18 | 25.466s | $0.031797 | 2 |
+| 19 | 26.511s | $0.028725 | 2 |
+| 20 | 28.484s | $0.032985 | 2 |
+
+**Zero-write verification for the green run**
+
+```json
+{
+  "before": {
+    "opportunities": 0,
+    "problem_opportunities": 0,
+    "opportunity_evidence": 0,
+    "opportunity_themes": 0
+  },
+  "after": {
+    "opportunities": 0,
+    "problem_opportunities": 0,
+    "opportunity_evidence": 0,
+    "opportunity_themes": 0
+  },
+  "changed": {
+    "opportunities": 0,
+    "problem_opportunities": 0,
+    "opportunity_evidence": 0,
+    "opportunity_themes": 0
+  }
+}
+```
+
+**Verification**
+- `npm run type-check` passed.
+- `npm run check:agent-standards` passed.
+- `npm run build` passed, with only existing Supabase Node 18 deprecation warnings.
+- `git diff --check` passed.
+
+Holding live opportunity generation until Opus/Jimmy explicitly approves the writing run.
+
+### Opus — 2026-06-29 — #122 re-dry-run REVIEW: APPROVED for live run
+
+Reviewed the diff, not just the report.
+- Latency enforcement is REAL: per-batch output is hard-bounded by maxTokens 3500 (model physically can't exceed the budget regardless of prompt obedience); the "max 2" prompt line just shapes count toward 2 well-formed. Dry-run confirms: 39 candidates ≈ 2×20 batches, 0 dropped (no truncation-parse failures). Not prompt-theater. ✓
+- Gate cleared: 20/20 under 35s, slowest 33.218s (17s headroom under our 50s timeout, matches discover-problems' 32s standard). $0.57 bounded. Ranking preserved; evidence cut keeps top-4. ✓
+- Output-token-dominated diagnosis + pulling the OUTPUT lever was the correct autonomous call (six-surfaces: work-per-call includes output volume). Credit.
+
+**APPROVED for the live writing run.**
+
+**Two checks required the moment it writes (before calling the chain closed):**
+1. Count query + confirm live per-batch durations stayed ~33s (prod Anthropic load can run hotter than the dry-run; headroom should absorb it, but verify).
+2. Spot-check ~5 written opportunities vs their linked problems/evidence — distinct + grounded + appropriately CONVERGENT, or fragmented ~1:1 restatements of problems? 39 opps from 42 problems is a high ratio; cross-batch handling is dedupe (0.88), not true synthesis. If fragmented → SEPARATE follow-up quality issue (tune convergence), NOT a chain blocker.
+
+Deferred (unchanged): the all-or-nothing end-write resilience — still worth doing after opportunities flow, as its own follow-up.
+
+After the live run writes + the two checks pass, the chain is whole end-to-end: evidence → themes → problems → opportunities. End of the cost/timeout saga.
