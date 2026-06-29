@@ -317,6 +317,10 @@ function parseCitationMap(text: string, evidence: SelectedEvidence[]): Record<st
   return map;
 }
 
+function stripNonNumericBracketRefs(text: string) {
+  return text.replace(/\[(?!\d+\])([^\]\n]{1,120})\]/g, "").replace(/[ \t]{2,}/g, " ");
+}
+
 function parseMarkdownSections(markdown: string): {
   title: string;
   sections: ComposeDraftSection[];
@@ -797,7 +801,7 @@ function formatStructureGraph(context: StructureContext) {
   const themeById = new Map(context.themes.map((theme) => [theme.id, theme]));
 
   if (context.opportunities.length === 0) {
-    const problemBlocks = context.problems.map((problem) => {
+    const problemBlocks = context.problems.map((problem, problemIndex) => {
       const themeIds = unique(
         context.problemThemeLinks
           .filter((link) => link.problem_id === problem.id)
@@ -806,9 +810,9 @@ function formatStructureGraph(context: StructureContext) {
       const themeLines = themeIds
         .map((id) => themeById.get(id))
         .filter((theme): theme is ThemeRow => Boolean(theme))
-        .map((theme) =>
+        .map((theme, themeIndex) =>
           [
-            `THEME_ID: ${theme.id}`,
+            `THEME_REF: T${themeIndex + 1}`,
             `LABEL: ${theme.label}`,
             theme.central_concept ? `CENTRAL_CONCEPT: ${theme.central_concept}` : null,
             theme.interpretation ? `INTERPRETATION: ${theme.interpretation}` : null,
@@ -819,7 +823,7 @@ function formatStructureGraph(context: StructureContext) {
         );
 
       return [
-        `PROBLEM_ID: ${problem.id}`,
+        `PROBLEM_REF: P${problemIndex + 1}`,
         `TITLE: ${problem.title}`,
         problem.statement ? `STATEMENT: ${problem.statement}` : null,
         problem.who_affected ? `WHO: ${problem.who_affected}` : null,
@@ -844,7 +848,7 @@ function formatStructureGraph(context: StructureContext) {
       .join("\n");
   }
 
-  const opportunityBlocks = context.opportunities.map((opportunity) => {
+  const opportunityBlocks = context.opportunities.map((opportunity, opportunityIndex) => {
     const problemIds = unique(
       context.problemOpportunityLinks
         .filter((link) => link.opportunity_id === opportunity.id)
@@ -858,9 +862,9 @@ function formatStructureGraph(context: StructureContext) {
     const problemLines = problemIds
       .map((id) => problemById.get(id))
       .filter((problem): problem is ProblemRow => Boolean(problem))
-      .map((problem) =>
+      .map((problem, problemIndex) =>
         [
-          `PROBLEM_ID: ${problem.id}`,
+          `PROBLEM_REF: P${problemIndex + 1}`,
           `TITLE: ${problem.title}`,
           problem.statement ? `STATEMENT: ${problem.statement}` : null,
           problem.who_affected ? `WHO: ${problem.who_affected}` : null,
@@ -877,9 +881,9 @@ function formatStructureGraph(context: StructureContext) {
     const themeLines = themeIds
       .map((id) => themeById.get(id))
       .filter((theme): theme is ThemeRow => Boolean(theme))
-      .map((theme) =>
+      .map((theme, themeIndex) =>
         [
-          `THEME_ID: ${theme.id}`,
+          `THEME_REF: T${themeIndex + 1}`,
           `LABEL: ${theme.label}`,
           theme.central_concept ? `CENTRAL_CONCEPT: ${theme.central_concept}` : null,
           theme.interpretation ? `INTERPRETATION: ${theme.interpretation}` : null,
@@ -890,7 +894,7 @@ function formatStructureGraph(context: StructureContext) {
       );
 
     return [
-      `OPPORTUNITY_ID: ${opportunity.id}`,
+      `OPPORTUNITY_REF: O${opportunityIndex + 1}`,
       `TITLE: ${opportunity.title}`,
       opportunity.how_might_we ? `HOW_MIGHT_WE: ${opportunity.how_might_we}` : null,
       opportunity.description ? `DESCRIPTION: ${opportunity.description}` : null,
@@ -1200,9 +1204,10 @@ export async function composeStructureDraft({
     telemetry,
   });
 
-  const { title, sections } = parseMarkdownSections(result.content);
-  const citationNumbers = parseCitationNumbers(result.content);
-  const citation_map = parseCitationMap(result.content, context.selectedEvidence);
+  const content = stripNonNumericBracketRefs(result.content);
+  const { title, sections } = parseMarkdownSections(content);
+  const citationNumbers = parseCitationNumbers(content);
+  const citation_map = parseCitationMap(content, context.selectedEvidence);
   const structure_trace = buildStructureTrace(citation_map, context.selectedEvidence);
   const link_plan = buildLinkPlan(structure_trace);
   const report = buildReport({

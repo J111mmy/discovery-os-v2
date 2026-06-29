@@ -25,6 +25,74 @@ export interface CitationsResponse {
   artifact_id: string;
 }
 
+function metadataObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function readCitationMap(metadata: Record<string, unknown>) {
+  const raw = metadata.citation_map;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+
+  const map: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const n = Number.parseInt(key, 10);
+    if (!Number.isFinite(n) || n < 1 || String(n) !== key) continue;
+    if (typeof value !== "string" || value.trim().length === 0) continue;
+    map[key] = value;
+  }
+  return map;
+}
+
+function readEvidenceIds(metadata: Record<string, unknown>) {
+  const raw = metadata.evidence_ids;
+  return Array.isArray(raw)
+    ? raw.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    : [];
+}
+
+function parseRenderedCitationNumbers(contentHtml: string | null, contentMd: string | null) {
+  const numbers = new Set<number>();
+  const add = (value: string) => {
+    const n = Number.parseInt(value, 10);
+    if (Number.isFinite(n) && n > 0) numbers.add(n);
+  };
+
+  if (contentHtml) {
+    const dataN = /\bdata-n=(?:"|')(\d+)(?:"|')/g;
+    let match: RegExpExecArray | null;
+    while ((match = dataN.exec(contentHtml)) !== null) add(match[1]);
+  }
+
+  if (contentMd) {
+    const markdownCitation = /\[(\d+)\]/g;
+    let match: RegExpExecArray | null;
+    while ((match = markdownCitation.exec(contentMd)) !== null) add(match[1]);
+  }
+
+  return Array.from(numbers).sort((a, b) => a - b);
+}
+
+function fillCitationMapFromEvidenceOrder({
+  citationMap,
+  citationNumbers,
+  evidenceIds,
+}: {
+  citationMap: Record<string, string>;
+  citationNumbers: number[];
+  evidenceIds: string[];
+}) {
+  const next = { ...citationMap };
+  for (const n of citationNumbers) {
+    const key = String(n);
+    if (next[key]) continue;
+    const evidenceId = evidenceIds[n - 1];
+    if (evidenceId) next[key] = evidenceId;
+  }
+  return next;
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } }
@@ -50,7 +118,7 @@ export async function GET(
   // Fetch the artifact — must belong to this org
   const { data: artifact, error: artifactError } = await read
     .from("artifacts")
-    .select("id, org_id, metadata")
+    .select("id, org_id, project_id, metadata, content_html, content_md")
     .eq("id", artifactId)
     .single();
 
@@ -58,9 +126,18 @@ export async function GET(
     return NextResponse.json({ error: "Artifact not found" }, { status: 404 });
   }
 
-  // Pull citation_map from metadata
-  const meta = artifact.metadata as Record<string, unknown> | null;
-  const citationMap = (meta?.citation_map ?? {}) as Record<string, string>;
+  // Pull citation_map from metadata. If older/degraded compose left the map
+  // incomplete, fill missing visible citation numbers from metadata.evidence_ids,
+  // which preserves the selected evidence order used in the compose prompt.
+  const meta = metadataObject(artifact.metadata);
+  const citationMap = fillCitationMapFromEvidenceOrder({
+    citationMap: readCitationMap(meta),
+    citationNumbers: parseRenderedCitationNumbers(
+      artifact.content_html as string | null,
+      artifact.content_md as string | null
+    ),
+    evidenceIds: readEvidenceIds(meta),
+  });
 
   const entries = Object.entries(citationMap);
   if (entries.length === 0) {
@@ -82,6 +159,7 @@ export async function GET(
   const { data: evidenceRows } = await read
     .from("evidence")
     .select("id, content, summary, source_id, segment_id, classification, sentiment")
+    .eq("project_id", artifact.project_id)
     .in("id", evidenceIds);
 
   const typedEvidenceRows = (evidenceRows ?? []) as EvidenceRow[];
@@ -104,6 +182,7 @@ export async function GET(
       ? read
           .from("sources")
           .select("id, title, type")
+          .eq("project_id", artifact.project_id)
           .in("id", sourceIds)
       : Promise.resolve({ data: [] }),
     segmentIds.length > 0
