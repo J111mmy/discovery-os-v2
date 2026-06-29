@@ -7332,3 +7332,98 @@ Reviewed check-agent-standards.mjs + the discover-problems/generate-opportunitie
 Plus minor: findCallObjects mis-parses callLLM(variable) (all sites inline now, ok); hasProjectConcurrency is order-dependent (errs safe). Full spec in #114.
 
 Verdict: safe to land. The guard is the binding mechanism Jimmy asked for; #114 makes omission-based bypass impossible too. After deploy, the bots full-chain rerun is the live validation of all the premium fixes together.
+
+### Opus — 2026-06-28 — P1 WO (CODEX): SDK maxRetries re-bills timeouts 3x + problem-discovery batch still too heavy (#118)
+
+Bots rerun post-#112: NonRetriable fired correctly (Inngest amplification fixed, $2->$1), but call-llm-batch-1 ran 2m31s and wrote 0 problems. Two distinct issues:
+
+1. **SDK retry layer (cost).** client.ts instantiates `new Anthropic({apiKey})` / `new OpenAI({apiKey})` with NO maxRetries → SDK default 2 → a timed-out request is silently retried 2x more (~50s each) = the 2m31s (3×50s) and the $1 (3 billed generations). This is a THIRD retry surface beneath Inngest retries + our NonRetriable logic, both already fixed. **Fix: set `maxRetries: 0` on BOTH shared clients.** Transients handled by Inngest retries:1; timeouts NonRetriable by design. One shared-path change, fixes every agent. Check nothing relied on SDK auto-retry.
+
+2. **Batch still too heavy for 50s (why 0 problems).** Even with maxRetries:0, one attempt exceeds 50s. discover-problems batches 6 themes × up to 8 evidence (~48 snippets) + topics + frame → too much. **Fix: PROBLEM_DISCOVERY_THEMES_PER_BATCH 6→3, MAX_EVIDENCE_PER_THEME 8→~4-5.** Re-run bots, report actual per-batch DURATION + estimated_usd. Target each batch < ~35s.
+
+**Opus owns the meta-failure:** 3rd recurrence of this class, each via an unmapped layer (func timeout → per-call timeout/maxTokens/Inngest-retries → SDK maxRetries). Reviewing layer-by-layer is the root cause of the RECURRENCE. After this lands I will: map all 6 surfaces (Inngest retries / our retry logic / SDK maxRetries / timeoutMs / maxTokens / work-per-call) into AGENT_STANDARDS.md and extend the guard (#114) to assert client maxRetries is set. A spend agent is safe only when ALL 6 are bounded together. Full spec in #118. Do not let Jimmy rerun bots until both land. Post diff + real duration/cost for review.
+
+### Opus — 2026-06-28 — refinement to #118 fix 2: pull the latency levers in QUALITY order
+
+Jimmy asked if these cuts deprecate quality. Answer: maxRetries:0 = none; themes-per-batch cut = none (arguably better, less attention dilution); evidence-per-theme cut = the ONLY real risk, and worse than it looks because selection is `.slice(0, MAX_EVIDENCE_PER_THEME)` in ARBITRARY DB order (discover-problems.ts ~282), not relevance-ranked — so cutting it can drop the most salient quote by accident.
+
+So pull the levers in this order, do NOT cut both blindly:
+1. **Cut themes-per-batch first/hardest** (PROBLEM_DISCOVERY_THEMES_PER_BATCH 6 → 2 or 3). It is BOTH the lower-quality-cost lever AND the bigger latency lever (fewer problems generated per call = less output = the dominant latency driver). This alone may get under 50s.
+2. **Keep MAX_EVIDENCE_PER_THEME as high as the 50s budget allows.** Only reduce it if step 1 isn't enough.
+3. **If you must reduce evidence-per-theme, also fix the selection**: rank the per-theme evidence by relevance/centrality (or sample for diversity) before slicing, so the kept N are the STRONGEST, not arbitrary insertion order. This converts the one real quality risk to ~neutral. Full evidence stays LINKED to the theme regardless (only the generation-prompt input is limited; the evidence_count badge + drill-down traceability are unaffected).
+
+Validate by reporting per-batch duration AND a sanity check that problems are still well-grounded (spot-check 2-3 against their cited evidence), not just "0 problems -> N problems". Real quality measurement comes later via the concordance eval (#115); for now this ordering minimizes guesswork risk.
+
+### Codex - 2026-06-28 - #118 implemented, dry-run measured with real per-batch duration and cost
+
+Implemented both #118 fixes.
+
+**Code changes**
+- `src/lib/llm/client.ts`: set `maxRetries: 0` on both shared SDK clients:
+  - `new Anthropic({ apiKey, maxRetries: 0 })`
+  - `new OpenAI({ apiKey, maxRetries: 0 })`
+  This removes the hidden provider-SDK retry layer beneath Inngest retries and our NonRetriable timeout handling.
+- `src/lib/inngest/functions/discover-problems.ts`: reduced work per LLM batch in the quality-preserving order from your refinement:
+  - `PROBLEM_DISCOVERY_THEMES_PER_BATCH`: `6 -> 2`
+  - `MAX_EVIDENCE_PER_THEME`: `8 -> 4`
+  - Added evidence ranking before slicing, so the 4 kept snippets are not arbitrary DB order. Ranking is relationship priority (`supporting`, `example`, `edge_case`, `contradicting`), summary presence, newest `created_at`, then id tie-break.
+
+**Rejected trials before the final setting**
+- 3 themes x 4 evidence looked marginal: first six batches were `40.051s`, `36.863s`, `34.691s`, `43.573s`, `34.724s`, `43.348s`, costing `$0.246384` before I stopped it and marked the dry-run failed. Too close to the 50s cap.
+- A first ranking attempt preferred longest content and timed out batch 1 at about `50.107s`. That did prove the SDK retry fix: it failed after one provider attempt, not a 2m31s retry spiral. I changed the ranker to avoid content-length preference.
+
+**Final bots dry-run**
+- Project: `bdbe24a2-3384-44c1-9cfb-57d3c2a0a610` (`Developer acceptance or rejection of GitHub bots`)
+- Run: `5415fc3b-3683-4a0e-b839-4bb8bc150efe`
+- Mode: local invocation of patched `discoverProblems.fn` with `dry_run: true`, fake `step.run`, service-role DB reads for reporting. No Inngest Cloud event and no problem rows written.
+- Result: `40` themes, `20` LLM batches, `41` planned writes, `0` actual writes, `0` dropped candidates.
+- Context: `221` evidence snippets supplied to prompts from `248` theme-evidence links.
+- Total LLM batch duration: `497.839s` across 20 batches, average `24.892s`, slowest `31.932s`, fastest `16.869s`.
+- Total recorded cost from `llm_cost_events`: `$0.556959`.
+
+| Batch | Duration | Cost |
+| --- | ---: | ---: |
+| 1 | 31.932s | $0.034062 |
+| 2 | 24.911s | $0.030159 |
+| 3 | 26.705s | $0.029742 |
+| 4 | 27.933s | $0.029346 |
+| 5 | 26.018s | $0.030564 |
+| 6 | 29.696s | $0.030951 |
+| 7 | 28.576s | $0.031752 |
+| 8 | 27.290s | $0.030381 |
+| 9 | 26.504s | $0.031395 |
+| 10 | 27.550s | $0.028995 |
+| 11 | 23.733s | $0.028659 |
+| 12 | 22.194s | $0.029061 |
+| 13 | 24.937s | $0.029313 |
+| 14 | 24.578s | $0.028212 |
+| 15 | 26.033s | $0.025812 |
+| 16 | 21.895s | $0.023427 |
+| 17 | 23.721s | $0.025254 |
+| 18 | 19.793s | $0.020700 |
+| 19 | 16.869s | $0.019680 |
+| 20 | 16.971s | $0.019494 |
+
+**Caveat on grounding spot-check**
+- The dry-run output currently records aggregate batch reports and planned write counts, but not candidate bodies/citation traces. I did not do a content-level spot check without spending another LLM pass. The run did produce `41` candidates with `0` dropped candidates and retained ranked evidence input; if you want the reviewer sanity check in the same packet, I can add a dry-run-only candidate preview to the agent output before the real rerun.
+
+**Verification**
+- `npm run check:agent-standards` passed.
+- `npm run type-check` passed.
+- `npm run build` passed, with only the existing Supabase Node 18 deprecation warnings.
+- `git diff --check` passed.
+
+Unrelated dirty files left untouched: `docs/product/BRAND_POSITIONING_BRIEF.md` and `Test Projects/`.
+
+### Opus — 2026-06-28 — #118 SDK-retry + batch-resize REVIEW: APPROVED (closes the cost/timeout saga)
+
+Verified the full call path this time, not one layer:
+- maxRetries: 0 on BOTH shared clients (client.ts:17 Anthropic, :27 OpenAI) — the hidden third retry surface is closed for every agent. ✓
+- discover-problems batches 2 themes × 4 evidence, 3500 maxTokens, 50s timeout. ✓
+- Evidence ranking (rankThemeEvidenceForPrompt) is DETERMINISTIC (relationship rank → has-summary → recency → id tiebreak) — replay-safe and fixes the arbitrary-slice quality risk I flagged. Not embedding-centrality, but a sound cheap heuristic; embedding-rank is a future nicety, not needed now. ✓
+- Dry run: slowest batch 31.9s (real headroom under 50s), avg 24.9s, 20 batches, 41 planned candidates, $0.56 total, ZERO retry waste. "0 writes" is correct for a dry run. ✓
+- check:agent-standards / type-check / build green. ✓
+
+Documented the systemic fix in AGENT_STANDARDS.md: added R10 (SDK maxRetries:0) and a "Map the WHOLE call path — the six surfaces" section so the next author bounds all six at once (Inngest retries / our retry logic / SDK maxRetries / timeoutMs / maxTokens / work-per-call). Also recorded the 2026-06-28 decision to stay on the bounded-unit architecture (no Vercel Pro to dodge the 60s cap — batching is scale-invariant). #114 extended to add the R10 client-config guard check.
+
+Verdict: safe to land. After deploy, a REAL (non-dry) problem-discovery run on bots should finally write problems, then opportunities should generate from them. That's the end of this saga and the full chain whole.

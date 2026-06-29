@@ -21,9 +21,9 @@ import {
 
 const PROBLEM_DEDUPE_SIMILARITY_THRESHOLD = 0.86;
 const MAX_THEMES_FOR_PROMPT = 24;
-const MAX_EVIDENCE_PER_THEME = 8;
+const MAX_EVIDENCE_PER_THEME = 4;
 const MAX_EVIDENCE_FOR_PROMPT = 120;
-const PROBLEM_DISCOVERY_THEMES_PER_BATCH = 6;
+const PROBLEM_DISCOVERY_THEMES_PER_BATCH = 2;
 const PROBLEM_DISCOVERY_LLM_BATCH_TIMEOUT_MS = 50_000;
 const PROBLEM_DISCOVERY_BATCH_MAX_TOKENS = 3_500;
 const STALE_PROBLEM_DISCOVERY_RUN_MS = 20 * 60 * 1000;
@@ -79,6 +79,13 @@ type ExistingProblemRow = {
 type DedupeMethod = "new" | "normalised_title" | "embedding";
 
 type ProblemCandidate = z.infer<typeof ProblemCandidateSchema>;
+
+const THEME_EVIDENCE_PROMPT_RELATIONSHIP_RANK: Record<string, number> = {
+  supporting: 0,
+  example: 1,
+  edge_case: 2,
+  contradicting: 3,
+};
 
 const ThemeLinkSchema = z.object({
   theme_id: z.string().uuid(),
@@ -256,6 +263,27 @@ function topicIdsForEvidence(evidenceId: string, evidenceTopics: EvidenceTopicRo
     .map((link) => link.topic_id);
 }
 
+function rankThemeEvidenceForPrompt(
+  a: { link: ThemeEvidenceRow; row: EvidenceRow },
+  b: { link: ThemeEvidenceRow; row: EvidenceRow }
+) {
+  const relationshipA = THEME_EVIDENCE_PROMPT_RELATIONSHIP_RANK[a.link.relationship ?? ""] ?? 99;
+  const relationshipB = THEME_EVIDENCE_PROMPT_RELATIONSHIP_RANK[b.link.relationship ?? ""] ?? 99;
+  if (relationshipA !== relationshipB) return relationshipA - relationshipB;
+
+  if (Boolean(a.row.summary) !== Boolean(b.row.summary)) {
+    return a.row.summary ? -1 : 1;
+  }
+
+  const createdA = Date.parse(a.row.created_at);
+  const createdB = Date.parse(b.row.created_at);
+  if (!Number.isNaN(createdA) && !Number.isNaN(createdB) && createdA !== createdB) {
+    return createdB - createdA;
+  }
+
+  return a.row.id.localeCompare(b.row.id);
+}
+
 function formatResearchDataForPrompt({
   themes,
   themeEvidence,
@@ -276,10 +304,12 @@ function formatResearchDataForPrompt({
   for (const theme of promptThemes) {
     const linkedEvidence = themeEvidence
       .filter((link) => link.theme_id === theme.id)
-      .map((link) => evidenceById.get(link.evidence_id))
-      .filter((row): row is EvidenceRow => Boolean(row))
-      .filter((row) => row.trust_scope !== "excluded")
-      .slice(0, MAX_EVIDENCE_PER_THEME);
+      .map((link) => ({ link, row: evidenceById.get(link.evidence_id) }))
+      .filter((item): item is { link: ThemeEvidenceRow; row: EvidenceRow } => Boolean(item.row))
+      .filter((item) => item.row.trust_scope !== "excluded")
+      .sort(rankThemeEvidenceForPrompt)
+      .slice(0, MAX_EVIDENCE_PER_THEME)
+      .map((item) => item.row);
 
     const evidenceLines: string[] = [];
     for (const evidence of linkedEvidence) {

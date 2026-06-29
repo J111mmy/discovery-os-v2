@@ -12,14 +12,20 @@ let _openai: OpenAI | null = null;
 
 function getAnthropic(): Anthropic {
   if (!_anthropic) {
-    _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+    _anthropic = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY!,
+      maxRetries: 0,
+    });
   }
   return _anthropic;
 }
 
 function getOpenAI(): OpenAI {
   if (!_openai) {
-    _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+    _openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY!,
+      maxRetries: 0,
+    });
   }
   return _openai;
 }

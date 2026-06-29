@@ -67,6 +67,25 @@ LLM spend happens only on explicit user action (intake, generation, on-demand cl
 Each run accumulates `estimated_usd` across its steps and **aborts** if it crosses the per-`agent_type` budget. A single failed run can never spend more than its ceiling.
 **Enforced by:** the shared agent run-loop (cost-ceiling helper); anomaly alert on `/admin/costs` when a run exceeds N× its agent_type median.
 
+### R10 — SDK auto-retry must be OFF (added 2026-06-28, #118)
+The Anthropic and OpenAI SDK clients default to `maxRetries: 2`. On a timeout the SDK silently re-issues the request twice more (~timeout each), so one logical call becomes **three billed generations** and ~3× the wall-clock — beneath both the Inngest retry layer and our explicit retry logic, invisible unless you read the client config. Both shared clients MUST set `maxRetries: 0` (`client.ts`). We control retries deliberately at the Inngest layer (R4); the SDK must not add a hidden third layer, least of all on timeouts we refuse to retry.
+**Enforced by:** CI guard asserts both `new Anthropic(...)` / `new OpenAI(...)` set `maxRetries: 0` (#114).
+
+---
+
+## Map the WHOLE call path — the six surfaces
+
+The cost/timeout class recurred three times on 2026-06-28 (#110 → #112 → #118), each via a *different* surface that the previous fix didn't touch. Reviewing one layer at a time is the root cause of the recurrence. A spend agent is safe only when **all six** of these are bounded together — check them as a set, never one at a time:
+
+1. **Inngest function `retries`** — ≤ 1 for premium spend (R4). Default is 4.
+2. **Our explicit retry / NonRetriable logic** — timeouts are NonRetriable; don't re-issue a paid call that already failed.
+3. **SDK `maxRetries`** — must be 0 (R10). Default is 2. This is the one that hides.
+4. **Per-call `timeoutMs`** — < 60s, Hobby cap (R3). Default (unset) is 120_000.
+5. **`maxTokens`** — bounded to real output need, never the 16k premium default (R2).
+6. **Work-per-call** — themes/evidence per batch sized so ONE bounded unit completes well under the timeout. Bound the unit, do not raise the ceiling — batching is scale-invariant; buying a bigger timeout (e.g. Vercel Pro 300s) just moves the wall and breaks on the next large project (decided 2026-06-28: stay on the bounded-unit architecture).
+
+Reference: `discover-problems.ts` after #118 — 2 themes × 4 ranked evidence/batch, 3500 maxTokens, 50s timeout, slowest batch ~32s, full 39-theme run ~$0.56 with no retry waste.
+
 ---
 
 ## The safe path
@@ -75,7 +94,7 @@ Agents must not call `callLLM` with ad-hoc params. They go through **`callAgentL
 
 ## Enforcement
 
-`npm run test` (or a dedicated `agent-standards` test) runs a guard that statically scans `src/lib/inngest/functions/*.ts` and **fails the build** on any violation of R2, R3, R4, R5, R7. This is the guarantee. Human review already failed twice; the test will not. The guard and this doc are kept in lockstep: a rule here without a check is a gap to close, not a suggestion.
+`npm run test` (or a dedicated `agent-standards` test) runs a guard that statically scans `src/lib/inngest/functions/*.ts` and **fails the build** on any violation of R2, R3, R4, R5, R7 (R10 client-config check pending, #114). This is the guarantee. Human review already failed twice; the test will not. The guard and this doc are kept in lockstep: a rule here without a check is a gap to close, not a suggestion.
 
 ## Detection (catch silent breaks before users do)
 
