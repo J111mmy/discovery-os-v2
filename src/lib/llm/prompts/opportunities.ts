@@ -31,7 +31,7 @@ Rules:
 - Do not generate generic opportunities such as "Improve onboarding" unless the supplied evidence makes it specific.
 - Prefer opportunities that connect multiple supporting problems or strong recurring evidence.
 - Include at least one problem_link, one evidence_link, and one theme_link per opportunity.
-- Aim for 3-6 opportunities. Quality over quantity.
+- Obey any batch-level opportunity count supplied by the caller. Quality over quantity.
 - Relationship values are strict:
   - problem_links do not include a relationship field; they are stored as "created_from".
   - evidence_links.relationship must be "supporting".

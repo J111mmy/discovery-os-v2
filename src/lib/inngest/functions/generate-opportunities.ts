@@ -22,10 +22,10 @@ import {
 } from "@/lib/evidence/internal";
 
 const OPPORTUNITY_DEDUPE_SIMILARITY_THRESHOLD = 0.88;
-const OPPORTUNITY_PROBLEMS_PER_BATCH = 5;
+const OPPORTUNITY_PROBLEMS_PER_BATCH = 2;
 const OPPORTUNITY_LLM_BATCH_TIMEOUT_MS = 50_000;
 const OPPORTUNITY_BATCH_MAX_TOKENS = 3_500;
-const MAX_EVIDENCE_PER_PROBLEM = 6;
+const MAX_EVIDENCE_PER_PROBLEM = 4;
 const MAX_EVIDENCE_FOR_PROMPT = 90;
 
 type ProblemRow = {
@@ -101,6 +101,13 @@ type OpportunityPromptContext = {
   problemEvidence: ProblemEvidenceRow[];
   themes: ThemeRow[];
   evidence: EvidenceRow[];
+};
+
+const PROBLEM_EVIDENCE_PROMPT_RELATIONSHIP_RANK: Record<string, number> = {
+  supporting: 0,
+  example: 1,
+  edge_case: 2,
+  contradicting: 3,
 };
 
 const ProblemLinkSchema = z.object({
@@ -264,6 +271,27 @@ function similarityBucket(score: number | null) {
   return ">=0.92";
 }
 
+function rankProblemEvidenceForPrompt(
+  a: { link: ProblemEvidenceRow | null; row: EvidenceRow },
+  b: { link: ProblemEvidenceRow | null; row: EvidenceRow }
+) {
+  const relationshipA = PROBLEM_EVIDENCE_PROMPT_RELATIONSHIP_RANK[a.link?.relationship ?? ""] ?? 99;
+  const relationshipB = PROBLEM_EVIDENCE_PROMPT_RELATIONSHIP_RANK[b.link?.relationship ?? ""] ?? 99;
+  if (relationshipA !== relationshipB) return relationshipA - relationshipB;
+
+  if (Boolean(a.row.summary) !== Boolean(b.row.summary)) {
+    return a.row.summary ? -1 : 1;
+  }
+
+  const createdA = Date.parse(a.row.created_at);
+  const createdB = Date.parse(b.row.created_at);
+  if (!Number.isNaN(createdA) && !Number.isNaN(createdB) && createdA !== createdB) {
+    return createdB - createdA;
+  }
+
+  return a.row.id.localeCompare(b.row.id);
+}
+
 function formatResearchDataForPrompt({
   problems,
   problemThemes,
@@ -306,17 +334,26 @@ function formatResearchDataForPrompt({
           .join("\n")
       );
 
+    const rankedEvidence = evidenceIds
+      .map((evidenceId) => {
+        const row = evidenceById.get(evidenceId);
+        if (!row || row.trust_scope === "excluded") return null;
+        const link =
+          problemEvidence.find(
+            (candidateLink) =>
+              candidateLink.problem_id === problem.id && candidateLink.evidence_id === row.id
+          ) ?? null;
+        return { link, row };
+      })
+      .filter((item): item is { link: ProblemEvidenceRow | null; row: EvidenceRow } => Boolean(item))
+      .sort(rankProblemEvidenceForPrompt);
+
     const evidenceLines: string[] = [];
-    for (const evidenceId of evidenceIds) {
-      if (usedEvidenceIds.size >= MAX_EVIDENCE_FOR_PROMPT && !usedEvidenceIds.has(evidenceId)) {
+    for (const { link: typedLink, row: evidence } of rankedEvidence) {
+      if (usedEvidenceIds.size >= MAX_EVIDENCE_FOR_PROMPT && !usedEvidenceIds.has(evidence.id)) {
         continue;
       }
-      const evidence = evidenceById.get(evidenceId);
-      if (!evidence || evidence.trust_scope === "excluded") continue;
       usedEvidenceIds.add(evidence.id);
-      const typedLink = problemEvidence.find(
-        (link) => link.problem_id === problem.id && link.evidence_id === evidence.id
-      );
       const content = neutralizeUntrustedSourceContentFence(evidence.content);
       evidenceLines.push(
         [
@@ -871,6 +908,12 @@ export const generateOpportunities = inngest.createFunction(
         candidates: number;
         dropped_candidates: number;
         model_used: string | null;
+        duration_ms?: number;
+        estimated_usd?: number;
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_write_tokens?: number;
+        cache_read_tokens?: number;
         skipped_reason?: string;
       }> = [];
       const allCandidates: OpportunityCandidate[] = [];
@@ -908,6 +951,7 @@ export const generateOpportunities = inngest.createFunction(
           });
 
           let result: Awaited<ReturnType<typeof callLLM>>;
+          const batchStartedAt = Date.now();
           try {
             result = await callLLM({
               tier: "premium",
@@ -925,7 +969,8 @@ export const generateOpportunities = inngest.createFunction(
 
 BATCH EXECUTION:
 - This is batch ${batchNumber} of ${problemBatches.length}.
-- Generate 1-3 high-quality opportunities for this batch only.
+- Generate 1-2 high-quality opportunities for this batch only.
+- Do not return more than 2 opportunities in this batch.
 - Other batches cover other problems; do not compensate for missing project-wide context.
 - Return strict JSON only.`,
                 },
@@ -948,6 +993,7 @@ BATCH EXECUTION:
             }
             throw error;
           }
+          const durationMs = Date.now() - batchStartedAt;
 
           const rawArray = extractJsonArray(result.content);
           if (!Array.isArray(rawArray)) {
@@ -985,7 +1031,17 @@ BATCH EXECUTION:
                 candidate.theme_links.length > 0
             );
 
-          return { candidates: sanitized, model_used: result.model, dropped_candidates: droppedCount };
+          return {
+            candidates: sanitized,
+            model_used: result.model,
+            dropped_candidates: droppedCount,
+            duration_ms: durationMs,
+            estimated_usd: result.estimatedCostUsd ?? 0,
+            input_tokens: result.inputTokens,
+            output_tokens: result.outputTokens,
+            cache_write_tokens: result.cacheCreationInputTokens ?? 0,
+            cache_read_tokens: result.cacheReadInputTokens ?? 0,
+          };
         });
 
         allCandidates.push(...batchResult.candidates);
@@ -998,6 +1054,12 @@ BATCH EXECUTION:
           candidates: batchResult.candidates.length,
           dropped_candidates: batchResult.dropped_candidates,
           model_used: batchResult.model_used,
+          duration_ms: batchResult.duration_ms,
+          estimated_usd: batchResult.estimated_usd,
+          input_tokens: batchResult.input_tokens,
+          output_tokens: batchResult.output_tokens,
+          cache_write_tokens: batchResult.cache_write_tokens,
+          cache_read_tokens: batchResult.cache_read_tokens,
         });
       }
 
@@ -1009,6 +1071,22 @@ BATCH EXECUTION:
       const dropped_candidates = batchReports.reduce(
         (total, report) => total + report.dropped_candidates,
         0
+      );
+      const measuredBatchReports = batchReports.filter(
+        (report) => typeof report.duration_ms === "number"
+      );
+      const batch_total_duration_ms = measuredBatchReports.reduce(
+        (total, report) => total + (report.duration_ms ?? 0),
+        0
+      );
+      const slowest_batch_duration_ms = measuredBatchReports.reduce(
+        (max, report) => Math.max(max, report.duration_ms ?? 0),
+        0
+      );
+      const batch_total_estimated_usd = Number(
+        measuredBatchReports
+          .reduce((total, report) => total + (report.estimated_usd ?? 0), 0)
+          .toFixed(6)
       );
 
       const plans = await step.run("dedupe-candidates", async () =>
@@ -1158,6 +1236,10 @@ BATCH EXECUTION:
           batch_size: OPPORTUNITY_PROBLEMS_PER_BATCH,
           batch_timeout_ms: OPPORTUNITY_LLM_BATCH_TIMEOUT_MS,
           batch_max_tokens: OPPORTUNITY_BATCH_MAX_TOKENS,
+          measured_batches: measuredBatchReports.length,
+          batch_total_duration_ms,
+          slowest_batch_duration_ms,
+          batch_total_estimated_usd,
           batch_reports: batchReports,
           merged_duplicate_candidates: mergedCandidates.merged_duplicates,
           adjacent_evidence_excluded: context.adjacentEvidenceExcluded,

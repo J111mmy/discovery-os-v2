@@ -86,6 +86,8 @@ The cost/timeout class recurred three times on 2026-06-28 (#110 → #112 → #11
 
 Reference: `discover-problems.ts` after #118 — 2 themes × 4 ranked evidence/batch, 3500 maxTokens, 50s timeout, slowest batch ~32s, full 39-theme run ~$0.56 with no retry waste.
 
+> **Surface 6 must be MEASURED per agent, never inherited.** Config caps (maxTokens / timeout / retries / concurrency) are not the same as a bounded *unit of work*. On 2026-06-29, `generate-opportunities` had all the config caps from the #113 sweep but its batch size (5 problems) was never load-tested — at 42 real problems its batches ran 40–51s and one blew the cap, discarding the whole run for 0 output (#122). This was the **second** same-shape agent to slip through after #118 fixed only `discover-problems`. **Rule: when you fix this bug class in one agent, sweep EVERY same-shape agent (premium, batched, user-triggered) in the same pass and dry-run each one to a measured per-batch duration with real headroom under the timeout (target < ~35s of a 50s cap). A config cap with an unmeasured batch size is an untested agent.** Also note: a single end-of-run write step makes the whole run all-or-nothing — one batch timeout discards every completed batch — so headroom is not optional.
+
 ---
 
 ## The safe path
