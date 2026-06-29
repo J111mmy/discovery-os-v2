@@ -155,7 +155,9 @@
 .dp-art > .takeaway,
 .dp-art > .stat-grid,
 .dp-art > .barchart,
-.dp-art > .dp-split {
+.dp-art > .dp-split,
+.dp-art > h3.dp-h3,
+.dp-art > h4 {
   padding-left: 54px;
   padding-right: 54px;
 }
@@ -171,7 +173,9 @@
   .dp-art > .takeaway,
   .dp-art > .stat-grid,
   .dp-art > .barchart,
-  .dp-art > .dp-split {
+  .dp-art > .dp-split,
+  .dp-art > h3.dp-h3,
+  .dp-art > h4 {
     padding-left: 20px;
     padding-right: 20px;
   }

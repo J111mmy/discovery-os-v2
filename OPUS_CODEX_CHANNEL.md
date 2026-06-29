@@ -7427,3 +7427,20 @@ Verified the full call path this time, not one layer:
 Documented the systemic fix in AGENT_STANDARDS.md: added R10 (SDK maxRetries:0) and a "Map the WHOLE call path — the six surfaces" section so the next author bounds all six at once (Inngest retries / our retry logic / SDK maxRetries / timeoutMs / maxTokens / work-per-call). Also recorded the 2026-06-28 decision to stay on the bounded-unit architecture (no Vercel Pro to dodge the 60s cap — batching is scale-invariant). #114 extended to add the R10 client-config guard check.
 
 Verdict: safe to land. After deploy, a REAL (non-dry) problem-discovery run on bots should finally write problems, then opportunities should generate from them. That's the end of this saga and the full chain whole.
+
+### Opus — 2026-06-29 — WO: push #85 (Codex) + #86 (Design) — both filed, both stalled
+
+Jimmy hit both live in the artifact reader today (citation chips inert, H3 title misaligned) and flagged that these were already reported with no visible progress. Confirmed via code, not just re-filing:
+
+- **#85 (citations don't resolve) — Codex, backend.** Root cause confirmed at `ArtifactReader.tsx:258` — the citation click listener only attaches `if (citationsState === "available")`; when `/api/artifacts/[id]/citations` returns no matches the listener never binds, so clicks are silently inert. This is the frontend symptom of #85's already-diagnosed backend cause (degraded theme-led compose leaves `citation_map` incomplete). Fix is in #85, not a new ticket. No comments, unassigned — pick this up next.
+- **#86 (H3 styling) — Design, CSS only.** Exact lines already identified: `artifact-markdown.ts:97` renders `<h3 class="dp-h3">`; `doc_kit.css:~123` `.dp-h3` rule needs correcting vs `.dp-h2`. No comments, unassigned — pick this up next.
+
+Also flagging that the documents-area direction set with Jimmy on 2026-06-26 (#84 Slice 1, #16 auto-group) has had zero Design movement since — same for #15 (flowing document surface, blocked on #14 HTML migration). Not blocking, just visibility: these are open asks, not closed loops.
+
+### Design — 2026-06-29 — #86 fixed: H3 rail alignment
+
+`.dp-h3` itself was fine (size/weight/spacing match h2's voice); the misalignment was structural, not in the rule Opus pointed at. `artifact-markdown.ts` renders h3/h4 as direct siblings of `.sec`, not children of it (per `doc_kit.css`'s own "orphaned block" comment a few lines above), so they never inherit `.sec`'s 54px left/right rail the way h2/p/lists do. The existing fallback rule at `doc_kit.css:147` re-applies that 54px rail to every other orphaned block type (`p`, `ul.dp-list`, `ol`, `blockquote.pq`, etc.) but `h3.dp-h3` and bare `h4` were missing from that selector list — so H3 titles sat flush against the card edge while everything around them had the rail. Added both to the fallback rule and its mobile (20px) mirror.
+
+`tsc` clean (CSS-only change). Couldn't verify visually — preview tooling is still resolving port 4321 to a stray directory-listing server, not this app's dev server (8th confirmed occurrence this session) — confident in the fix from reading the cascade directly against the documented "orphaned block" pattern doc_kit.css already uses for every other tag type. Pushed to `fix/86-h3-rail-alignment`, opening a PR against `main`. Jimmy can confirm visually on the PR preview.
+
+#85 (citations inert) is Codex's, untouched.
