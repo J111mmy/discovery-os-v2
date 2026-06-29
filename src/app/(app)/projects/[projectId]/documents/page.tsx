@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { ArtifactType, ArtifactVerificationStatus } from "@/types/database";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { ArtifactLibraryList, type ArtifactCardData } from "./artifact-library-list";
 
 interface Props {
   params: { projectId: string };
@@ -11,86 +12,21 @@ interface Props {
 
 type ArtifactRow = {
   id: string;
-  org_id: string;
-  project_id: string;
   type: ArtifactType;
   title: string;
   prompt: string;
-  word_count: number | null;
-  version: number;
   verification_status: ArtifactVerificationStatus;
-  verification_summary: Record<string, unknown> | null;
   updated_at: string;
-  created_at: string;
+  metadata: Record<string, unknown> | null;
 };
 
-function dateLabel(value: string) {
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(value));
-}
-
-function VerificationBadge({ status }: { status: ArtifactVerificationStatus }) {
-  const classes =
-    status === "verified"
-      ? "border-pos/20 bg-pos-bg text-pos"
-      : status === "partial"
-      ? "border-warn/20 bg-warn-bg text-warn"
-      : "border-[var(--line)] bg-[var(--surface-2)] text-[var(--ink-2)]";
-
-  const label =
-    status === "verified"
-      ? "Verified"
-      : status === "partial"
-      ? "Partially verified"
-      : "Unverified";
-
-  return (
-    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`}>
-      {label}
-    </span>
-  );
-}
-
-function ArtifactCard({
-  artifact,
-  projectId,
-}: {
-  artifact: ArtifactRow;
-  projectId: string;
-}) {
-  return (
-    <Link
-      href={`/projects/${projectId}/documents/${artifact.id}`}
-      className="group block"
-    >
-      <article className="flex h-full flex-col rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 transition-all duration-150 group-hover:border-[var(--line-strong)] group-hover:bg-[var(--surface-hover)] group-hover:shadow-md">
-        {/* Meta row */}
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <VerificationBadge status={artifact.verification_status} />
-          <span className="text-xs text-[var(--ink-faint)]">v{artifact.version}</span>
-          <span className="ml-auto text-xs text-[var(--ink-faint)]">{dateLabel(artifact.updated_at)}</span>
-        </div>
-
-        {/* Title */}
-        <h3 className="mb-2 line-clamp-2 text-sm font-semibold leading-5 text-[var(--ink)] transition-colors group-hover:text-[var(--accent)]">
-          {artifact.title}
-        </h3>
-
-        {/* Prompt snippet */}
-        <p className="line-clamp-2 flex-1 text-xs leading-5 text-[var(--ink-2)]">
-          {artifact.prompt}
-        </p>
-
-        {/* Footer — word count only */}
-        <div className="mt-4 border-t border-[var(--line)] pt-4">
-          <span className="text-xs text-[var(--ink-faint)]">{artifact.word_count ?? 0} words</span>
-        </div>
-      </article>
-    </Link>
-  );
+// citation_map is a { "1": evidence_id, "2": evidence_id, ... } map keyed by
+// citation number as it appears in the artifact text. Same shape the
+// /api/artifacts/[id]/citations route reads from metadata.
+function citationMapEvidenceIds(metadata: Record<string, unknown> | null): string[] {
+  const raw = metadata?.citation_map;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  return Object.values(raw).filter((v): v is string => typeof v === "string" && v.trim().length > 0);
 }
 
 export default async function DocumentsPage({ params }: Props) {
@@ -116,17 +52,43 @@ export default async function DocumentsPage({ params }: Props) {
 
   const { data } = await read
     .from("artifacts")
-    .select("id, org_id, project_id, type, title, prompt, word_count, version, verification_status, verification_summary, updated_at, created_at")
+    .select("id, type, title, prompt, verification_status, updated_at, metadata")
     .eq("project_id", project.id)
     .order("updated_at", { ascending: false });
 
-  const artifacts = (data ?? []) as ArtifactRow[];
+  const artifactRows = (data ?? []) as ArtifactRow[];
 
-  // Group by artifact type (preserving updated_at descending order within each group)
-  const grouped = new Map<string, ArtifactRow[]>();
-  artifacts.forEach((artifact) => {
-    if (!grouped.has(artifact.type)) grouped.set(artifact.type, []);
-    grouped.get(artifact.type)!.push(artifact);
+  // Bulk-resolve every cited evidence record's source_id in one query, so each
+  // card can show a grounding count without an N+1 round trip.
+  const evidenceIdsByArtifact = new Map(
+    artifactRows.map((a) => [a.id, citationMapEvidenceIds(a.metadata)])
+  );
+  const allEvidenceIds = Array.from(new Set(Array.from(evidenceIdsByArtifact.values()).flat()));
+
+  const sourceIdByEvidenceId = new Map<string, string>();
+  if (allEvidenceIds.length > 0) {
+    const { data } = await read.from("evidence").select("id, source_id").in("id", allEvidenceIds);
+    const evidenceRows = (data ?? []) as Array<{ id: string; source_id: string | null }>;
+    evidenceRows.forEach((row) => {
+      if (row.source_id) sourceIdByEvidenceId.set(row.id, row.source_id);
+    });
+  }
+
+  const artifacts: ArtifactCardData[] = artifactRows.map((a) => {
+    const evidenceIds = evidenceIdsByArtifact.get(a.id) ?? [];
+    const sourceIds = new Set(
+      evidenceIds.map((id) => sourceIdByEvidenceId.get(id)).filter((id): id is string => Boolean(id))
+    );
+    return {
+      id: a.id,
+      type: a.type,
+      title: a.title,
+      prompt: a.prompt,
+      verification_status: a.verification_status,
+      updated_at: a.updated_at,
+      citationCount: evidenceIds.length,
+      sourceCount: sourceIds.size,
+    };
   });
 
   return (
@@ -163,21 +125,7 @@ export default async function DocumentsPage({ params }: Props) {
           </Link>
         </div>
       ) : (
-        <div className="space-y-10">
-          {Array.from(grouped.entries()).map(([type, group]: [string, ArtifactRow[]]) => (
-            <section key={type}>
-              <div className="mb-4 text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
-                <span className="capitalize">{type}</span>
-                <span className="ml-2 text-[var(--ink-faint)]">· {group.length}</span>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {group.map((artifact: ArtifactRow) => (
-                  <ArtifactCard key={artifact.id} artifact={artifact} projectId={project.id} />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+        <ArtifactLibraryList projectId={project.id} artifacts={artifacts} />
       )}
     </div>
   );
