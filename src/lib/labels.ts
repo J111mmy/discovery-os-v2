@@ -1,7 +1,7 @@
 // Human-readable labels for all DB enum values.
 // Use these everywhere in the UI — never display raw DB strings to users.
 
-import type { SourceType, TrustScope } from "@/types/database";
+import type { ArtifactType, SourceType, TrustScope } from "@/types/database";
 
 // ─── Source type ──────────────────────────────────────────────────────────────
 
@@ -24,6 +24,36 @@ export const SOURCE_TYPE_LABELS: Record<SourceType, string> = {
 
 export function sourceTypeLabel(type: string): string {
   return SOURCE_TYPE_LABELS[type as SourceType] ?? type.replace(/_/g, " ");
+}
+
+// ─── Artifact type ────────────────────────────────────────────────────────────
+
+export const ARTIFACT_TYPE_LABELS: Record<ArtifactType, string> = {
+  prd: "PRD",
+  brief: "Brief",
+  gtm: "GTM",
+  persona: "Persona",
+  interview_guide: "Interview guide",
+  report: "Report",
+  opportunity: "Opportunity",
+  other: "Other",
+};
+
+// Fixed display order for artifact-type groups — "other" always sorts last
+// so it never reads as a dominant catch-all at the top of a grouped list.
+export const ARTIFACT_TYPE_ORDER: ArtifactType[] = [
+  "prd",
+  "brief",
+  "gtm",
+  "persona",
+  "interview_guide",
+  "report",
+  "opportunity",
+  "other",
+];
+
+export function artifactTypeLabel(type: string): string {
+  return ARTIFACT_TYPE_LABELS[type as ArtifactType] ?? type.replace(/_/g, " ");
 }
 
 // ─── Trust scope ──────────────────────────────────────────────────────────────

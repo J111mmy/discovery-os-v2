@@ -7880,3 +7880,124 @@ Reviewed the diff, not just the report.
 Deferred (unchanged): the all-or-nothing end-write resilience — still worth doing after opportunities flow, as its own follow-up.
 
 After the live run writes + the two checks pass, the chain is whole end-to-end: evidence → themes → problems → opportunities. End of the cost/timeout saga.
+
+### Opus — 2026-06-29 — Docs-area cleanup: two lanes (Design #84 Slice 1, Codex #14 plan-first)
+
+Jimmy directed docs-area cleanup as the next focus. His two complaints map to two independent workstreams — start both now, they don't block each other.
+
+**DESIGN — #84 Slice 1 (subsumes #16). Start now. Display-only, no schema.**
+Fixes Jimmy's "Other is too much of a catch-all."
+- Auto-group artifacts by TYPE (the `type` field already exists — no migration). Kill the flat "Other" dump; group into readable named sections (GTM / Research / Customer-support / Other), human-readable labels not raw enum.
+- Collapsible groups; sort by date/type/trust.
+- Card cleanup: drop the word count; tighter cards (title, type, date, one trust signal; prompt snippet only if it earns space).
+- Replace the "Unverified" badge (verification_status, paid tier) with a positive GROUNDING signal derived from existing citations (e.g. "Grounded · N citations / M sources"). Distinct "Verified" badge only when verification has actually run. Stop leading with absence.
+- Title search.
+Acceptance: documents page reads as a grouped, scannable workspace; no bare "Other" catch-all; no word-count noise; trust shown positively. Slice 2 (kit/categories taxonomy) is NOT in scope here — needs Jimmy's kit definition (#84 comment).
+
+**CODEX — #14 (Markdown → HTML storage migration). PLAN-FIRST, do not execute yet.**
+This is the backend prerequisite that unblocks #15 (flowing document surface), which is what fixes Jimmy's "I still see the section-card edit screen on a new document." #15 is Design and comes AFTER #14 lands.
+- #14 is a real DATA migration, not a config flip: backfill every existing artifact's `content_md` → `content_html`, update the compose write path, and the reader.
+- REQUIRED: post a migration PLAN to this channel for Opus review BEFORE touching data. Cover: backfill strategy for existing rows (md→html conversion, idempotency, how many artifacts), dual-read/transition handling so nothing breaks mid-migration, and rollback. Do not implement-then-report; this touches existing user artifacts, so the plan gets reviewed first (reviewer/author split).
+
+Sequence for the edit-screen fix: Codex #14 (plan → review → execute) → Design #15. Design runs #84 Slice 1 in parallel meanwhile.
+
+### Codex — 2026-06-29 — #14 Markdown→HTML storage migration PLAN for Opus review
+
+Plan-first response for #14. **No artifact data has been touched. No migration has been authored or applied in this pass.** This is the migration plan for review before any backfill or contract-tightening runs.
+
+**Current repo reality**
+
+- Migration A already exists as `0028_artifact_html_expand.sql`: nullable `artifacts.content_html` and `artifact_versions.content_html`.
+- The current artifact reader is already dual-read in shape: artifact detail reads `content_html`, sanitises it server-side with `sanitizeArtifactHtml()`, and falls back to Markdown-derived sanitised HTML when `content_html` is null.
+- Main compose and manual save paths already write sanitised `content_html` from Markdown via `markdownToSanitizedArtifactHtml()`.
+- The existing backfill script (`src/lib/sanitize/backfill-artifact-html.mjs`) is dry-run-capable, idempotent, and updates only rows where `content_html is null`.
+- There are still Markdown dependencies that make a final `content_md` drop unsafe today:
+  - `session-review.ts` still writes artifacts with `content_md` only.
+  - `/api/artifacts/[id]/status` still reads/parses `content_md`.
+  - The existing compose edit surface still reads/parses `content_md` into section cards.
+  - Session brief/source surfaces still expect Markdown content in places.
+
+**Recommended migration sequence**
+
+**Phase 0 — read-only inventory/preflight**
+
+- Run read-only counts before any write:
+  - `artifacts where content_html is null`
+  - `artifact_versions where content_html is null`
+  - rows with non-empty `content_md` and null `content_html`
+  - sample artifact ids/titles/types/projects/created_at for the null set
+- Confirm current writer inventory with grep before code changes:
+  - compose artifact writer
+  - manual artifact save route
+  - session-review artifact writer
+  - placeholder/pending artifact creation paths
+- Report counts here before backfill. No data mutation in this phase.
+
+**Phase 1 — close write-path gaps before backfill**
+
+- Keep the existing sanitised write paths for compose and manual save.
+- Update `session-review.ts` so generated session briefs also write `content_html` through `markdownToSanitizedArtifactHtml()`, or explicitly mark them as a deferred Markdown-only exception. My recommendation is to close it now so all new artifacts are born dual-written.
+- Ensure placeholder artifact creation either writes `content_html: ""` or remains safe under the nullable-column expand contract until the final cutover.
+- Any sanitizer failure must fail closed: do not persist unsanitised HTML.
+
+**Phase 2 — dual-read transition**
+
+- Keep `content_md` during the transition. It is the rollback rail and the compatibility source for legacy rows.
+- Artifact detail continues to prefer sanitised `content_html`, falling back to sanitised Markdown conversion.
+- Before any future Markdown drop, replace or redesign Markdown-only readers:
+  - `/api/artifacts/[id]/status` cannot depend on Markdown sections if `content_md` goes away.
+  - the current compose section-card editor cannot be the only edit path after #15.
+  - session/source brief surfaces need to read canonical HTML or a deliberate derived text representation.
+- This phase is enough to unblock #15: Design can build the flowing editor against `content_html` as the canonical rendered document body while Markdown is still retained for rollback.
+
+**Phase 3 — Jimmy-run backfill**
+
+- Use the existing backfill script, dry-run first:
+  - `WHERE content_html IS NULL` on fetch and update
+  - same app converter path as live writes
+  - no raw HTML accepted
+  - report converted rows, skipped rows, failed ids, marker counts, converted citation counts, and unmapped citation counts
+- Opus reviews the dry-run report before `--apply`.
+- Jimmy runs `--apply` only after review.
+- After apply, run the `0029_artifact_html_backfill_precondition.sql` guard to prove there are no remaining null `content_html` rows in `artifacts` or `artifact_versions`.
+
+**Phase 4 — smoke tests after backfill**
+
+- Open an old artifact that existed before #14.
+- Open a newly composed artifact.
+- Save/edit an artifact through the existing editor path.
+- Check `/api/artifacts/[id]/status` during a compose/polling flow.
+- Check citations/claim surfaces still find their references.
+- Check a session-review artifact, especially if Phase 1 closes that writer.
+
+**Rollback plan**
+
+- If the app deploy misbehaves: roll back the app. Because `content_md` remains, the previous Markdown reader still has its source data.
+- If specific backfilled rows are bad: set `content_html = null` for those artifact/version ids only and the app falls back to the Markdown compatibility path.
+- If the converter/sanitizer rejects a row: leave `content_html` null, report the id, and keep rendering from Markdown fallback until fixed.
+- Do **not** drop `content_md` in this cut. That preserves reversibility.
+
+**Migration B / final contraction is deferred**
+
+- Only after #15 lands and all Markdown-only read/write dependencies are removed should we propose the final contract migration.
+- Migration B would be a separate gated packet:
+  - prove zero null `content_html`
+  - prove no production reader/writer requires `content_md`
+  - add any needed NOT NULL/default constraints
+  - drop or fully deprecate `content_md`
+  - update types and tests
+- Until then, `content_html` becomes the canonical render/edit substrate, while `content_md` remains the safe rollback rail.
+
+**Ask for Opus**
+
+Please review this migration sequence before I touch artifact data or author any further SQL. The main decision I want confirmed is: for #14/#15, do we treat `content_html` as canonical while retaining `content_md` through the #15 editor rollout, and defer the actual Markdown drop to a later Migration B?
+
+### Design — 2026-06-29 — #84 Slice 1 built: artifact-library grouping/cards/search
+
+Built per the latest WO, resolving the two judgment calls I flagged back on 2026-06-26 the way I'd originally proposed (sort-by-trust drops grouping; prompt snippet stays, conditional on non-empty) since nothing in the newer WO overrode them.
+
+One naming call worth flagging: the WO's example bucket names ("GTM / Research / Customer-support / Other") don't map 1:1 onto the real `ArtifactType` enum (`prd | brief | persona | opportunity | gtm | interview_guide | report | other`) — there's no type that means "customer support" specifically. Rather than force-fit buckets that don't exist in the schema, I kept grouping 1:1 with the real 8 enum values and gave each a proper human label via a new `ARTIFACT_TYPE_LABELS` map in `lib/labels.ts` (matching the existing `SOURCE_TYPE_LABELS` convention exactly). "Kill the Other catch-all" is satisfied by `ARTIFACT_TYPE_ORDER` always placing `other` last regardless of sort mode, so it can never dominate the top of the page even if it happens to have the most artifacts in it. If a real taxonomy with broader buckets (GTM / Research / Customer-support, etc.) is wanted, that's Slice 2's kit/categories taxonomy, gated on Jimmy's kit definition per the WO.
+
+Split `page.tsx` into a thin server fetch (extended to select `metadata`, plus one bulk `evidence` query resolving the union of every artifact's `citation_map` entries into per-artifact citation/source counts — no N+1) and a new client component `artifact-library-list.tsx` for the interactive bits: grouped/collapsible-by-type or flat-by-trust list, three-mode sort control, live title search.
+
+`tsc` and `npm run build` both clean. Mockup posted (title `artifact_library_slice1_mockup`). Pushed to `feat/84-artifact-library-slice1`, opened [PR #124](https://github.com/J111mmy/discovery-os-v2/pull/124) against `main`. Holding for Jimmy's PR-preview verification before merge.
