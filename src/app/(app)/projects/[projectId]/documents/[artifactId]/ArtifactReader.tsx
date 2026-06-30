@@ -58,6 +58,7 @@ type SectionConfidence = {
 };
 
 type CitationsState = "loading" | "available" | "unavailable";
+type VerificationActionState = "idle" | "starting" | "queued" | "error";
 
 // ── Helpers ────────────────────────────────────────────────────
 function dateLabel(iso: string) {
@@ -153,6 +154,9 @@ function HtmlReader({
   const [citationsState, setCitationsState] = useState<CitationsState>("loading");
   const [sectionConfidence, setSectionConfidence] = useState<SectionConfidence[]>([]);
   const [openCitation, setOpenCitation] = useState<{ n: number; rect: DOMRect } | null>(null);
+  const [verificationActionState, setVerificationActionState] =
+    useState<VerificationActionState>("idle");
+  const [verificationActionMessage, setVerificationActionMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -388,6 +392,27 @@ function HtmlReader({
     scrollEl.scrollTo({ top: offset, behavior: "smooth" });
   }
 
+  async function startVerification() {
+    setVerificationActionState("starting");
+    setVerificationActionMessage(null);
+
+    const response = await fetch(`/api/artifacts/${artifactId}/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project_id: projectId }),
+    });
+    const payload = await response.json();
+
+    if (!response.ok) {
+      setVerificationActionState("error");
+      setVerificationActionMessage(payload.error ?? "Could not start claim verification.");
+      return;
+    }
+
+    setVerificationActionState("queued");
+    setVerificationActionMessage("Claim verification started.");
+  }
+
   return (
     <div className="docview">
 
@@ -410,6 +435,14 @@ function HtmlReader({
           >
             Print
           </button>
+          <button
+            type="button"
+            onClick={startVerification}
+            disabled={verificationActionState === "starting"}
+            className="doc-toolbar-back disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {verificationActionState === "starting" ? "Starting..." : "Verify claims"}
+          </button>
         </div>
       </div>
 
@@ -417,6 +450,18 @@ function HtmlReader({
       <div className="doc-progress" aria-hidden>
         <i style={{ width: `${progress}%` }} />
       </div>
+
+      {verificationActionMessage && (
+        <div
+          className={`mx-auto mt-3 max-w-5xl rounded-lg border px-3 py-2 text-sm ${
+            verificationActionState === "error"
+              ? "border-neg/20 bg-neg-bg text-neg"
+              : "border-pos/20 bg-pos-bg text-pos"
+          }`}
+        >
+          {verificationActionMessage}
+        </div>
+      )}
 
       {/* Reader body */}
       <div className="doc-scroll">

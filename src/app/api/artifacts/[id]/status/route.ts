@@ -1,35 +1,10 @@
 // GET /api/artifacts/[id]/status
 // Polling endpoint for async artifact generation (compose via Inngest).
-// Returns compose_status and parsed sections once the draft is ready.
+// Returns compose_status and the document location once the draft is ready.
 // Security: artifact query is scoped to the user's org_id — prevents cross-org access by UUID guessing.
 import { NextRequest, NextResponse } from "next/server";
 import { getOrgScopedReadForUser } from "@/lib/auth/support-read";
 import { createClient } from "@/lib/supabase/server";
-
-function parseMarkdownSections(markdown: string): Array<{ heading: string; content: string }> {
-  const lines = markdown.split("\n");
-  const sections: Array<{ heading: string; content: string }> = [];
-  let currentHeading = "";
-  let currentContent: string[] = [];
-
-  for (const line of lines) {
-    if (line.startsWith("## ")) {
-      if (currentHeading) {
-        sections.push({ heading: currentHeading, content: currentContent.join("\n").trim() });
-      }
-      currentHeading = line.replace(/^##\s+/, "").trim();
-      currentContent = [];
-    } else if (!line.startsWith("# ")) {
-      currentContent.push(line);
-    }
-  }
-
-  if (currentHeading) {
-    sections.push({ heading: currentHeading, content: currentContent.join("\n").trim() });
-  }
-
-  return sections;
-}
 
 export async function GET(
   _req: NextRequest,
@@ -50,7 +25,7 @@ export async function GET(
 
   const { data: artifact, error } = await read
     .from("artifacts")
-    .select("id, org_id, project_id, title, content_md, model_used, task_tier, metadata")
+    .select("id, org_id, project_id, title, content_html, model_used, task_tier, metadata")
     .eq("id", params.id)
     .single();
 
@@ -72,15 +47,17 @@ export async function GET(
     });
   }
 
-  // Done — parse and return the full draft
-  const sections = parseMarkdownSections(artifact.content_md ?? "");
+  // Done — the document reader is the canonical flowing surface.
+  const contentHtmlReady =
+    typeof artifact.content_html === "string" && artifact.content_html.trim().length > 0;
   const evidenceIds = Array.isArray(meta.evidence_ids) ? (meta.evidence_ids as string[]) : [];
 
   return NextResponse.json({
     status: "done",
     artifact_id: artifact.id,
     title: artifact.title,
-    sections,
+    document_href: `/projects/${artifact.project_id}/documents/${artifact.id}`,
+    content_html_ready: contentHtmlReady,
     model_used: artifact.model_used ?? null,
     task_tier: artifact.task_tier ?? null,
     evidence_ids: evidenceIds,

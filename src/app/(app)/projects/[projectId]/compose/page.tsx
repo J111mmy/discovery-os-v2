@@ -1,5 +1,4 @@
 import { getProjectForUser } from "@/lib/auth/org";
-import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -8,33 +7,6 @@ import { ComposeEditor } from "./compose-editor";
 interface Props {
   params: { projectId: string };
   searchParams?: { artifactId?: string };
-}
-
-function parseMarkdownArtifact(markdown: string) {
-  const lines = markdown.split("\n");
-  const titleLine = lines.find((line) => line.startsWith("# "));
-  const title = titleLine ? titleLine.replace(/^#\s+/, "").trim() : "Untitled";
-  const sections: Array<{ heading: string; content: string }> = [];
-  let currentHeading = "";
-  let currentContent: string[] = [];
-
-  for (const line of lines) {
-    if (line.startsWith("## ")) {
-      if (currentHeading) {
-        sections.push({ heading: currentHeading, content: currentContent.join("\n").trim() });
-      }
-      currentHeading = line.replace(/^##\s+/, "").trim();
-      currentContent = [];
-    } else if (!line.startsWith("# ")) {
-      currentContent.push(line);
-    }
-  }
-
-  if (currentHeading) {
-    sections.push({ heading: currentHeading, content: currentContent.join("\n").trim() });
-  }
-
-  return { title, sections };
 }
 
 export default async function ComposePage({ params, searchParams }: Props) {
@@ -52,39 +24,9 @@ export default async function ComposePage({ params, searchParams }: Props) {
   );
 
   if (!project) notFound();
-  const read = await getProjectOrgReadForUser({
-    userId: user.id,
-    orgId: project.org_id,
-    memberClient: supabase,
-  });
-
-  let initialDraft = null;
 
   if (searchParams?.artifactId) {
-    const { data: artifact } = await read
-      .from("artifacts")
-      .select("id, org_id, project_id, type, title, prompt, content_md, model_used, task_tier, metadata, verification_status, verification_run_at, verification_summary")
-      .eq("project_id", project.id)
-      .eq("id", searchParams.artifactId)
-      .single();
-
-    if (artifact) {
-      const parsed = parseMarkdownArtifact(artifact.content_md ?? "");
-      const metadata = (artifact.metadata ?? {}) as { evidence_ids?: string[] };
-      initialDraft = {
-        artifactId: artifact.id,
-        title: parsed.title || artifact.title,
-        prompt: artifact.prompt,
-        sections: parsed.sections,
-        modelUsed: artifact.model_used,
-        taskTier: artifact.task_tier,
-        artifactType: artifact.type,
-        evidenceIds: Array.isArray(metadata.evidence_ids) ? metadata.evidence_ids : [],
-        verificationStatus: artifact.verification_status,
-        verificationRunAt: artifact.verification_run_at,
-        verificationSummary: artifact.verification_summary,
-      };
-    }
+    redirect(`/projects/${project.id}/documents/${encodeURIComponent(searchParams.artifactId)}`);
   }
 
   return (
@@ -134,7 +76,7 @@ export default async function ComposePage({ params, searchParams }: Props) {
         </span>
       </div>
 
-      <ComposeEditor projectId={project.id} initialDraft={initialDraft} />
+      <ComposeEditor projectId={project.id} />
     </div>
   );
 }

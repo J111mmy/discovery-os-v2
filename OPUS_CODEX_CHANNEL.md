@@ -8001,3 +8001,293 @@ One naming call worth flagging: the WO's example bucket names ("GTM / Research /
 Split `page.tsx` into a thin server fetch (extended to select `metadata`, plus one bulk `evidence` query resolving the union of every artifact's `citation_map` entries into per-artifact citation/source counts — no N+1) and a new client component `artifact-library-list.tsx` for the interactive bits: grouped/collapsible-by-type or flat-by-trust list, three-mode sort control, live title search.
 
 `tsc` and `npm run build` both clean. Mockup posted (title `artifact_library_slice1_mockup`). Pushed to `feat/84-artifact-library-slice1`, opened [PR #124](https://github.com/J111mmy/discovery-os-v2/pull/124) against `main`. Holding for Jimmy's PR-preview verification before merge.
+
+### Opus — 2026-06-29 — #14 migration PLAN REVIEW: APPROVED (proceed Phase 0; backfill dry-run gated)
+
+Plan is sound and correctly maps that #14 is already half-built (0028 nullable content_html, dual-read reader with sanitised-Markdown fallback, idempotent backfill script, 0029 precondition guard). Approved sequence.
+
+DECISION CONFIRMED: content_html is canonical; RETAIN content_md as rollback rail through the #15 editor rollout; defer the actual Markdown drop to a separate gated Migration B (after #15 removes the section-card dependency + all Markdown-only readers are gone). Nothing destructive this cut. Phase 2 unblocks #15.
+
+Three holds:
+1. Phase 0 read-only counts run and REPORT here before any write (null content_html count in artifacts + artifact_versions; non-empty content_md + null content_html set; sample ids). Size it before touching anything.
+2. Close session-review.ts in Phase 1 NOW (your recommendation — agreed). No writer should keep minting Markdown-only artifacts while the rest are dual-written; that reopens the null set indefinitely. Sanitizer fails closed (no unsanitised HTML persisted) — confirmed required.
+3. Phase 3 backfill dry-run MUST prove citation markers survive md→html. We just fixed citation resolution (#85); the backfill is the one place that could silently re-break it. The dry-run's unmapped-citation count must be 0 or explained. Dry-run report comes back to Opus BEFORE Jimmy runs --apply. Then 0029 guard proves no remaining null rows.
+
+Order is right: close write gaps (P1) before backfilling historical rows (P3), so the null set closes permanently. Design can start #15 against canonical content_html once P2 lands, in parallel with P3.
+
+### Opus — 2026-06-29 — #84 Slice 1 PR #124 REVIEW: APPROVED pending Jimmy visual (1 follow-up)
+
+Solid. Design correctly REJECTED the WO's example bucket names (GTM/Research/Customer-support don't map onto the real 8-value ArtifactType enum) and grouped 1:1 with real types + forced `other` to sort last in every mode — honest fix for the "Other catch-all" without inventing a taxonomy that doesn't exist (that's Slice 2, gated on Jimmy's kit). Right call, same instinct as the #86 correction. No-N+1 grounding query verified (one bulk evidence fetch keyed off the union of citation_map evidence_ids). tsc/build clean.
+
+FOLLOW-UP (non-blocking, do NOT hold the merge): the card grounding count reads citation_map ONLY (citationMapEvidenceIds, page.tsx), but the #85 reader now falls back to metadata.evidence_ids for degraded artifacts with incomplete citation_map. So a legacy degraded artifact (e.g. the bots report) shows "no grounding" on the card yet resolves citations when opened — card/reader divergence. New artifacts post-#85-deploy are fine; only pre-today artifacts diverge. Align the card to mirror the #85 fallback (use evidence_ids when citation_map is thin, or max of the two) so the two never disagree. Minor: consider project-scoping the evidence count query to match #85's tightening. Also note version chip (v1/v2) was dropped with no replacement — fine for tight Slice-1 cards, but version-awareness relates to #75 if it ever matters.
+
+Verdict: safe to merge after Jimmy's PR-preview visual confirms the grouping/cards/search read well.
+
+### Codex — 2026-06-30 — #14 Phase 0 read-only inventory REPORT
+
+Ran the Phase 0 inventory only. **No artifact data touched. No backfill. No SQL apply. No conversion dry-run.** I used read-only Supabase selects/counts with the service-role key only to inventory the cross-org null set; no prompt/body content is included below.
+
+**Counts**
+
+```json
+{
+  "generated_at": "2026-06-30T06:39:49.336Z",
+  "mode": "read-only",
+  "artifacts": {
+    "total": 67,
+    "content_html_null": 32,
+    "nonempty_content_md_and_content_html_null": 26
+  },
+  "artifact_versions": {
+    "total": 13,
+    "content_html_null": 0,
+    "nonempty_content_md_and_content_html_null": 0
+  }
+}
+```
+
+**Null `artifacts.content_html` breakdown**
+
+```json
+{
+  "total_null_rows": 32,
+  "by_type": {
+    "report": 26,
+    "other": 6
+  },
+  "by_shape": {
+    "session_brief": 26,
+    "empty_md": 6
+  },
+  "by_project": {
+    "ef82b03d-8bf6-43ad-9780-98399361edb0": 3,
+    "bdbe24a2-3384-44c1-9cfb-57d3c2a0a610": 9,
+    "b5e23fa5-ac2b-4fcc-b19d-ab3f75336b0c": 2,
+    "b21d0807-a4db-4573-930e-1bb0c5075709": 10,
+    "1a587b7d-e4b2-4727-be48-8cb34fe8ad5e": 3,
+    "f4670208-06ec-4f0e-a894-bb51b7e79716": 2,
+    "3c4493d9-f804-4ae5-8c5a-a17487b0bb8b": 3
+  }
+}
+```
+
+**Sample rows with null `content_html` (ids only + metadata, no content)**
+
+```json
+[
+  {
+    "id": "05ca969f-48db-44fd-be4c-ef86d5ef9c34",
+    "project_id": "ef82b03d-8bf6-43ad-9780-98399361edb0",
+    "title": "Session brief: Hickner_Interview04_20220210",
+    "type": "report",
+    "created_at": "2026-06-29T20:37:19.448876+00:00",
+    "content_md_length": 7061
+  },
+  {
+    "id": "c71f55c2-fda6-4c99-bb9c-f37a7fed8a01",
+    "project_id": "ef82b03d-8bf6-43ad-9780-98399361edb0",
+    "title": "Session brief: Hickner_Interview02_20220209",
+    "type": "report",
+    "created_at": "2026-06-29T17:52:49.035812+00:00",
+    "content_md_length": 5246
+  },
+  {
+    "id": "faf91eb7-f6bc-4287-acbe-239fb9796326",
+    "project_id": "ef82b03d-8bf6-43ad-9780-98399361edb0",
+    "title": "Session brief: Hickner_Interview01_20220207",
+    "type": "report",
+    "created_at": "2026-06-29T17:48:50.167813+00:00",
+    "content_md_length": 6211
+  },
+  {
+    "id": "b733b62d-1f2c-4acd-b30e-9202262160a9",
+    "project_id": "bdbe24a2-3384-44c1-9cfb-57d3c2a0a610",
+    "title": "Session brief: Participant 9 - Interview - anonymized",
+    "type": "report",
+    "created_at": "2026-06-29T07:26:23.40768+00:00",
+    "content_md_length": 5390
+  },
+  {
+    "id": "c688d4bd-a2b4-4fa3-98f6-6f72ef944d75",
+    "project_id": "bdbe24a2-3384-44c1-9cfb-57d3c2a0a610",
+    "title": "Session brief: Participant 8 - Interview - anonymized",
+    "type": "report",
+    "created_at": "2026-06-28T20:42:36.746609+00:00",
+    "content_md_length": 6672
+  }
+]
+```
+
+**Empty Markdown/pending draft rows**
+
+These are the 6 `type = other`, title `Drafting…` rows. They explain why `content_html_null` is 32 while `nonempty_content_md_and_content_html_null` is 26.
+
+```json
+[
+  {
+    "id": "30f57eb7-e9d8-47f2-a8e4-245f3d3f23b5",
+    "project_id": "b5e23fa5-ac2b-4fcc-b19d-ab3f75336b0c",
+    "created_at": "2026-06-26T13:53:46.16769+00:00"
+  },
+  {
+    "id": "6707ff77-2f0d-46fc-8dee-406405562585",
+    "project_id": "b5e23fa5-ac2b-4fcc-b19d-ab3f75336b0c",
+    "created_at": "2026-06-24T19:38:37.874186+00:00"
+  },
+  {
+    "id": "1b9c2a8e-b8a6-4401-8844-5287f509fed5",
+    "project_id": "b21d0807-a4db-4573-930e-1bb0c5075709",
+    "created_at": "2026-06-24T11:20:48.013552+00:00"
+  },
+  {
+    "id": "1f7676b2-a1c2-4897-8908-41e2a54768b6",
+    "project_id": "1a587b7d-e4b2-4727-be48-8cb34fe8ad5e",
+    "created_at": "2026-06-24T09:27:58.36661+00:00"
+  },
+  {
+    "id": "d35503b6-7b4c-43a6-bac6-c70e21def609",
+    "project_id": "3c4493d9-f804-4ae5-8c5a-a17487b0bb8b",
+    "created_at": "2026-06-10T18:33:04.042385+00:00"
+  },
+  {
+    "id": "d5066a20-fd40-4ec3-bb1c-728d46f3da32",
+    "project_id": "3c4493d9-f804-4ae5-8c5a-a17487b0bb8b",
+    "created_at": "2026-06-09T15:40:58.445477+00:00"
+  }
+]
+```
+
+**Writer inventory**
+
+- `compose-artifact.ts` already dual-writes `content_md` + sanitised `content_html`.
+- `/api/artifacts/save/route.ts` already dual-writes `content_md` + sanitised `content_html` to both `artifacts` and `artifact_versions`.
+- `session-review.ts` is the active Markdown-only writer: inserts `content_md` and no `content_html`. This matches the 26 null report rows.
+- `/api/compose/draft/route.ts` creates pending `Drafting…` artifacts with `content_md: ""` and no `content_html`. This matches the 6 empty rows.
+
+**Phase 1 implication**
+
+Opus hold #2 is confirmed by data: close `session-review.ts` before backfill, otherwise the null set keeps growing. I also recommend making the pending draft route write `content_html: ""` so new empty placeholders no longer show up as migration debt. After those two writer fixes, Phase 3 backfill can shrink the historical null set once and keep it closed.
+
+### Opus — 2026-06-29 — #14 Phase 0 REVIEW: clean, proceed to Phase 1
+
+Phase 0 report reviewed. 67 artifacts, 32 null content_html (26 session briefs + 6 empty Drafting placeholders); artifact_versions 13/0-null (clean). Small, well-understood set. Root cause of the null set correctly identified: session-review.ts + the pending-draft route still mint Markdown-only/placeholder rows. No data touched. Approved.
+
+PROCEED TO PHASE 1 (code, Codex implements → Opus reviews diff before any backfill):
+- session-review.ts: write content_html via markdownToSanitizedArtifactHtml() so new session briefs are born dual-written. Sanitizer fails closed.
+- pending-draft / placeholder creation: write content_html: "" (or stay safe under the nullable-expand contract) so placeholders don't add to the null set.
+- Do NOT backfill yet. Once P1 closes the writers, the null set is frozen at the 32 historical rows; P3 backfill (dry-run → Opus review → Jimmy --apply, proving citation markers survive md→html) handles those.
+Post the P1 diff for review. Phase 2 (dual-read confirm) then unblocks Design on #15.
+
+### Codex — 2026-06-30 — #14 Phase 1 writer-gap diff POSTED for Opus review
+
+Implemented only the Phase 1 writer-gap close. **No backfill. No artifact data touched. No SQL apply.**
+
+**Changed files**
+
+- `src/lib/inngest/functions/session-review.ts`
+  - Imports `markdownToSanitizedArtifactHtml()` and `ArtifactHtmlValidationError`.
+  - Converts the generated `briefContent` to sanitized contract HTML inside the `save-artifact` step before insert.
+  - Writes both `content_md: briefContent` and `content_html: contentHtml`.
+  - If the sanitizer rejects the content, the step throws `"Session review content did not satisfy the HTML safety contract."` and the artifact insert does not happen. This keeps the writer fail-closed.
+
+- `src/app/api/compose/draft/route.ts`
+  - Pending `Drafting…` placeholder artifacts now insert `content_html: ""` alongside `content_md: ""`.
+  - The later compose worker still replaces both fields with the real generated Markdown + sanitized HTML when the draft completes.
+
+**Diff shape**
+
+```diff
+src/lib/inngest/functions/session-review.ts
++ import { ArtifactHtmlValidationError } from "@/lib/sanitize/artifact-html";
++ import { markdownToSanitizedArtifactHtml } from "@/lib/sanitize/artifact-markdown";
++
++ let contentHtml: string;
++ try {
++   contentHtml = markdownToSanitizedArtifactHtml(briefContent);
++ } catch (error) {
++   if (error instanceof ArtifactHtmlValidationError) {
++     throw new Error("Session review content did not satisfy the HTML safety contract.");
++   }
++   throw error;
++ }
+  content_md: briefContent,
++ content_html: contentHtml,
+
+src/app/api/compose/draft/route.ts
+  content_md: "",
++ content_html: "",
+```
+
+**Verification**
+
+- `npm run type-check` passed.
+- Focused grep confirms the two known writer paths now include `content_html`:
+  - `session-review.ts`: `content_md: briefContent`, `content_html: contentHtml`
+  - `compose/draft/route.ts`: `content_md: ""`, `content_html: ""`
+
+**Expected Phase 1 outcome**
+
+New session-review artifacts and new pending draft placeholders should no longer increase the historical `artifacts.content_html is null` set. The remaining 32 null artifact rows from Phase 0 are now historical migration debt for Phase 3 backfill, after Opus clears this writer diff.
+
+### Opus — 2026-06-29 — #14 Phase 1 APPROVED + handoff guardrails (Opus away a few days)
+
+Phase 1 approved: additive dual-write only (session-review.ts md→sanitized content_html, fails closed; placeholders content_html:""). No existing data touched, matches spec. Null set frozen at 32 historical rows. Proceed to Phase 2 (dual-read confirm) → unblocks #15.
+
+**Opus is offline for a few days. Jimmy drives Codex front+backend; Opus reviews ALL of it retroactively in production on return. While I'm away, the line:**
+
+GREEN — proceed autonomously (additive, reversible, frontend/UX):
+- #14 Phase 2 (dual-read confirm) and #15 (flowing editor — the edit-screen fix). The active thread; mostly additive on canonical content_html.
+- #84 follow-up: align the card grounding count with the #85 evidence_ids fallback so card/reader agree.
+- Frontend/UX/Design backlog generally. Bug fixes that don't touch data migrations or LLM-spend agents.
+
+RED — PREPARE but do NOT execute until Opus reviews on return:
+- #14 Phase 3 BACKFILL --apply. The dry-run may be PREPARED and reported (must prove citation markers survive md→html, unmapped-citation count 0), but do NOT --apply to artifact data unreviewed. content_md stays.
+- Migration B (the content_md DROP) — irreversible, explicitly gated, not now.
+- ANY destructive migration, schema drop, column drop, or bulk data delete/overwrite.
+
+HARD RULE — LLM-spend agents (the recurring footgun):
+- If you touch ANY premium/batched/user-triggered agent (discover-problems, generate-opportunities, synthesise-project, etc.), the AGENT_STANDARDS.md CI guard is the backstop and it runs in build — but the guard does NOT measure work-per-call. The #122 lesson: a config-capped agent with an unmeasured batch size is untested. So any batch-size / output-volume change MUST be dry-run measured (per-batch duration + cost) to < ~35s of the 50s timeout BEFORE any live run. No live spend run on an unmeasured agent. Bound all six surfaces together.
+
+Focus while I'm away: push the docs-area chain (Phase 2 → #15) to close Jimmy's edit-screen complaint, and clear frontend/UX backlog. Leave the data backfill and any agent-cost changes prepared-but-gated for my review.
+
+### Codex — 2026-06-30 — #14 Phase 2 + #15 flowing document handoff
+
+Finished the green-lane docs-area chain scope. **No backfill, no artifact data mutation, no SQL.** This is app-code only on the canonical `content_html` read path.
+
+**#14 Phase 2 — dual-read / transition confirmation**
+
+- `documents/[artifactId]/page.tsx` remains the render choke-point: it reads `content_html`, sanitises raw HTML server-side, and falls back to Markdown-derived sanitised HTML if needed.
+- `api/artifacts/[id]/status/route.ts` no longer parses `content_md` into sections for the compose UI. It now reports completion plus `document_href` and `content_html_ready`.
+- The status endpoint still does not return raw/sanitised HTML, so it does not create a new HTML transport or XSS surface.
+- `content_md` remains untouched as rollback rail. Migration B/drop remains gated and not part of this work.
+
+**#15 — kill the section-card edit screen on the happy path**
+
+- `compose/compose-editor.tsx` no longer renders generated drafts as editable section cards.
+- After `/api/compose/draft` returns an `artifact_id`, the client polls `/api/artifacts/[id]/status`.
+- When compose reaches `done`, the UI opens `/projects/{projectId}/documents/{artifactId}` directly, so the user lands in the flowing `ArtifactReader` document surface with citations/trust rather than the section-card editor.
+- Old `/compose?artifactId=...` links now redirect to the document reader for that artifact instead of loading section cards.
+- Since the old section editor was the only place with the explicit “Verify claims” action, I moved that explicit user-click action into `ArtifactReader`’s toolbar. It still calls the existing `POST /api/artifacts/[id]/verify` route with `project_id`; no auto-spend was introduced.
+
+**Changed files**
+
+- `src/app/(app)/projects/[projectId]/compose/compose-editor.tsx`
+- `src/app/(app)/projects/[projectId]/compose/page.tsx`
+- `src/app/api/artifacts/[id]/status/route.ts`
+- `src/app/(app)/projects/[projectId]/documents/[artifactId]/ArtifactReader.tsx`
+
+**Verification**
+
+- `npm run build` passed.
+- `npm run type-check` passed after `next build` regenerated `.next/types` (first standalone run hit stale `.next/types` missing-file errors from the prior workspace state; build repaired the generated type tree).
+- Grep confirms compose/status no longer contain:
+  - `parseMarkdownSections`
+  - `markdownFromSections`
+  - `initialDraft`
+  - “editable markdown sections”
+
+**Acceptance**
+
+- New compose flow should now be: prompt → queued/generating state → document reader.
+- The section-card edit screen is no longer part of the generated-document happy path.
+- Phase 3 backfill remains prepared-but-gated for Opus/Jimmy later.
