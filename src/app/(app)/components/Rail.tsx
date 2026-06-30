@@ -169,6 +169,26 @@ const DIR_ICON: Record<string, (props: { size?: number }) => JSX.Element> = {
   competitors: IcoCompetitors,
 };
 
+// ── Fading text — used in place of ellipsis truncation for names that
+// might overflow their container. The gradient only affects pixels at the
+// very edge of the box, so short text that doesn't reach that edge is
+// untouched; only text that actually runs into the edge visibly fades. ──
+function fadeTextStyle(extra?: React.CSSProperties): React.CSSProperties {
+  return {
+    minWidth: 0,
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    WebkitMaskImage: "linear-gradient(to right, black calc(100% - 20px), transparent 100%)",
+    maskImage: "linear-gradient(to right, black calc(100% - 20px), transparent 100%)",
+    ...extra,
+  };
+}
+
+// ── Rail resize bounds (px) ─────────────────────────────────────────
+const RAIL_MIN_WIDTH = 200;
+const RAIL_MAX_WIDTH = 420;
+const RAIL_DEFAULT_WIDTH = 240;
+
 // ── Avatar initials from email ─────────────────────────────────────
 function getInitials(email: string): string {
   return email
@@ -227,6 +247,9 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
   const [theme, setTheme] = useState<Theme>("dark");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [railWidth, setRailWidth] = useState(RAIL_DEFAULT_WIDTH);
+  const [resizingRail, setResizingRail] = useState(false);
+  const railDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   // Last visited project — persists across directory/settings navigation so
   // the project box stays open and the user can easily return to any sub-route.
@@ -245,6 +268,11 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
     const stored = localStorage.getItem("discos-last-project");
     if (stored && projects.some((p) => p.id === stored)) {
       setLastProjectId(stored);
+    }
+
+    const storedWidth = Number(localStorage.getItem("discos-rail-width"));
+    if (Number.isFinite(storedWidth) && storedWidth >= RAIL_MIN_WIDTH && storedWidth <= RAIL_MAX_WIDTH) {
+      setRailWidth(storedWidth);
     }
 
     const mq = window.matchMedia("(max-width: 860px)");
@@ -304,6 +332,46 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
     localStorage.setItem("discos-theme", next);
     document.documentElement.setAttribute("data-theme", next);
   }
+
+  // ── Rail resize handle — drag to widen/narrow, persisted to localStorage ──
+  function onRailResizeStart(e: React.MouseEvent) {
+    e.preventDefault();
+    railDragRef.current = { startX: e.clientX, startWidth: railWidth };
+    setResizingRail(true);
+  }
+
+  useEffect(() => {
+    if (!resizingRail) return;
+
+    function onMove(e: MouseEvent) {
+      if (!railDragRef.current) return;
+      const delta = e.clientX - railDragRef.current.startX;
+      const next = Math.min(
+        RAIL_MAX_WIDTH,
+        Math.max(RAIL_MIN_WIDTH, railDragRef.current.startWidth + delta)
+      );
+      setRailWidth(next);
+    }
+    function onUp() {
+      setResizingRail(false);
+      railDragRef.current = null;
+      setRailWidth((w) => {
+        localStorage.setItem("discos-rail-width", String(w));
+        return w;
+      });
+    }
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [resizingRail]);
 
   // ── Project sub-nav item ───────────────────────────────────────
   function ProjectNavItem({ item, projectId, color }: { item: typeof PROJECT_NAV[number]; projectId: string; color: string }) {
@@ -467,14 +535,24 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
       <div
         className="rail-expanded"
         style={{
-          width: 240, flexShrink: 0,
+          width: railWidth, flexShrink: 0,
           borderRight: "1px solid var(--line)",
           display: "flex", flexDirection: "column",
           background: "color-mix(in srgb, var(--surface) 92%, transparent)",
           height: "100%",
           overflow: "hidden",
+          position: "relative",
         }}
       >
+        {/* Resize handle — invisible hit zone straddling the right edge.
+            No visible affordance by design; the cursor change is the only cue. */}
+        <div
+          onMouseDown={onRailResizeStart}
+          style={{
+            position: "absolute", top: 0, right: -3, bottom: 0, width: 6,
+            cursor: "col-resize", zIndex: 5,
+          }}
+        />
         {/* ── Top row: collapse + search ── */}
         <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "9px 10px 8px", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
           <button
@@ -527,42 +605,43 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
                 } : { marginBottom: 2 }}>
                   {isOpen ? (
                     <>
-                      {/* Active project label — links to the workspace (Overview tab) */}
-                      <Link
-                        href={`/projects/${p.id}`}
-                        style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 10px 6px", textDecoration: "none", borderRadius: 7, transition: "background .13s" }}
+                      {/* Active project label — links to the workspace (Overview tab),
+                          with a permanent add-evidence icon to its right. */}
+                      <div
+                        style={{ display: "flex", alignItems: "center", gap: 2, padding: "9px 6px 6px 10px", borderRadius: 7, transition: "background .13s" }}
                         onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--sel)"; }}
                         onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
                       >
-                        <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0, boxShadow: `0 0 0 3px ${color}22` }} />
-                        <span style={{ flex: 1, fontWeight: 640, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "-0.01em", color: !onProjectDocuments ? "var(--ink)" : "var(--ink-2)" }}>
-                          {p.name}
-                        </span>
-                      </Link>
-                      {/* Sub-nav items */}
-                      <div style={{ padding: "0 5px 4px" }}>
-                        {PROJECT_NAV.map((item) => (
-                          <ProjectNavItem key={item.id} item={item} projectId={p.id} color={color} />
-                        ))}
-                      </div>
-                      {/* Add evidence — compact action scoped to this project */}
-                      <div style={{ padding: "0 5px 8px" }}>
+                        <Link
+                          href={`/projects/${p.id}`}
+                          style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 9, textDecoration: "none" }}
+                        >
+                          <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0, boxShadow: `0 0 0 3px ${color}22` }} />
+                          <span style={fadeTextStyle({ flex: 1, fontWeight: 640, fontSize: 13.5, letterSpacing: "-0.01em", color: !onProjectDocuments ? "var(--ink)" : "var(--ink-2)" })}>
+                            {p.name}
+                          </span>
+                        </Link>
                         <button
+                          title="Add evidence"
+                          aria-label={`Add evidence to ${p.name}`}
                           onClick={() => setAddEvidenceOpen(true)}
                           style={{
-                            display: "flex", alignItems: "center", gap: 7,
-                            padding: "6px 9px", borderRadius: 7,
-                            color: "var(--accent)", fontSize: 13,
-                            fontWeight: 560, border: "none",
-                            transition: ".13s", background: "transparent",
-                            cursor: "pointer", width: "100%",
-                            fontFamily: "inherit",
+                            width: 24, height: 24, display: "grid", placeItems: "center",
+                            borderRadius: 6, border: "none", background: "transparent",
+                            color: "var(--accent)", cursor: "pointer", flexShrink: 0,
+                            fontFamily: "inherit", transition: "background .13s",
                           }}
                           onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--accent-soft)"; }}
                           onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
                         >
-                          <IcoPlus size={12} /> Add evidence
+                          <IcoPlus size={13} />
                         </button>
+                      </div>
+                      {/* Sub-nav items */}
+                      <div style={{ padding: "0 5px 8px" }}>
+                        {PROJECT_NAV.map((item) => (
+                          <ProjectNavItem key={item.id} item={item} projectId={p.id} color={color} />
+                        ))}
                       </div>
                     </>
                   ) : (
@@ -584,13 +663,13 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
                       <Link
                         href={`/projects/${p.id}`}
                         style={{
-                          flex: 1, display: "flex", alignItems: "center", gap: 9,
+                          flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 9,
                           padding: "8px 10px", borderRadius: 9,
                           textDecoration: "none", color: "var(--ink-3)", fontSize: 13.5,
                         }}
                       >
                         <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0, opacity: 0.7 }} />
-                        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                        <span style={fadeTextStyle({ flex: 1 })}>{p.name}</span>
                       </Link>
                       <button
                         data-add-btn=""
