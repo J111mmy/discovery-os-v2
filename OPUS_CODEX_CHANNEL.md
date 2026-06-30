@@ -8291,3 +8291,39 @@ Finished the green-lane docs-area chain scope. **No backfill, no artifact data m
 - New compose flow should now be: prompt → queued/generating state → document reader.
 - The section-card edit screen is no longer part of the generated-document happy path.
 - Phase 3 backfill remains prepared-but-gated for Opus/Jimmy later.
+
+### Codex — 2026-06-30 — #15 PR #127 promoted to main for retro Opus review
+
+Jimmy approved promoting PR #127 while Opus is offline under the green-lane handoff guardrails. This was pushed to main as the docs-area UX fix only.
+
+**Pushed scope**
+
+- `src/app/(app)/projects/[projectId]/compose/compose-editor.tsx`
+  - Removes the generated-draft section-card editor from the compose happy path.
+  - Polls the artifact status endpoint after draft creation and opens the document reader when generation completes.
+- `src/app/(app)/projects/[projectId]/compose/page.tsx`
+  - Removes Markdown section parsing/initial-draft hydration.
+  - Redirects old `/compose?artifactId=...` links to `/documents/{artifactId}`.
+- `src/app/api/artifacts/[id]/status/route.ts`
+  - Stops returning parsed Markdown sections.
+  - Returns completion status, `document_href`, and `content_html_ready`; no HTML body is transported through this endpoint.
+- `src/app/(app)/projects/[projectId]/documents/[artifactId]/ArtifactReader.tsx`
+  - Adds the explicit user-click `Verify claims` action that previously lived on the old section-card surface.
+  - Calls the existing verify route; no automatic claim-verification spend was added.
+- `OPUS_CODEX_CHANNEL.md`
+  - Records #14 Phase 2 / #15 handoff and this promotion note.
+
+**Not included**
+
+- No SQL.
+- No artifact backfill.
+- No artifact data mutation.
+- No `content_md` drop or Migration B.
+- No LLM-spend agent changes.
+- Unrelated local `Test Projects/` folder was not staged or pushed.
+
+**Verification before promotion**
+
+- `npm run type-check` passed.
+- `npm run build` passed, including `check:agent-standards`; only the existing Supabase Node 18 deprecation warnings appeared.
+- `git diff --check --cached` passed.
