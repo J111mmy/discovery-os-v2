@@ -2,9 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { EvidenceRecord, TrustScope } from "@/types/database";
+import type { TagOption } from "@/lib/research-ontology/evidence-tags";
 import Link from "next/link";
 import {
+  applyTagToEvidenceAction,
+  createTagAction,
   loadEvidenceRecordsAction,
+  removeTagFromEvidenceAction,
   setEvidenceTrustBulkAction,
 } from "./actions";
 
@@ -88,6 +92,7 @@ interface EvidenceBrowserProps {
   filterKind?: EvidenceFilterKind;
   lensData: EvidenceLensData;
   internalSpeakerNames: string[];
+  initialProjectTags: TagOption[];
 }
 
 const LENSES: { key: EvidenceLensKey; label: string; blurb: string }[] = [
@@ -252,6 +257,144 @@ function anchorAffordance(record: EvidenceRecord) {
   };
 }
 
+// Fallback for tags with no stored color — a plain hex so the `${color}1a`-style
+// alpha suffixes below stay valid CSS (a "var(--x)" string can't take a suffix).
+const FALLBACK_TAG_COLOR = "#9090a8";
+
+function TagChip({ tag, onRemove }: { tag: TagOption; onRemove?: () => void }) {
+  const color = tag.color ?? FALLBACK_TAG_COLOR;
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
+      style={{ backgroundColor: `${color}1a`, color, border: `1px solid ${color}40` }}
+    >
+      {tag.label}
+      {onRemove && (
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={`Remove tag ${tag.label}`}
+          className="ml-0.5 leading-none opacity-70 transition-opacity hover:opacity-100"
+        >
+          ×
+        </button>
+      )}
+    </span>
+  );
+}
+
+// "+ Tag" affordance — find-or-create a tag and apply it to one evidence record.
+// Tags are the human's own workflow layer (ONTOLOGY.md: Tag ≠ Topic); this never
+// touches synthesis, themes, or topics.
+function TagPicker({
+  projectTags,
+  appliedTagIds,
+  onApply,
+  onCreateAndApply,
+  disabled,
+}: {
+  projectTags: TagOption[];
+  appliedTagIds: Set<string>;
+  onApply: (tagId: string) => void;
+  onCreateAndApply: (label: string) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const available = projectTags.filter((tag) => !appliedTagIds.has(tag.id));
+  const trimmedDraft = draft.trim();
+  const filteredAvailable = trimmedDraft
+    ? available.filter((tag) => tag.label.toLowerCase().includes(trimmedDraft.toLowerCase()))
+    : available;
+  const exactMatch = available.some(
+    (tag) => tag.label.toLowerCase() === trimmedDraft.toLowerCase()
+  );
+
+  function submitCreate() {
+    if (!trimmedDraft) return;
+    onCreateAndApply(trimmedDraft);
+    setDraft("");
+    setOpen(false);
+  }
+
+  return (
+    <div ref={containerRef} className="relative inline-block">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((o) => !o)}
+        className="rounded-full border border-dashed border-[var(--line)] px-2 py-0.5 text-xs font-medium text-[var(--ink-faint)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        + Tag
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-lg border border-[var(--line)] bg-[var(--surface)] p-2 shadow-lg">
+          <input
+            type="text"
+            autoFocus
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                if (!exactMatch) submitCreate();
+              }
+            }}
+            placeholder="Find or create a tag"
+            className="mb-2 w-full rounded-md border border-[var(--line)] bg-[var(--bg)] px-2 py-1 text-xs text-[var(--ink)] outline-none focus:border-[var(--accent)]"
+          />
+          <div className="max-h-40 overflow-y-auto">
+            {filteredAvailable.length === 0 && !trimmedDraft && (
+              <p className="px-1 py-1 text-xs text-[var(--ink-faint)]">No more tags to apply.</p>
+            )}
+            {filteredAvailable.map((tag) => (
+              <button
+                key={tag.id}
+                type="button"
+                onClick={() => {
+                  onApply(tag.id);
+                  setDraft("");
+                  setOpen(false);
+                }}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--ink)] transition-colors hover:bg-[var(--surface-2)]"
+              >
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: tag.color ?? "var(--ink-2)" }}
+                />
+                {tag.label}
+              </button>
+            ))}
+            {trimmedDraft && !exactMatch && (
+              <button
+                type="button"
+                onClick={submitCreate}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-medium text-[var(--accent)] transition-colors hover:bg-[var(--accent-soft)]"
+              >
+                + Create &ldquo;{trimmedDraft}&rdquo;
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EvidenceRow({
   projectId,
   record,
@@ -260,6 +403,10 @@ function EvidenceRow({
   onQuickMove,
   busy,
   isInternal,
+  projectTags,
+  onApplyTag,
+  onCreateAndApplyTag,
+  onRemoveTag,
 }: {
   projectId: string;
   record: EvidenceRecord;
@@ -268,6 +415,10 @@ function EvidenceRow({
   onQuickMove: (target: BucketKey) => void;
   busy: boolean;
   isInternal?: boolean;
+  projectTags: TagOption[];
+  onApplyTag: (tagId: string) => void;
+  onCreateAndApplyTag: (label: string) => void;
+  onRemoveTag: (tagId: string) => void;
 }) {
   const showReason =
     record.ai_trust_reason &&
@@ -340,6 +491,19 @@ function EvidenceRow({
             {record.ai_trust_reason}
           </p>
         )}
+
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          {(record.tags ?? []).map((tag) => (
+            <TagChip key={tag.id} tag={tag} onRemove={() => onRemoveTag(tag.id)} />
+          ))}
+          <TagPicker
+            projectTags={projectTags}
+            appliedTagIds={new Set((record.tags ?? []).map((tag) => tag.id))}
+            onApply={onApplyTag}
+            onCreateAndApply={onCreateAndApplyTag}
+            disabled={busy}
+          />
+        </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <SentimentIndicator sentiment={record.sentiment} />
@@ -573,6 +737,7 @@ export function EvidenceBrowser({
   filterKind = themeFilter ? "topic" : undefined,
   lensData,
   internalSpeakerNames,
+  initialProjectTags,
 }: EvidenceBrowserProps) {
   const [activeLens, setActiveLens] = useState<EvidenceLensKey>("review");
   const [activeTab, setActiveTab] = useState<BucketKey>("pending");
@@ -596,6 +761,10 @@ export function EvidenceBrowser({
   const [pendingSeeded, setPendingSeeded] = useState(true);
   // Internal-speaker filter — hidden by default everywhere.
   const [showInternal, setShowInternal] = useState(false);
+  // Tags — the human's own workflow layer (ONTOLOGY.md: Tag ≠ Topic). Grows
+  // client-side as new tags get created inline from the row picker.
+  const [projectTags, setProjectTags] = useState<TagOption[]>(initialProjectTags);
+  const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadingMoreRef = useRef(false);
@@ -617,14 +786,59 @@ export function EvidenceBrowser({
     },
     [internalSet]
   );
-  const visibleRecords = useMemo(
-    () => (showInternal ? records : records.filter((r) => !isInternal(r))),
-    [records, showInternal, isInternal]
-  );
+  const visibleRecords = useMemo(() => {
+    const base = showInternal ? records : records.filter((r) => !isInternal(r));
+    if (!activeTagFilter) return base;
+    return base.filter((r) => (r.tags ?? []).some((tag) => tag.id === activeTagFilter));
+  }, [records, showInternal, isInternal, activeTagFilter]);
   const hiddenInternalCount = useMemo(
     () => (showInternal ? 0 : records.filter((r) => isInternal(r)).length),
     [records, showInternal, isInternal]
   );
+
+  function updateRecordTags(evidenceId: string, updater: (tags: TagOption[]) => TagOption[]) {
+    setRecords((current) =>
+      current.map((record) =>
+        record.id === evidenceId ? { ...record, tags: updater(record.tags ?? []) } : record
+      )
+    );
+  }
+
+  async function handleApplyTag(evidenceId: string, tagId: string) {
+    const tag = projectTags.find((t) => t.id === tagId);
+    if (!tag) return;
+    updateRecordTags(evidenceId, (tags) =>
+      tags.some((t) => t.id === tagId) ? tags : [...tags, tag]
+    );
+    const result = await applyTagToEvidenceAction({ projectId, evidenceId, tagId });
+    if (!result.ok) {
+      setError(result.error ?? "Could not apply tag.");
+      updateRecordTags(evidenceId, (tags) => tags.filter((t) => t.id !== tagId));
+    }
+  }
+
+  async function handleCreateAndApplyTag(evidenceId: string, label: string) {
+    const result = await createTagAction({ projectId, label });
+    if (!result.ok || !result.tag) {
+      setError(result.error ?? "Could not create tag.");
+      return;
+    }
+    const tag = result.tag;
+    setProjectTags((current) =>
+      current.some((t) => t.id === tag.id) ? current : [...current, tag].sort((a, b) => a.label.localeCompare(b.label))
+    );
+    await handleApplyTag(evidenceId, tag.id);
+  }
+
+  async function handleRemoveTag(evidenceId: string, tagId: string) {
+    const previous = records.find((r) => r.id === evidenceId)?.tags ?? [];
+    updateRecordTags(evidenceId, (tags) => tags.filter((t) => t.id !== tagId));
+    const result = await removeTagFromEvidenceAction({ projectId, evidenceId, tagId });
+    if (!result.ok) {
+      setError(result.error ?? "Could not remove tag.");
+      updateRecordTags(evidenceId, () => previous);
+    }
+  }
 
   const loadTab = useCallback(
     async (tab: BucketKey) => {
@@ -979,6 +1193,42 @@ export function EvidenceBrowser({
           )}
         </div>
 
+        {projectTags.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
+              Filter by tag
+            </span>
+            {projectTags.map((tag) => {
+              const active = activeTagFilter === tag.id;
+              const color = tag.color ?? FALLBACK_TAG_COLOR;
+              return (
+                <button
+                  key={tag.id}
+                  type="button"
+                  onClick={() => setActiveTagFilter(active ? null : tag.id)}
+                  className="rounded-full px-2 py-0.5 text-xs font-medium transition-colors"
+                  style={
+                    active
+                      ? { backgroundColor: color, color: "#fff", border: `1px solid ${color}` }
+                      : { backgroundColor: `${color}1a`, color, border: `1px solid ${color}40` }
+                  }
+                >
+                  {tag.label}
+                </button>
+              );
+            })}
+            {activeTagFilter && (
+              <button
+                type="button"
+                onClick={() => setActiveTagFilter(null)}
+                className="text-xs font-medium text-[var(--ink-faint)] transition-colors hover:text-[var(--ink-2)]"
+              >
+                Clear ×
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="mt-3 text-xs text-[var(--ink-2)]">
           {isSearching || isLoadingTab
             ? "Loading..."
@@ -1058,6 +1308,10 @@ export function EvidenceBrowser({
                 onQuickMove={(target) => moveRecords([record.id], target)}
                 busy={isMutating}
                 isInternal={isInternal(record)}
+                projectTags={projectTags}
+                onApplyTag={(tagId) => handleApplyTag(record.id, tagId)}
+                onCreateAndApplyTag={(label) => handleCreateAndApplyTag(record.id, label)}
+                onRemoveTag={(tagId) => handleRemoveTag(record.id, tagId)}
               />
             ))}
           </div>
