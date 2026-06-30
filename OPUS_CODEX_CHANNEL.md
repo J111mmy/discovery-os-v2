@@ -8177,3 +8177,75 @@ PROCEED TO PHASE 1 (code, Codex implements → Opus reviews diff before any back
 - pending-draft / placeholder creation: write content_html: "" (or stay safe under the nullable-expand contract) so placeholders don't add to the null set.
 - Do NOT backfill yet. Once P1 closes the writers, the null set is frozen at the 32 historical rows; P3 backfill (dry-run → Opus review → Jimmy --apply, proving citation markers survive md→html) handles those.
 Post the P1 diff for review. Phase 2 (dual-read confirm) then unblocks Design on #15.
+
+### Codex — 2026-06-30 — #14 Phase 1 writer-gap diff POSTED for Opus review
+
+Implemented only the Phase 1 writer-gap close. **No backfill. No artifact data touched. No SQL apply.**
+
+**Changed files**
+
+- `src/lib/inngest/functions/session-review.ts`
+  - Imports `markdownToSanitizedArtifactHtml()` and `ArtifactHtmlValidationError`.
+  - Converts the generated `briefContent` to sanitized contract HTML inside the `save-artifact` step before insert.
+  - Writes both `content_md: briefContent` and `content_html: contentHtml`.
+  - If the sanitizer rejects the content, the step throws `"Session review content did not satisfy the HTML safety contract."` and the artifact insert does not happen. This keeps the writer fail-closed.
+
+- `src/app/api/compose/draft/route.ts`
+  - Pending `Drafting…` placeholder artifacts now insert `content_html: ""` alongside `content_md: ""`.
+  - The later compose worker still replaces both fields with the real generated Markdown + sanitized HTML when the draft completes.
+
+**Diff shape**
+
+```diff
+src/lib/inngest/functions/session-review.ts
++ import { ArtifactHtmlValidationError } from "@/lib/sanitize/artifact-html";
++ import { markdownToSanitizedArtifactHtml } from "@/lib/sanitize/artifact-markdown";
++
++ let contentHtml: string;
++ try {
++   contentHtml = markdownToSanitizedArtifactHtml(briefContent);
++ } catch (error) {
++   if (error instanceof ArtifactHtmlValidationError) {
++     throw new Error("Session review content did not satisfy the HTML safety contract.");
++   }
++   throw error;
++ }
+  content_md: briefContent,
++ content_html: contentHtml,
+
+src/app/api/compose/draft/route.ts
+  content_md: "",
++ content_html: "",
+```
+
+**Verification**
+
+- `npm run type-check` passed.
+- Focused grep confirms the two known writer paths now include `content_html`:
+  - `session-review.ts`: `content_md: briefContent`, `content_html: contentHtml`
+  - `compose/draft/route.ts`: `content_md: ""`, `content_html: ""`
+
+**Expected Phase 1 outcome**
+
+New session-review artifacts and new pending draft placeholders should no longer increase the historical `artifacts.content_html is null` set. The remaining 32 null artifact rows from Phase 0 are now historical migration debt for Phase 3 backfill, after Opus clears this writer diff.
+
+### Opus — 2026-06-29 — #14 Phase 1 APPROVED + handoff guardrails (Opus away a few days)
+
+Phase 1 approved: additive dual-write only (session-review.ts md→sanitized content_html, fails closed; placeholders content_html:""). No existing data touched, matches spec. Null set frozen at 32 historical rows. Proceed to Phase 2 (dual-read confirm) → unblocks #15.
+
+**Opus is offline for a few days. Jimmy drives Codex front+backend; Opus reviews ALL of it retroactively in production on return. While I'm away, the line:**
+
+GREEN — proceed autonomously (additive, reversible, frontend/UX):
+- #14 Phase 2 (dual-read confirm) and #15 (flowing editor — the edit-screen fix). The active thread; mostly additive on canonical content_html.
+- #84 follow-up: align the card grounding count with the #85 evidence_ids fallback so card/reader agree.
+- Frontend/UX/Design backlog generally. Bug fixes that don't touch data migrations or LLM-spend agents.
+
+RED — PREPARE but do NOT execute until Opus reviews on return:
+- #14 Phase 3 BACKFILL --apply. The dry-run may be PREPARED and reported (must prove citation markers survive md→html, unmapped-citation count 0), but do NOT --apply to artifact data unreviewed. content_md stays.
+- Migration B (the content_md DROP) — irreversible, explicitly gated, not now.
+- ANY destructive migration, schema drop, column drop, or bulk data delete/overwrite.
+
+HARD RULE — LLM-spend agents (the recurring footgun):
+- If you touch ANY premium/batched/user-triggered agent (discover-problems, generate-opportunities, synthesise-project, etc.), the AGENT_STANDARDS.md CI guard is the backstop and it runs in build — but the guard does NOT measure work-per-call. The #122 lesson: a config-capped agent with an unmeasured batch size is untested. So any batch-size / output-volume change MUST be dry-run measured (per-batch duration + cost) to < ~35s of the 50s timeout BEFORE any live run. No live spend run on an unmeasured agent. Bound all six surfaces together.
+
+Focus while I'm away: push the docs-area chain (Phase 2 → #15) to close Jimmy's edit-screen complaint, and clear frontend/UX backlog. Leave the data backfill and any agent-cost changes prepared-but-gated for my review.

@@ -9,6 +9,8 @@ import {
   buildSessionReviewPrompt,
   SESSION_REVIEW_PROMPT_VERSION,
 } from "@/lib/llm/prompts/session-review";
+import { ArtifactHtmlValidationError } from "@/lib/sanitize/artifact-html";
+import { markdownToSanitizedArtifactHtml } from "@/lib/sanitize/artifact-markdown";
 
 type EvidenceRecord = {
   id: string;
@@ -171,6 +173,16 @@ export const sessionReview = inngest.createFunction(
 
       const artifactId = await step.run("save-artifact", async () => {
         const title = `Session brief: ${source.title}`;
+        let contentHtml: string;
+
+        try {
+          contentHtml = markdownToSanitizedArtifactHtml(briefContent);
+        } catch (error) {
+          if (error instanceof ArtifactHtmlValidationError) {
+            throw new Error("Session review content did not satisfy the HTML safety contract.");
+          }
+          throw error;
+        }
 
         const { data, error } = await supabase
           .from("artifacts")
@@ -181,6 +193,7 @@ export const sessionReview = inngest.createFunction(
             title,
             prompt: `Auto-generated session review for source: ${source_id}`,
             content_md: briefContent,
+            content_html: contentHtml,
             version: 1,
             word_count: wordCount(briefContent),
             model_used: modelUsed,

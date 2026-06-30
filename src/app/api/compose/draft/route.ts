@@ -61,6 +61,7 @@ export async function POST(req: NextRequest) {
       title: "Drafting…",
       prompt,
       content_md: "",
+      content_html: "",
       metadata: {
         compose_status: "pending",
         prompt,
