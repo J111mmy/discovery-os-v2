@@ -39,7 +39,8 @@ NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
    - Result: compose now tags this specific failure as `needs_synthesis`, the status endpoint returns a structured CTA, and the compose page shows a "Run synthesis first" empty state linking back to the workspace. Unexpected compose failures still render as normal errors.
 3. [x] #119 rewire Add source from `/ingest` to `AddEvidenceModal` so there is one ingest path.
    - Result: the sources header and empty-state CTAs now open the shared `AddEvidenceModal`. Source retry actions still call `/api/ingest/retry`; the legacy `/ingest` page remains only for deep links.
-4. [ ] #84 follow-up. Align document card grounding count with the #85 `evidence_ids` fallback so card and reader agree.
+4. [x] #84 follow-up. Align document card grounding count with the #85 `evidence_ids` fallback so card and reader agree.
+   - Result: document cards and the citation reader now share one resolver that reads `citation_map`, parses rendered citation numbers, and fills missing entries from `metadata.evidence_ids`.
 5. [ ] #121 preview harness. Treat as a config bug, not a port bug.
 6. [ ] #125 magic-link preview auth. Retest wildcard first, then find the real cause.
 

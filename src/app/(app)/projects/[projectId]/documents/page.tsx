@@ -1,4 +1,5 @@
 import { getProjectForUser } from "@/lib/auth/org";
+import { resolveArtifactCitationMap } from "@/lib/artifacts/citation-map";
 import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
 import { createClient } from "@/lib/supabase/server";
 import type { ArtifactType, ArtifactVerificationStatus } from "@/types/database";
@@ -18,15 +19,18 @@ type ArtifactRow = {
   verification_status: ArtifactVerificationStatus;
   updated_at: string;
   metadata: Record<string, unknown> | null;
+  content_html: string | null;
+  content_md: string | null;
 };
 
-// citation_map is a { "1": evidence_id, "2": evidence_id, ... } map keyed by
-// citation number as it appears in the artifact text. Same shape the
-// /api/artifacts/[id]/citations route reads from metadata.
-function citationMapEvidenceIds(metadata: Record<string, unknown> | null): string[] {
-  const raw = metadata?.citation_map;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
-  return Object.values(raw).filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+function citationMapEvidenceIds(artifact: ArtifactRow): string[] {
+  return Object.values(
+    resolveArtifactCitationMap({
+      metadata: artifact.metadata,
+      contentHtml: artifact.content_html,
+      contentMd: artifact.content_md,
+    })
+  );
 }
 
 export default async function DocumentsPage({ params }: Props) {
@@ -52,7 +56,7 @@ export default async function DocumentsPage({ params }: Props) {
 
   const { data } = await read
     .from("artifacts")
-    .select("id, type, title, prompt, verification_status, updated_at, metadata")
+    .select("id, type, title, prompt, verification_status, updated_at, metadata, content_html, content_md")
     .eq("project_id", project.id)
     .order("updated_at", { ascending: false });
 
@@ -61,7 +65,7 @@ export default async function DocumentsPage({ params }: Props) {
   // Bulk-resolve every cited evidence record's source_id in one query, so each
   // card can show a grounding count without an N+1 round trip.
   const evidenceIdsByArtifact = new Map(
-    artifactRows.map((a) => [a.id, citationMapEvidenceIds(a.metadata)])
+    artifactRows.map((a) => [a.id, citationMapEvidenceIds(a)])
   );
   const allEvidenceIds = Array.from(new Set(Array.from(evidenceIdsByArtifact.values()).flat()));
 

@@ -8414,6 +8414,34 @@ Implemented the compose no-traceability graceful path.
 - `npm run build` passed, including `check:agent-standards`; only the existing Supabase Node 18 deprecation warnings appeared.
 - `git diff --check` passed.
 
+### Codex — 2026-07-01 — Solo green task #4: #84 document grounding counts
+
+Aligned the artifact-library card grounding count with the same citation fallback used by the document reader.
+
+**Root cause**
+
+- The library card counted only `metadata.citation_map`.
+- `/api/artifacts/[id]/citations` also parses rendered citation markers from `content_html`/`content_md` and fills missing map entries from `metadata.evidence_ids` per #85.
+- So degraded/older artifacts could show a lower card count than the reader.
+
+**What changed**
+
+- Added shared `src/lib/artifacts/citation-map.ts`.
+- The citations API now uses that shared resolver.
+- The documents library page selects `content_html` and `content_md` and uses the same resolver before calculating citation/source counts.
+
+**Not changed**
+
+- No SQL.
+- No artifact data mutation.
+- No citation reader behavior change other than moving its existing fallback into shared code.
+
+**Verification**
+
+- `npm run type-check` passed.
+- `npm run build` passed, including `check:agent-standards`; only the existing Supabase Node 18 deprecation warnings appeared.
+- `git diff --check` passed.
+
 ### Codex — 2026-07-01 — Solo green task #3: #119 Add Source uses shared modal
 
 Rewired the sources page to use the existing `AddEvidenceModal` instead of routing new-source CTAs to `/projects/{projectId}/ingest`.

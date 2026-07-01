@@ -3,6 +3,7 @@
 // Reads citation_map from artifact.metadata and fetches the linked evidence records.
 
 import { NextRequest, NextResponse } from "next/server";
+import { resolveArtifactCitationMap } from "@/lib/artifacts/citation-map";
 import { getOrgScopedReadForUser } from "@/lib/auth/support-read";
 import { createClient } from "@/lib/supabase/server";
 import type { EvidenceRecord } from "@/types/database";
@@ -23,74 +24,6 @@ export interface CitationRecord {
 export interface CitationsResponse {
   citations: CitationRecord[];
   artifact_id: string;
-}
-
-function metadataObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function readCitationMap(metadata: Record<string, unknown>) {
-  const raw = metadata.citation_map;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-
-  const map: Record<string, string> = {};
-  for (const [key, value] of Object.entries(raw)) {
-    const n = Number.parseInt(key, 10);
-    if (!Number.isFinite(n) || n < 1 || String(n) !== key) continue;
-    if (typeof value !== "string" || value.trim().length === 0) continue;
-    map[key] = value;
-  }
-  return map;
-}
-
-function readEvidenceIds(metadata: Record<string, unknown>) {
-  const raw = metadata.evidence_ids;
-  return Array.isArray(raw)
-    ? raw.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-    : [];
-}
-
-function parseRenderedCitationNumbers(contentHtml: string | null, contentMd: string | null) {
-  const numbers = new Set<number>();
-  const add = (value: string) => {
-    const n = Number.parseInt(value, 10);
-    if (Number.isFinite(n) && n > 0) numbers.add(n);
-  };
-
-  if (contentHtml) {
-    const dataN = /\bdata-n=(?:"|')(\d+)(?:"|')/g;
-    let match: RegExpExecArray | null;
-    while ((match = dataN.exec(contentHtml)) !== null) add(match[1]);
-  }
-
-  if (contentMd) {
-    const markdownCitation = /\[(\d+)\]/g;
-    let match: RegExpExecArray | null;
-    while ((match = markdownCitation.exec(contentMd)) !== null) add(match[1]);
-  }
-
-  return Array.from(numbers).sort((a, b) => a - b);
-}
-
-function fillCitationMapFromEvidenceOrder({
-  citationMap,
-  citationNumbers,
-  evidenceIds,
-}: {
-  citationMap: Record<string, string>;
-  citationNumbers: number[];
-  evidenceIds: string[];
-}) {
-  const next = { ...citationMap };
-  for (const n of citationNumbers) {
-    const key = String(n);
-    if (next[key]) continue;
-    const evidenceId = evidenceIds[n - 1];
-    if (evidenceId) next[key] = evidenceId;
-  }
-  return next;
 }
 
 export async function GET(
@@ -129,14 +62,10 @@ export async function GET(
   // Pull citation_map from metadata. If older/degraded compose left the map
   // incomplete, fill missing visible citation numbers from metadata.evidence_ids,
   // which preserves the selected evidence order used in the compose prompt.
-  const meta = metadataObject(artifact.metadata);
-  const citationMap = fillCitationMapFromEvidenceOrder({
-    citationMap: readCitationMap(meta),
-    citationNumbers: parseRenderedCitationNumbers(
-      artifact.content_html as string | null,
-      artifact.content_md as string | null
-    ),
-    evidenceIds: readEvidenceIds(meta),
+  const citationMap = resolveArtifactCitationMap({
+    metadata: artifact.metadata,
+    contentHtml: artifact.content_html as string | null,
+    contentMd: artifact.content_md as string | null,
   });
 
   const entries = Object.entries(citationMap);
