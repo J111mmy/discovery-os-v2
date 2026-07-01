@@ -1,5 +1,6 @@
 "use client";
 
+import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 type OrgOption = {
@@ -25,6 +26,14 @@ type AccessRequest = {
 type AccessRequestsResponse = {
   pending: AccessRequest[];
   reviewed: AccessRequest[];
+};
+
+type CustomerInviteState = {
+  email: string;
+  orgName: string;
+  busy: boolean;
+  error: string | null;
+  success: string | null;
 };
 
 type RowState = {
@@ -76,6 +85,13 @@ export function AccessRequestsClient({ orgs }: Props) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [rowState, setRowState] = useState<Record<string, RowState>>({});
+  const [customerInvite, setCustomerInvite] = useState<CustomerInviteState>({
+    email: "",
+    orgName: "",
+    busy: false,
+    error: null,
+    success: null,
+  });
 
   const defaultOrgId = orgs[0]?.id ?? "";
 
@@ -139,6 +155,44 @@ export function AccessRequestsClient({ orgs }: Props) {
         ...patch,
       },
     }));
+  }
+
+  function patchCustomerInvite(patch: Partial<CustomerInviteState>) {
+    setCustomerInvite((current) => ({ ...current, ...patch }));
+  }
+
+  async function submitCustomerInvite(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const email = customerInvite.email.trim();
+    const orgName = customerInvite.orgName.trim();
+    if (!email || !orgName || customerInvite.busy) return;
+
+    patchCustomerInvite({ busy: true, error: null, success: null });
+    try {
+      const response = await fetch("/api/admin/customer-invites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, org_name: orgName }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readError(response));
+      }
+
+      patchCustomerInvite({
+        email: "",
+        orgName: "",
+        busy: false,
+        error: null,
+        success: `Invite sent to ${email}. ${orgName} was created as a new workspace.`,
+      });
+    } catch (error) {
+      patchCustomerInvite({
+        busy: false,
+        error: error instanceof Error ? error.message : "Could not invite customer.",
+      });
+    }
   }
 
   async function approve(request: AccessRequest) {
@@ -209,6 +263,94 @@ export function AccessRequestsClient({ orgs }: Props) {
 
   return (
     <div className="space-y-8">
+      <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
+        <div className="border-b border-[var(--line)] px-5 py-4">
+          <h2 className="text-sm font-semibold text-[var(--ink)]">
+            Invite customer
+          </h2>
+          <p className="mt-1 text-xs text-[var(--ink-2)]">
+            Create a fresh workspace and invite the customer as Owner. Use this
+            when you already know who should start a new account.
+          </p>
+        </div>
+
+        <form
+          onSubmit={(event) => void submitCustomerInvite(event)}
+          className="grid gap-3 px-5 py-5 md:grid-cols-[1fr_1fr_auto]"
+        >
+          <label className="space-y-1.5">
+            <span className="text-xs font-medium text-[var(--ink-2)]">
+              Customer email
+            </span>
+            <input
+              type="email"
+              value={customerInvite.email}
+              onChange={(event) =>
+                patchCustomerInvite({
+                  email: event.target.value,
+                  error: null,
+                  success: null,
+                })
+              }
+              disabled={customerInvite.busy}
+              className="w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)] disabled:opacity-50"
+              placeholder="founder@company.com"
+              required
+            />
+          </label>
+
+          <label className="space-y-1.5">
+            <span className="text-xs font-medium text-[var(--ink-2)]">
+              Workspace name
+            </span>
+            <input
+              type="text"
+              value={customerInvite.orgName}
+              onChange={(event) =>
+                patchCustomerInvite({
+                  orgName: event.target.value,
+                  error: null,
+                  success: null,
+                })
+              }
+              disabled={customerInvite.busy}
+              className="w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)] disabled:opacity-50"
+              placeholder="Customer workspace"
+              maxLength={180}
+              required
+            />
+          </label>
+
+          <div className="flex items-end">
+            <button
+              type="submit"
+              disabled={
+                customerInvite.busy ||
+                !customerInvite.email.trim() ||
+                !customerInvite.orgName.trim()
+              }
+              className="w-full rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
+            >
+              {customerInvite.busy ? "Sending…" : "Invite customer"}
+            </button>
+          </div>
+
+          {(customerInvite.error || customerInvite.success) && (
+            <div className="md:col-span-3">
+              {customerInvite.error ? (
+                <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+                  {customerInvite.error}
+                </p>
+              ) : (
+                <p className="rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-2 text-sm text-green-300">
+                  {customerInvite.success}
+                </p>
+              )}
+            </div>
+          )}
+        </form>
+      </section>
+
       <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
         <div className="flex items-center justify-between border-b border-[var(--line)] px-5 py-4">
           <div>

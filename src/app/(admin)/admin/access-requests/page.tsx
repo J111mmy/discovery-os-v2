@@ -36,8 +36,8 @@ export default async function AccessRequestsPage() {
               Access requests
             </h1>
             <p className="mt-2 max-w-2xl text-sm text-[var(--ink-2)]">
-              Review public interest-form submissions and send approved users a
-              workspace invite.
+              Invite known customers into fresh workspaces, or review public
+              interest-form submissions and approve them into DiscOS.
             </p>
           </div>
           <span className="rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 py-1 text-xs font-medium text-[var(--ink-2)]">
