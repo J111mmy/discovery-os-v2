@@ -8585,3 +8585,31 @@ Investigated the preview magic-link bounce without changing auth code while Opus
 **Verification**
 
 - `git diff --check` passed.
+
+### Codex - 2026-07-01 - Opus retro-review requested: customer invite flow + invite email template
+
+Jimmy tested the new direct customer invite flow from `/admin/access-requests` and approved shipping it.
+
+**Shipped before this note**
+
+- `873e051 feat(admin): invite customers into new workspaces`
+- Adds `POST /api/admin/customer-invites`.
+- Adds the `/admin/access-requests` "Invite customer" card.
+- Reuses the existing `provision_customer_org` RPC to create a fresh org plus owner invite.
+- Customer lands in their own workspace as owner, not in Jimmy's org.
+
+**Security review surface for Opus**
+
+- Route is super-admin gated via `createClient().auth.getUser()` plus `isSuperAdmin(user.id)`.
+- Service-role client stays server-side.
+- No invite token or action link is returned in the JSON response.
+- No `console.*` logging on the route.
+- If `sendInviteEmail` fails, the route deletes the newly created org; `org_invites.org_id` cascades on org delete.
+- Existing RPC remains service-role-only and was not changed in this packet.
+
+**Template follow-up**
+
+- Jimmy wanted app-sent invite emails to match the existing light Supabase magic-link template, not the other way around.
+- Updated `src/lib/email/invite.ts` so the Resend invite template uses the same light DiscOS card style as `supabase/templates/auth/magic-link.html`.
+- No auth/provisioning behavior changed in the template follow-up.
+- Please check both the security posture and the email-template consistency tomorrow.

@@ -54,25 +54,50 @@ function renderInviteHtml(params: InviteEmailParams) {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>You've been invited to DiscOS</title>
   </head>
-  <body style="margin:0;background:#0d0d10;color:#e8e8f0;font-family:Inter,Arial,sans-serif;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0d0d10;padding:32px 16px;">
+  <body style="margin:0;padding:0;background:#f4f5f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f8;padding:32px 16px;">
       <tr>
         <td align="center">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#141418;border:1px solid #30303a;border-radius:12px;overflow:hidden;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#ffffff;border:1px solid #e6e8ee;border-radius:14px;overflow:hidden;">
             <tr>
-              <td style="padding:28px 28px 20px;">
-                <div style="display:inline-block;background:#5b63f0;color:#ffffff;border-radius:8px;padding:8px 10px;font-size:18px;font-weight:700;line-height:1;">D</div>
-                <h1 style="margin:20px 0 10px;color:#ffffff;font-size:24px;line-height:1.25;font-weight:700;">You've been invited to DiscOS</h1>
-                <p style="margin:0;color:#b7b7c8;font-size:15px;line-height:1.7;">${intro}</p>
+              <td style="padding:28px 32px 8px 32px;">
+                <table role="presentation" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="width:40px;height:40px;background:#6366F1;border-radius:10px;text-align:center;vertical-align:middle;color:#ffffff;font-weight:700;font-size:20px;">D</td>
+                    <td style="padding-left:12px;vertical-align:middle;">
+                      <div style="font-weight:700;font-size:17px;color:#0e1424;line-height:1.1;">DiscOS</div>
+                      <div style="font-size:13px;color:#8a93a3;line-height:1.2;">Evidence workspace</div>
+                    </td>
+                  </tr>
+                </table>
               </td>
             </tr>
             <tr>
-              <td style="padding:0 28px 28px;">
-                <a href="${acceptUrl}" style="display:inline-block;background:#5b63f0;color:#ffffff;text-decoration:none;border-radius:8px;padding:12px 18px;font-size:14px;font-weight:700;">Accept your invitation</a>
-                <p style="margin:22px 0 0;color:#9090a8;font-size:13px;line-height:1.6;">This secure link opens DiscOS so you can finish joining the workspace. If you were not expecting this invite, you can ignore this email.</p>
+              <td style="padding:20px 32px 0 32px;">
+                <h1 style="margin:0 0 8px 0;font-size:22px;color:#0e1424;font-weight:700;">You've been invited to DiscOS</h1>
+                <p style="margin:0 0 24px 0;font-size:15px;line-height:1.55;color:#5b6472;">${intro}</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 32px 8px 32px;">
+                <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+                  <tr>
+                    <td align="center" style="border-radius:10px;background:#6366F1;">
+                      <a href="${acceptUrl}" style="display:block;padding:14px 24px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:10px;">Accept your invitation</a>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:16px 32px 28px 32px;">
+                <p style="margin:0;font-size:13px;line-height:1.5;color:#8a93a3;">
+                  This secure link opens DiscOS so you can finish joining the workspace. If you were not expecting this invite, you can ignore this email.
+                </p>
               </td>
             </tr>
           </table>
+          <p style="max-width:480px;margin:16px auto 0 auto;font-size:12px;color:#aab2bf;text-align:center;">DiscOS · Evidence workspace</p>
         </td>
       </tr>
     </table>
