@@ -4,8 +4,8 @@ import { isStaleIngestJob } from "@/lib/ingest/quality";
 import { sourceTypeLabel, trustScopeLabel } from "@/lib/labels";
 import { createClient } from "@/lib/supabase/server";
 import type { JobStatus, SourceType, TrustScope } from "@/types/database";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { AddSourceButton } from "./add-source-button";
 import { SourcesClient, type SourceItem } from "./SourcesClient";
 
 interface Props {
@@ -172,12 +172,12 @@ export default async function SourcesPage({ params }: Props) {
             Inspect ingest jobs, retry source processing, and remove inputs that should not feed evidence.
           </p>
         </div>
-        <Link
-          href={`/projects/${project.id}/ingest`}
+        <AddSourceButton
+          projectId={project.id}
           className="inline-flex rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90"
         >
           Add source
-        </Link>
+        </AddSourceButton>
       </div>
 
       <SourcesClient projectId={project.id} sources={sourceItems} />

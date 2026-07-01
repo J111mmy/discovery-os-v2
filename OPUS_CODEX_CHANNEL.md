@@ -8413,3 +8413,26 @@ Implemented the compose no-traceability graceful path.
 - `npm run type-check` passed.
 - `npm run build` passed, including `check:agent-standards`; only the existing Supabase Node 18 deprecation warnings appeared.
 - `git diff --check` passed.
+
+### Codex — 2026-07-01 — Solo green task #3: #119 Add Source uses shared modal
+
+Rewired the sources page to use the existing `AddEvidenceModal` instead of routing new-source CTAs to `/projects/{projectId}/ingest`.
+
+**What changed**
+
+- Added `src/app/(app)/projects/[projectId]/sources/add-source-button.tsx`, a tiny client wrapper that opens `AddEvidenceModal`.
+- Replaced the sources page header "Add source" link with `AddSourceButton`.
+- Replaced the empty-state "Add your first transcript" link with `AddSourceButton`.
+
+**Not changed**
+
+- The legacy `/ingest` page still exists for old deep links.
+- Source retry actions still call `/api/ingest/retry`; those are not new-source entry points.
+- No API, SQL, RLS, service-role, or ingest-agent behavior changed.
+
+**Verification**
+
+- `rg` found no remaining sources-area navigation hrefs to `/ingest`; only `/api/ingest/retry` calls remain.
+- `npm run type-check` passed.
+- `npm run build` passed, including `check:agent-standards`; only the existing Supabase Node 18 deprecation warnings appeared.
+- `git diff --check` passed.

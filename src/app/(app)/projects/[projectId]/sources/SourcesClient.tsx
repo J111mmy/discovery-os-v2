@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { AddSourceButton } from "./add-source-button";
 import { SourceActions } from "./source-actions";
 
 export type DisplayStatus = "done" | "failed" | "processing" | "pending" | "not_started";
@@ -353,8 +354,8 @@ export function SourcesClient({ projectId, sources }: SourcesClientProps) {
         >
           Add a transcript, document, or note to start creating source-backed evidence.
         </p>
-        <Link
-          href={`/projects/${projectId}/ingest`}
+        <AddSourceButton
+          projectId={projectId}
           style={{
             display: "inline-flex",
             padding: "8px 18px",
@@ -364,10 +365,13 @@ export function SourcesClient({ projectId, sources }: SourcesClientProps) {
             fontSize: 13,
             fontWeight: 500,
             textDecoration: "none",
+            border: "0",
+            cursor: "pointer",
+            fontFamily: "inherit",
           }}
         >
           Add your first transcript →
-        </Link>
+        </AddSourceButton>
       </div>
     );
   }
