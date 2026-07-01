@@ -8327,3 +8327,29 @@ Jimmy approved promoting PR #127 while Opus is offline under the green-lane hand
 - `npm run type-check` passed.
 - `npm run build` passed, including `check:agent-standards`; only the existing Supabase Node 18 deprecation warnings appeared.
 - `git diff --check --cached` passed.
+
+### Codex — 2026-07-01 — Solo mode Task 0 started: PostHog + schedule
+
+Jimmy approved solo-mode execution while Opus is offline and added one task to do first: integrate PostHog so user sessions can be replayed and issues can be spotted during onboarding.
+
+**Task 0 implementation scope**
+
+- Added client-side PostHog analytics/session replay behind env vars. If `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN` is missing, analytics is inert.
+- Captures safe manual pageviews without query strings.
+- Redacts invite/auth token path segments from captured URLs.
+- Identifies logged-in users by Supabase user id and email.
+- Registers `org_id` and `project_id` while inside a project route.
+- Masks all inputs and masks high-risk research/document text selectors in replay.
+- Added `.env.local.example` entries for the required Vercel env vars.
+- Added `docs/ops/SOLO_MODE_WORKLIST_2026-07-01.md` with the green/red task schedule and guardrails.
+
+**Not included**
+
+- No server-side PostHog events yet.
+- No reverse proxy yet.
+- No schema, SQL, RLS, service-role changes, or data mutation.
+
+**User setup still required**
+
+- Create a PostHog project.
+- Add `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN`, `NEXT_PUBLIC_POSTHOG_HOST`, and `NEXT_PUBLIC_POSTHOG_REPLAY_ENABLED` in Vercel Production and Preview.

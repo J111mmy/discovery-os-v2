@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { Newsreader } from "next/font/google";
+import { PostHogProvider } from "./PostHogProvider";
 import "./globals.css";
 
 // Newsreader — document bodies only (loaded via next/font/google for self-hosting)
@@ -43,7 +44,10 @@ export default function RootLayout({
         {/* eslint-disable-next-line @next/next/no-sync-scripts */}
         <script dangerouslySetInnerHTML={{ __html: noFlashScript }} />
       </head>
-      <body>{children}</body>
+      <body>
+        <PostHogProvider />
+        {children}
+      </body>
     </html>
   );
 }

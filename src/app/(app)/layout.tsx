@@ -3,6 +3,7 @@ import { getOrgScopedReadForUser } from "@/lib/auth/support-read";
 import { getImpersonatedOrgName, isSuperAdmin } from "@/lib/auth/super-admin";
 import { ACTIVE_PROJECT_FILTER } from "@/lib/projects/active-projects";
 import { redirect } from "next/navigation";
+import { PostHogIdentify } from "./components/PostHogIdentify";
 import { Rail } from "./components/Rail";
 import type { RailProject } from "./components/Rail";
 
@@ -60,6 +61,12 @@ export default async function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <div className="app-shell">
+      <PostHogIdentify
+        userId={user.id}
+        userEmail={user.email ?? null}
+        superAdmin={superAdmin}
+      />
+
       {/* Support mode banner — spans full width, above rail + content.
           Behaviour unchanged from Phase 0. */}
       {impersonation && (

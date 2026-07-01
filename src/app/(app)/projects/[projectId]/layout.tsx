@@ -1,6 +1,7 @@
 import { getProjectForUser } from "@/lib/auth/org";
 import { createClient } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
+import { PostHogProjectContext } from "../../components/PostHogProjectContext";
 import { WorkspaceTabs } from "./WorkspaceTabs";
 
 interface ProjectLayoutProps {
@@ -33,6 +34,7 @@ export default async function ProjectLayout({
   // so it only renders on the workspace-chain pages (not Documents, etc).
   return (
     <main className="min-w-0 px-5 py-6 sm:px-8 lg:px-10 lg:py-8">
+      <PostHogProjectContext orgId={project.org_id} projectId={project.id} />
       <WorkspaceTabs projectId={params.projectId} />
       {children}
     </main>
