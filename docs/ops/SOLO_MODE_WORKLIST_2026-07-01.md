@@ -35,7 +35,8 @@ NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
 1. [x] `theme_evidence=0` investigation, highest value. Procurement Tracking has 16 themes and 23 trusted evidence but 0 `theme_evidence` links. Determine whether the issue is stale data or a live synthesis/linking bug, then file/fix as appropriate.
    - Result: live production no longer has this defect. Procurement Tracking now has 23 typed `theme_evidence` rows; the latest `project-synthesis` run completed on 2026-06-30 with `trusted_evidence=23`, `themes_created=10`, and `links_created=23`. Exact scary report was stale from before the June 28 forward-only writer fix and manual re-synthesis.
    - Follow-up found, not fixed while solo: the project still retains 6 draft themes with zero evidence after re-synthesis. They are not breaking typed traceability, but they can clutter theme surfaces and cause `discover-problems` batches to skip with `no_supported_theme_evidence`. Needs Opus/product decision: hide zero-evidence draft themes, archive stale AI themes after re-synthesis, or leave as visible analytical history.
-2. [ ] #83 compose graceful empty state. Replace the hard "No traceable evidence found" failure with a clear "run synthesis first" empty state and CTA.
+2. [x] #83 compose graceful empty state. Replace the hard "No traceable evidence found" failure with a clear "run synthesis first" empty state and CTA.
+   - Result: compose now tags this specific failure as `needs_synthesis`, the status endpoint returns a structured CTA, and the compose page shows a "Run synthesis first" empty state linking back to the workspace. Unexpected compose failures still render as normal errors.
 3. [ ] #119 rewire Add source from `/ingest` to `AddEvidenceModal` so there is one ingest path.
 4. [ ] #84 follow-up. Align document card grounding count with the #85 `evidence_ids` fallback so card and reader agree.
 5. [ ] #121 preview harness. Treat as a config bug, not a port bug.

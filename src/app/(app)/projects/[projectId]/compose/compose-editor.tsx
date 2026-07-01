@@ -9,6 +9,13 @@ interface ComposeEditorProps {
 
 type DraftStage = "idle" | "queued" | "generating" | "opening";
 
+type ComposeBlocker = {
+  code: "needs_synthesis";
+  message: string;
+  ctaHref: string;
+  ctaLabel: string;
+};
+
 function statusMessage(stage: DraftStage) {
   if (stage === "queued") return "Queuing draft...";
   if (stage === "generating") {
@@ -26,6 +33,7 @@ export function ComposeEditor({ projectId }: ComposeEditorProps) {
   const [isDrafting, setIsDrafting] = useState(false);
   const [isPollingDraft, setIsPollingDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [blocker, setBlocker] = useState<ComposeBlocker | null>(null);
 
   useEffect(() => {
     if (!artifactId || !isPollingDraft) return;
@@ -56,7 +64,26 @@ export function ComposeEditor({ projectId }: ComposeEditorProps) {
         }
 
         if (payload.status === "failed") {
-          setError(payload.error ?? "Compose failed. Please try again.");
+          if (payload.error_code === "needs_synthesis") {
+            setBlocker({
+              code: "needs_synthesis",
+              message:
+                payload.error ??
+                "This project needs synthesis before it can produce a cited draft.",
+              ctaHref:
+                typeof payload.cta_href === "string"
+                  ? payload.cta_href
+                  : `/projects/${projectId}`,
+              ctaLabel:
+                typeof payload.cta_label === "string"
+                  ? payload.cta_label
+                  : "Open workspace",
+            });
+            setError(null);
+          } else {
+            setError(payload.error ?? "Compose failed. Please try again.");
+            setBlocker(null);
+          }
           setStage("idle");
           setIsPollingDraft(false);
           setIsDrafting(false);
@@ -88,6 +115,7 @@ export function ComposeEditor({ projectId }: ComposeEditorProps) {
   async function createDraft(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setBlocker(null);
     setIsDrafting(true);
     setIsPollingDraft(false);
     setStage("queued");
@@ -102,6 +130,7 @@ export function ComposeEditor({ projectId }: ComposeEditorProps) {
 
     if (!response.ok) {
       setError(payload.error ?? "Could not start draft.");
+      setBlocker(null);
       setStage("idle");
       setIsDrafting(false);
       return;
@@ -109,6 +138,7 @@ export function ComposeEditor({ projectId }: ComposeEditorProps) {
 
     if (!payload.artifact_id) {
       setError("Could not start draft: no document was created.");
+      setBlocker(null);
       setStage("idle");
       setIsDrafting(false);
       return;
@@ -166,7 +196,23 @@ export function ComposeEditor({ projectId }: ComposeEditorProps) {
         </div>
       )}
 
-      {!isDrafting && (
+      {!isDrafting && blocker && (
+        <div className="rounded-xl border border-[color:var(--warn)] bg-[var(--warn-bg)] p-8">
+          <div className="text-sm font-semibold text-[var(--ink)]">Run synthesis first</div>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-2)]">
+            {blocker.message} Trust the strongest evidence, run project synthesis from the
+            workspace, then come back to compose a grounded document.
+          </p>
+          <a
+            href={blocker.ctaHref}
+            className="mt-4 inline-flex rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white no-underline transition-colors hover:bg-[var(--accent-hover)]"
+          >
+            {blocker.ctaLabel}
+          </a>
+        </div>
+      )}
+
+      {!isDrafting && !blocker && (
         <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-10 text-center">
           <div className="text-sm font-medium text-[var(--ink)]">No draft in progress</div>
           <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--ink-2)]">

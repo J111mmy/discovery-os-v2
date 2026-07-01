@@ -16,6 +16,16 @@ const VISIBLE_PROBLEM_STATUSES = ["surfaced", "acknowledged", "active"] as const
 const MAX_OPPORTUNITIES_FOR_PROMPT = 8;
 const MAX_PROBLEMS_FOR_PROMPT = 10;
 const MAX_EVIDENCE_PER_OPPORTUNITY = 6;
+export const COMPOSE_NEEDS_SYNTHESIS_CODE = "needs_synthesis";
+
+export class ComposeNeedsSynthesisError extends Error {
+  code = COMPOSE_NEEDS_SYNTHESIS_CODE;
+
+  constructor() {
+    super("Compose needs a synthesised project with traceable evidence before drafting.");
+    this.name = "ComposeNeedsSynthesisError";
+  }
+}
 
 const PROBLEM_SELECT = [
   "id",
@@ -1182,7 +1192,7 @@ export async function composeStructureDraft({
   const supabase = createServiceClient();
   const context = await fetchStructureContext({ supabase, org_id, project_id, limit });
   if (context.selectedEvidence.length === 0) {
-    throw new Error("No traceable evidence found through the structure-driven compose chain.");
+    throw new ComposeNeedsSynthesisError();
   }
 
   const persona = detectExpertPersona(prompt);

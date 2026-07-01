@@ -4,7 +4,12 @@
 
 import { inngest } from "../client";
 import { createServiceClient } from "@/lib/supabase/server";
-import { composeStructureDraft, type ArtifactLinkPlan } from "@/lib/compose/structure";
+import {
+  COMPOSE_NEEDS_SYNTHESIS_CODE,
+  ComposeNeedsSynthesisError,
+  composeStructureDraft,
+  type ArtifactLinkPlan,
+} from "@/lib/compose/structure";
 import { ArtifactHtmlValidationError } from "@/lib/sanitize/artifact-html";
 import { markdownToSanitizedArtifactHtml } from "@/lib/sanitize/artifact-markdown";
 
@@ -302,6 +307,13 @@ export const composeArtifact = inngest.createFunction(
       return { artifact_id, title: draft.title, evidence_count: draft.evidence_ids.length };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown compose error";
+      const needsSynthesis =
+        error instanceof ComposeNeedsSynthesisError ||
+        message.includes("No traceable evidence found") ||
+        message.includes("Compose needs a synthesised project");
+      const userMessage = needsSynthesis
+        ? "This project needs synthesis before it can produce a cited draft."
+        : message;
       console.error("[compose-artifact] failed:", message);
 
       // Mark the stub as failed so the client can show an error state
@@ -311,7 +323,8 @@ export const composeArtifact = inngest.createFunction(
           .update({
             metadata: {
               compose_status: "failed",
-              compose_error: message,
+              compose_error: userMessage,
+              compose_error_code: needsSynthesis ? COMPOSE_NEEDS_SYNTHESIS_CODE : "compose_failed",
               prompt,
             },
             updated_at: new Date().toISOString(),

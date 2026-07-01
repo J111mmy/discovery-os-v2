@@ -8386,3 +8386,30 @@ Latest `problem-discovery` completed immediately after at `2026-06-30T20:52:36Z`
 Procurement Tracking still has 6 draft themes with `evidence_count=0` after re-synthesis. They do not break typed traceability, but they clutter theme surfaces and make some `discover-problems` batches skip with `no_supported_theme_evidence`. This is now a smaller product/data-policy question, not the original P0: should stale zero-evidence AI draft themes be hidden, archived after re-synthesis, or preserved as analytical history?
 
 No SQL, no data mutation, no LLM run, no live agent trigger.
+
+### Codex — 2026-07-01 — Solo green task #2: #83 compose graceful empty state
+
+Implemented the compose no-traceability graceful path.
+
+**What changed**
+
+- `composeStructureDraft` no longer throws a generic "No traceable evidence found..." error. It throws a typed `ComposeNeedsSynthesisError` with code `needs_synthesis`.
+- `compose-artifact` catches that specific failure and marks the artifact stub with:
+  - `metadata.compose_status = "failed"`
+  - `metadata.compose_error_code = "needs_synthesis"`
+  - friendly user-facing copy, not the raw internal chain message.
+- `/api/artifacts/[id]/status` now returns `error_code`, `cta_href`, and `cta_label` for this state.
+- The compose page renders a "Run synthesis first" empty state with an "Open workspace" CTA instead of the red generic failure box.
+
+**Not changed**
+
+- No SQL.
+- No LLM run.
+- No compose generation behavior changed when traceable evidence exists.
+- Unexpected compose failures still render as normal compose errors.
+
+**Verification**
+
+- `npm run type-check` passed.
+- `npm run build` passed, including `check:agent-standards`; only the existing Supabase Node 18 deprecation warnings appeared.
+- `git diff --check` passed.

@@ -41,9 +41,14 @@ export async function GET(
   }
 
   if (composeStatus === "failed") {
+    const errorCode = meta.compose_error_code as string | undefined;
     return NextResponse.json({
       status: "failed",
       error: (meta.compose_error as string | undefined) ?? "Compose failed — please try again.",
+      error_code: errorCode ?? "compose_failed",
+      cta_href:
+        errorCode === "needs_synthesis" ? `/projects/${artifact.project_id}` : undefined,
+      cta_label: errorCode === "needs_synthesis" ? "Open workspace" : undefined,
     });
   }
 
