@@ -8442,6 +8442,34 @@ Aligned the artifact-library card grounding count with the same citation fallbac
 - `npm run build` passed, including `check:agent-standards`; only the existing Supabase Node 18 deprecation warnings appeared.
 - `git diff --check` passed.
 
+### Codex — 2026-07-01 — Solo green task #5: #121 preview harness
+
+Fixed the local preview harness as a config issue, not an app-port issue.
+
+**Root cause**
+
+- The app's real dev script already runs Next on port 4321 (`next dev -p 4321`).
+- The recurring directory-listing preview was consistent with a stale/static launch command (`npx serve`) serving the repo directory on the same port, not with the Next dev server.
+
+**What changed**
+
+- Added repo-local `.claude/launch.json` with a single `dev` configuration that runs `npm run dev` and expects port 4321.
+- Updated `.gitignore` so only that launch config is tracked from `.claude/`.
+- Updated `CLAUDE.md` local-dev instructions: use the repo-local `dev` launch config, do not use `gate2-preview`/`npx serve`, and verify any existing 4321 listener is the repo's Next server before previewing.
+
+**Not changed**
+
+- No app runtime code.
+- No auth, SQL, RLS, service-role, or API behavior.
+- No dev-server port change.
+
+**Verification**
+
+- `npm run type-check` passed.
+- `npm run build` passed, including `check:agent-standards`; only the existing Supabase Node 18 deprecation warnings appeared.
+- `npm run dev` launch sanity found port 4321 already occupied. `lsof` showed a Node listener with cwd at this repo and Next's SWC module loaded, so the current listener appears to be the real Next dev server rather than the bad static `serve` process.
+- `git diff --check` passed.
+
 ### Codex — 2026-07-01 — Solo green task #3: #119 Add Source uses shared modal
 
 Rewired the sources page to use the existing `AddEvidenceModal` instead of routing new-source CTAs to `/projects/{projectId}/ingest`.

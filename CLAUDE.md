@@ -94,6 +94,8 @@ LLM spend happens ONLY on an explicit user action: an intake (extract evidence f
 
 **Local dev.**
 - Dev server runs on **port 4321** (`next dev -p 4321`), **not** 3000.
+- Local visual preview must use the repo-local `.claude/launch.json` configuration named `dev`. It runs `npm run dev` and expects port 4321.
+- Do **not** use `gate2-preview`, `npx serve`, or any static-file server for this app. That serves the repo directory instead of Next.js and produces the misleading directory-listing preview bug (#121). If port 4321 is occupied, verify the listener is this repo's Next dev server; if it is not, stop the stale process first, then launch `dev`.
 - Service-role / backfill scripts require **Node 22+** (`@supabase/realtime-js` throws on older Node) and a sourced env: `set -a && source .env.local && set +a && <script>`. Jimmy runs these.
 - Do **not** run network probes against localhost to "prove" anything.
 
