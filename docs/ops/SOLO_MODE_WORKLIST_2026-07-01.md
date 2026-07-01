@@ -44,6 +44,7 @@ NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
 5. [x] #121 preview harness. Treat as a config bug, not a port bug.
    - Result: added a repo-local `.claude/launch.json` `dev` configuration that runs `npm run dev` on port 4321, and documented that static `npx serve`/`gate2-preview` launch configs must not be used for this Next app. Root cause was configuration drift, not the port itself: a stale launch config from another workspace could serve the repo directory as static files, producing the directory-listing preview. Launch sanity check found port 4321 already occupied by a Node process rooted in this repo with Next loaded, so the current listener appears to be a real app dev server rather than the old static server.
 6. [ ] #125 magic-link preview auth. Retest wildcard first, then find the real cause.
+   - Investigation result: the normal `/login` magic-link path already uses `window.location.origin`, so a link requested from a preview asks Supabase to return to that preview. The confirmed wildcard only covered `discos-git-*`; Vercel also emits non-git aliases (`discos-<hash>-...`), which need `https://discos-*-jimmy-keogh-s-projects.vercel.app/**`. Also check Vercel Preview does not set `NEXT_PUBLIC_APP_URL` to production, because server-generated invite/access-request links use that env var. No auth code changed while Opus is offline; Jimmy config/retest is needed to close.
 
 ## Red Lane, Prepare Only
 

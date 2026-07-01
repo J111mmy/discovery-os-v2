@@ -8492,3 +8492,39 @@ Rewired the sources page to use the existing `AddEvidenceModal` instead of routi
 - `npm run type-check` passed.
 - `npm run build` passed, including `check:agent-standards`; only the existing Supabase Node 18 deprecation warnings appeared.
 - `git diff --check` passed.
+
+### Codex — 2026-07-01 — Solo green task #6: #125 preview magic-link auth investigation
+
+Investigated the preview magic-link bounce without changing auth code while Opus is offline.
+
+**Findings**
+
+- The normal `/login` magic-link path already uses `window.location.origin` for `emailRedirectTo`, so a magic link requested from a preview asks Supabase to return to that same preview.
+- The GitHub issue comment confirmed the Supabase allowlist contains `https://discos-git-*-jimmy-keogh-s-projects.vercel.app/**`, but the original issue also named the non-git Vercel alias shape `https://discos-*-jimmy-keogh-s-projects.vercel.app/**`.
+- We have previously seen preview URLs in the non-git shape (`discos-<hash>-jimmy-keogh-s-projects.vercel.app`). If that wildcard is missing, Supabase can reject the requested preview redirect and fall back to the production Site URL.
+- Separate but related: server-generated invite/access-request links use `NEXT_PUBLIC_APP_URL` when present. If Vercel Preview has that env var set to `https://www.getdiscos.com`, preview-generated invite links will intentionally point to production even though normal `/login` magic links do not.
+
+**What changed**
+
+- Updated deploy docs and the production promotion checklist to require both preview wildcard shapes.
+- Documented that `NEXT_PUBLIC_APP_URL` should be production-only in Vercel Production; Preview should leave it unset or point at the active preview origin.
+- Fixed `.env.local.example` to use the real local dev port, `http://localhost:4321`.
+- Updated the solo worklist with the config/retest dependency.
+
+**Not changed**
+
+- No auth code changes.
+- No SQL/RLS/service-role work.
+- No Supabase or Vercel dashboard changes from Codex.
+
+**Jimmy action needed to close #125**
+
+1. Supabase Auth Redirect URLs: confirm both are present:
+   - `https://discos-git-*-jimmy-keogh-s-projects.vercel.app/**`
+   - `https://discos-*-jimmy-keogh-s-projects.vercel.app/**`
+2. Vercel env: confirm `NEXT_PUBLIC_APP_URL=https://www.getdiscos.com` is Production-only, not Preview.
+3. Retest from a preview URL directly: open preview `/login`, request a magic link from that page, click it, confirm the callback remains on the preview host.
+
+**Verification**
+
+- `git diff --check` passed.

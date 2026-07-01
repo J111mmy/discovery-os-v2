@@ -44,7 +44,9 @@ The #14 code **writes and reads `content_html`**. If production's DB lacks that 
 
 ## 3. Env / config (Jimmy confirms in Vercel + Cloudflare)
 
-- [ ] `NEXT_PUBLIC_APP_URL = https://www.getdiscos.com` — drives invite `acceptUrl`; wrong value sends invites to the wrong host.
+- [ ] Vercel Production: `NEXT_PUBLIC_APP_URL = https://www.getdiscos.com` — drives invite `acceptUrl`; wrong value sends invites to the wrong host.
+- [ ] Vercel Preview: `NEXT_PUBLIC_APP_URL` is unset or points to the active preview origin, never the production domain. Normal `/login` magic links use `window.location.origin`, but server-generated invite/access-request links use this env var when present.
+- [ ] Supabase redirect URLs include both preview wildcard shapes: `https://discos-git-*-jimmy-keogh-s-projects.vercel.app/**` and `https://discos-*-jimmy-keogh-s-projects.vercel.app/**`.
 - [ ] Supabase URL + anon key, **service-role key** (Inngest background jobs need it), LLM provider key(s), email/Resend key, Inngest keys — all present in Vercel **production** env.
 - [ ] `getdiscos.com` added as a custom domain on the Vercel project (not just pointed at Cloudflare).
 - [ ] Cloudflare: SSL **Full (strict)**; proxy → Vercel; **do not cache** authenticated `/` app routes or `/api/*` (cache static assets only). Verify no "always-online"/aggressive caching on app routes.

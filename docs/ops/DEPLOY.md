@@ -55,6 +55,15 @@ Add your Vercel URL to Supabase allowed redirects:
   - `https://YOUR_VERCEL_URL/reset-password`
   - `https://YOUR_VERCEL_URL/**`
 
+For authenticated preview verification, also add both Vercel preview wildcard shapes:
+
+- `https://discos-git-*-jimmy-keogh-s-projects.vercel.app/**`
+- `https://discos-*-jimmy-keogh-s-projects.vercel.app/**`
+
+The second shape covers non-git deployment aliases such as `discos-<hash>-jimmy-keogh-s-projects.vercel.app`; missing it makes Supabase fall back to the production Site URL even though `/login` requested the preview origin.
+
+Keep `NEXT_PUBLIC_APP_URL` production-only in Vercel Production. If it is enabled in Vercel Preview with the production value, server-generated auth/invite links can point previews back to production.
+
 ## Post-deploy verification
 
 - `/login` loads and accepts credentials.
