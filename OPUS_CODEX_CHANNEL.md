@@ -8470,6 +8470,63 @@ Fixed the local preview harness as a config issue, not an app-port issue.
 - `npm run dev` launch sanity found port 4321 already occupied. `lsof` showed a Node listener with cwd at this repo and Next's SWC module loaded, so the current listener appears to be the real Next dev server rather than the bad static `serve` process.
 - `git diff --check` passed.
 
+### Codex — 2026-07-01 — Red-lane prepare-only: #14 Phase 3 artifact HTML backfill dry-run
+
+Ran the artifact HTML backfill in dry-run mode only. No `--apply`, no artifact data mutation.
+
+**Command**
+
+```bash
+set -a; source .env.local; set +a; /Users/jimmykeogh/.nvm/versions/node/v22.22.3/bin/node src/lib/sanitize/backfill-artifact-html.mjs
+```
+
+The first attempt through npm used the shell's older Node and failed before DB access (`Node.js 18 detected...`). The successful run used Node 22 as required by `CLAUDE.md`. Network access required sandbox approval. Still dry-run only.
+
+**Dry-run output**
+
+```json
+{
+  "mode": "dry-run",
+  "converter_version": "artifact-html-backfill-v1",
+  "artifacts": {
+    "rows": 32,
+    "markdown_marker_count": 0,
+    "converted_citation_count": 0,
+    "unmapped_marker_count": 0,
+    "rows_with_unmapped": 0,
+    "failed_count": 0,
+    "failed_ids": [],
+    "failures": [],
+    "updated": 0
+  },
+  "artifact_versions": {
+    "rows": 0,
+    "markdown_marker_count": 0,
+    "converted_citation_count": 0,
+    "unmapped_marker_count": 0,
+    "rows_with_unmapped": 0,
+    "failed_count": 0,
+    "failed_ids": [],
+    "failures": [],
+    "updated": 0
+  }
+}
+```
+
+**Read**
+
+- There are 32 `artifacts` rows with `content_html IS NULL`.
+- There are 0 `artifact_versions` rows with `content_html IS NULL`.
+- Pending rows have 0 markdown citation markers, so this dry-run found no citation-conversion or unmapped-citation risk.
+- Conversion failures are 0.
+- No rows were updated.
+
+**Held**
+
+- Did not run `--apply`.
+- Did not author or run Migration B.
+- This is ready for Opus/Jimmy to decide whether those 32 artifact conversions should be applied.
+
 ### Codex — 2026-07-01 — Solo green task #3: #119 Add Source uses shared modal
 
 Rewired the sources page to use the existing `AddEvidenceModal` instead of routing new-source CTAs to `/projects/{projectId}/ingest`.

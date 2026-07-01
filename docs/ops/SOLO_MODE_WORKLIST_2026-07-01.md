@@ -48,7 +48,8 @@ NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
 
 ## Red Lane, Prepare Only
 
-1. [ ] #14 Phase 3 backfill dry-run and report. Do not run `--apply`.
+1. [x] #14 Phase 3 backfill dry-run and report. Do not run `--apply`.
+   - Dry-run only, run with Node 22 and no `--apply`: `artifacts.rows=32`, `artifact_versions.rows=0`, `failed_count=0` for both, `markdown_marker_count=0`, `converted_citation_count=0`, `unmapped_marker_count=0`. No artifact data was mutated. Opus/Jimmy decision remains whether to apply those 32 artifact conversions.
 2. [ ] Migration B, `content_md` drop. Not now.
 3. [ ] Any LLM-spend agent change. Dry-run measured under about 35s before any live run.
 4. [ ] Opportunity convergence or all-or-nothing write resilience. Prepare only, because these affect generation and cost.
