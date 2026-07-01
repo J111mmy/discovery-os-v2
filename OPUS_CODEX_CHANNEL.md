@@ -8353,3 +8353,36 @@ Jimmy approved solo-mode execution while Opus is offline and added one task to d
 
 - Create a PostHog project.
 - Add `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN`, `NEXT_PUBLIC_POSTHOG_HOST`, and `NEXT_PUBLIC_POSTHOG_REPLAY_ENABLED` in Vercel Production and Preview.
+
+
+### Codex — 2026-07-01 — Solo green task #1: theme_evidence=0 investigation closed
+
+Read-only production check on Procurement Tracking (`project_id=b21d0807-a4db-4573-930e-1bb0c5075709`, `org_id=6547fb8d-dd09-49c5-8a37-d96933afbd82`). The original scary report is stale, not a current live break.
+
+**Current live counts**
+
+- Themes: 16
+- Evidence: 392
+- Trusted evidence: 23
+- Typed `theme_evidence` rows: 23
+- Legacy `evidence_themes` rows for the current theme ids: 18
+- Problems: 19
+- `problem_evidence` rows: 18
+- `problem_themes` rows: 43
+
+**Recent run proof**
+
+Latest `project-synthesis` completed at `2026-06-30T20:51:48Z` with:
+
+- `trusted_evidence=23`
+- `themes_created=10`
+- `themes_parsed=10`
+- `links_created=23`
+
+Latest `problem-discovery` completed immediately after at `2026-06-30T20:52:36Z` and saw typed theme evidence in supported batches. So the June 28 forward-only writer fix is working in production after manual re-synthesis.
+
+**Residual issue found, not changed while solo**
+
+Procurement Tracking still has 6 draft themes with `evidence_count=0` after re-synthesis. They do not break typed traceability, but they clutter theme surfaces and make some `discover-problems` batches skip with `no_supported_theme_evidence`. This is now a smaller product/data-policy question, not the original P0: should stale zero-evidence AI draft themes be hidden, archived after re-synthesis, or preserved as analytical history?
+
+No SQL, no data mutation, no LLM run, no live agent trigger.
