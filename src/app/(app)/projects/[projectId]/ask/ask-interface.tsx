@@ -147,6 +147,72 @@ function buildCitationIndexMap(answer: string, total: number): Map<number, numbe
   return map;
 }
 
+function remapAnswerCitations(answer: string, total: number): string {
+  const citationIndexMap = buildCitationIndexMap(answer, total);
+  return answer.replace(/\[(\d+)\]/g, (match, rawValue: string) => {
+    const displayNumber = citationIndexMap.get(parseInt(rawValue, 10));
+    return displayNumber === undefined ? match : `[${displayNumber}]`;
+  });
+}
+
+function markdownQuote(value: string | null | undefined): string {
+  return (value?.trim() || "No quote text captured.")
+    .split(/\r?\n/)
+    .map((line) => `> ${line}`)
+    .join("\n");
+}
+
+function askArtifactTitle(question: string): string {
+  const cleaned = question.replace(/\s+/g, " ").trim();
+  return `Ask: ${cleaned.length > 90 ? `${cleaned.slice(0, 87)}...` : cleaned}`;
+}
+
+function buildAskArtifactMarkdown({
+  question,
+  answer,
+  sources,
+  recordCount,
+}: {
+  question: string;
+  answer: string;
+  sources: EvidenceRecord[];
+  recordCount: number;
+}) {
+  const savedAnswer = remapAnswerCitations(answer, recordCount);
+  const sourceBlocks = sources.map((source, index) => {
+    const sourceTitle = source.source_title || "Untitled source";
+    const speaker = source.segment_speaker ? `\nSpeaker: ${source.segment_speaker}` : "";
+    const sourceType = source.source_type
+      ? `\nType: ${source.source_type.replace(/_/g, " ")}`
+      : "";
+
+    return [
+      `### [${index + 1}] ${sourceTitle}`,
+      `${speaker}${sourceType}`.trim(),
+      "",
+      markdownQuote(source.content),
+      source.summary && source.summary !== source.content
+        ? `\nSummary:\n${markdownQuote(source.summary)}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  });
+
+  return [
+    `# ${askArtifactTitle(question)}`,
+    "",
+    "## Question",
+    markdownQuote(question),
+    "",
+    "## Answer",
+    savedAnswer.trim(),
+    "",
+    "## Sources",
+    sourceBlocks.length > 0 ? sourceBlocks.join("\n\n") : "No specific records were cited.",
+  ].join("\n");
+}
+
 // Render inline bold (**text**) and [N] citation markers within a text run.
 function renderInline(
   text: string,
@@ -379,6 +445,9 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
   const [recordCount, setRecordCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [savedArtifactId, setSavedArtifactId] = useState<string | null>(null);
   const [trustScope, setTrustScope] = useState<TrustScopeFilter>("include_pending");
   const sourcesRef = useRef<HTMLDivElement>(null);
   // Prevent the ?q= auto-run from firing more than once per mount.
@@ -410,6 +479,8 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
     setRecordCount(0);
     setStreaming(false);
     setLastQuery(trimmedQuery);
+    setSaveError(null);
+    setSavedArtifactId(null);
 
     try {
       const res = await fetch("/api/ask", {
@@ -533,6 +604,59 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
     if (streamBuffer.length > 0 && !streaming) void runQuery(next);
   }
 
+  async function saveAnswer() {
+    if (!lastQuery.trim() || !streamBuffer.trim() || streaming || loading) return;
+
+    setSaving(true);
+    setSaveError(null);
+
+    const citationMap = Object.fromEntries(
+      sources.map((source, index) => [String(index + 1), source.id])
+    );
+
+    try {
+      const response = await fetch("/api/artifacts/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: projectId,
+          title: askArtifactTitle(lastQuery),
+          prompt: lastQuery,
+          content_md: buildAskArtifactMarkdown({
+            question: lastQuery,
+            answer: streamBuffer,
+            sources,
+            recordCount,
+          }),
+          type: "report",
+          metadata: {
+            source: "ask",
+            ask_question: lastQuery,
+            citation_map: citationMap,
+            evidence_ids: sources.map((source) => source.id),
+            trust_scope: trustScope,
+            source_count: sources.length,
+          },
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | { artifact?: { id?: string }; error?: string }
+        | null;
+
+      if (!response.ok || !payload?.artifact?.id) {
+        setSaveError(payload?.error ?? "Could not save this answer.");
+        return;
+      }
+
+      setSavedArtifactId(payload.artifact.id);
+    } catch {
+      setSaveError("Could not reach the server to save this answer.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const busy = loading || streaming;
   const hasAnswer = streamBuffer.length > 0;
   const hasSources = sources.length > 0;
@@ -635,6 +759,28 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
                 ? `Answering "${lastQuery}"…`
                 : `Answer for "${lastQuery}" · drawn from ${recordCount} evidence records`}
             </p>
+
+            {!streaming && (
+              <div className="mb-5 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void saveAnswer()}
+                  disabled={saving || !hasAnswer}
+                  className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-1.5 text-xs font-medium text-[var(--ink-2)] transition-colors hover:text-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {saving ? "Saving..." : savedArtifactId ? "Saved" : "Save as document"}
+                </button>
+                {savedArtifactId && (
+                  <a
+                    href={`/projects/${projectId}/documents/${savedArtifactId}`}
+                    className="text-xs font-medium text-[var(--accent)] hover:underline"
+                  >
+                    Open saved document
+                  </a>
+                )}
+                {saveError && <span className="text-xs text-neg">{saveError}</span>}
+              </div>
+            )}
 
             {/* Narrative answer with citation chips */}
             <AnswerContent
