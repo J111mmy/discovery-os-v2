@@ -26,36 +26,9 @@ interface ProjectSettings {
   gtm_context: string | null;
 }
 
-interface TeamMember {
-  id: string;
-  role: string;
-  display_name: string | null;
-  user_id: string;
-  joined_at: string;
-}
-
-interface Invite {
-  id: string;
-  email: string;
-  role: string;
-  accepted_at: string | null;
-  expires_at: string;
-}
-
 interface SettingsFormsProps {
   projectId: string;
   initialProject: ProjectSettings;
-  members: TeamMember[];
-  invites: Invite[];
-  initialTab: "project" | "team" | "billing";
-}
-
-function tabClass(active: boolean) {
-  return `rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-    active
-      ? "bg-[var(--accent)] text-white"
-      : "text-[var(--ink-2)] hover:bg-[var(--surface-2)] hover:text-[var(--ink)]"
-  }`;
 }
 
 function cleanResearchContext(context: ResearchContext): ResearchContext | null {
@@ -88,11 +61,7 @@ function cleanResearchContext(context: ResearchContext): ResearchContext | null 
 export function SettingsForms({
   projectId,
   initialProject,
-  members,
-  invites,
-  initialTab,
 }: SettingsFormsProps) {
-  const [tab, setTab] = useState(initialTab);
   const [frame, setFrame] = useState(initialProject.frame ?? "");
   const [frameDraft, setFrameDraft] = useState(initialProject.frame_draft);
   const [frameDraftGeneratedAt] = useState(initialProject.frame_draft_generated_at);
@@ -108,12 +77,6 @@ export function SettingsForms({
   const [isGeneratingFrame, setIsGeneratingFrame] = useState(false);
   const [isSuggestingSettings, setIsSuggestingSettings] = useState(false);
   const researchSaveTimeout = useRef<number | null>(null);
-
-  const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"admin" | "member">("member");
-  const [inviteMessage, setInviteMessage] = useState<string | null>(null);
-  const [inviteError, setInviteError] = useState<string | null>(null);
-  const [isInviting, setIsInviting] = useState(false);
 
   async function saveProjectSettings(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -214,30 +177,6 @@ export function SettingsForms({
     });
   }
 
-  async function inviteMember(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setInviteMessage(null);
-    setInviteError(null);
-    setIsInviting(true);
-
-    const response = await fetch("/api/org-invites", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ project_id: projectId, email, role }),
-    });
-
-    const payload = await response.json();
-    setIsInviting(false);
-
-    if (!response.ok) {
-      setInviteError(payload.error ?? "Could not send invite.");
-      return;
-    }
-
-    setEmail("");
-    setInviteMessage(`Invite sent to ${payload.invite.email}.`);
-  }
-
   async function generateFrame() {
     setSettingsMessage(null);
     setSettingsError(null);
@@ -294,20 +233,7 @@ export function SettingsForms({
 
   return (
     <div className="space-y-6">
-      <div className="inline-flex rounded-xl border border-[var(--line)] bg-[var(--surface)] p-1">
-        <button type="button" onClick={() => setTab("project")} className={tabClass(tab === "project")}>
-          Project
-        </button>
-        <button type="button" onClick={() => setTab("team")} className={tabClass(tab === "team")}>
-          Team
-        </button>
-        <button type="button" onClick={() => setTab("billing")} className={tabClass(tab === "billing")}>
-          Billing
-        </button>
-      </div>
-
-      {tab === "project" && (
-        <form onSubmit={saveProjectSettings} className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
+      <form onSubmit={saveProjectSettings} className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
           <div className="flex flex-col gap-3 border-b border-[var(--line)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-sm font-semibold text-[var(--ink)]">Project context</h2>
@@ -346,7 +272,7 @@ export function SettingsForms({
                 <div>
                   <h3 className="text-sm font-semibold text-[var(--ink)]">Research focus</h3>
                   <p className="mt-1 text-sm leading-6 text-[var(--ink-2)]">
-                    The more context you add here, the smarter the system gets at sorting what matters from what doesn't - automatically.
+                    The more context you add here, the smarter the system gets at sorting what matters.
                   </p>
                 </div>
                 {isSavingResearchContext && (
@@ -532,125 +458,7 @@ export function SettingsForms({
               </button>
             </div>
           </div>
-        </form>
-      )}
-
-      {tab === "billing" && (
-        <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
-          <div className="border-b border-[var(--line)] px-5 py-4">
-            <h2 className="text-sm font-semibold text-[var(--ink)]">Billing</h2>
-            <p className="mt-1 text-xs leading-5 text-[var(--ink-2)]">
-              Subscription plans, usage, and invoices.
-            </p>
-          </div>
-          <div className="flex flex-col items-center gap-3 px-5 py-12 text-center">
-            <div
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: "var(--r-md)",
-                background: "var(--surface-2)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                marginBottom: 4,
-              }}
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{ color: "var(--ink-faint)" }}
-              >
-                <rect x="1" y="4" width="14" height="9" rx="2" />
-                <path d="M1 7h14" />
-              </svg>
-            </div>
-            <div className="text-sm font-medium text-[var(--ink)]">Coming soon</div>
-            <p className="max-w-xs text-xs leading-5 text-[var(--ink-2)]">
-              Subscription management and usage-based billing will be available here once payment is set up for your organisation.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {tab === "team" && (
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
-            <div className="border-b border-[var(--line)] px-5 py-4">
-              <h2 className="text-sm font-semibold text-[var(--ink)]">Members</h2>
-            </div>
-            <div className="divide-y divide-[var(--line)]">
-              {members.map((member) => (
-                <div key={member.id} className="flex items-center justify-between gap-4 px-5 py-4">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-[var(--ink)]">
-                      {member.display_name || member.user_id}
-                    </div>
-                    <div className="mt-1 text-xs text-[var(--ink-2)]">{member.user_id}</div>
-                  </div>
-                  <span className="rounded-full border border-[var(--line)] bg-[var(--surface-2)] px-2 py-0.5 text-xs font-medium capitalize text-[var(--ink-2)]">
-                    {member.role}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <aside className="space-y-6">
-            <form onSubmit={inviteMember} className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
-              <h2 className="text-sm font-semibold text-[var(--ink)]">Invite teammate</h2>
-              <div className="mt-4 space-y-3">
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="name@company.com"
-                  className="w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
-                />
-                <select
-                  value={role}
-                  onChange={(event) => setRole(event.target.value as "admin" | "member")}
-                  className="w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)]"
-                >
-                  <option value="member">Member</option>
-                  <option value="admin">Admin</option>
-                </select>
-                <button
-                  type="submit"
-                  disabled={isInviting}
-                  className="w-full rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isInviting ? "Sending..." : "Invite"}
-                </button>
-              </div>
-              {inviteError && <div className="mt-3 text-sm text-neg">{inviteError}</div>}
-              {inviteMessage && <div className="mt-3 text-sm text-pos">{inviteMessage}</div>}
-            </form>
-
-            <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
-              <h2 className="text-sm font-semibold text-[var(--ink)]">Pending invites</h2>
-              <div className="mt-4 space-y-3">
-                {invites.filter((invite) => !invite.accepted_at).map((invite) => (
-                  <div key={invite.id} className="rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3">
-                    <div className="truncate text-sm font-medium text-[var(--ink)]">{invite.email}</div>
-                    <div className="mt-1 text-xs capitalize text-[var(--ink-2)]">{invite.role}</div>
-                  </div>
-                ))}
-                {invites.filter((invite) => !invite.accepted_at).length === 0 && (
-                  <div className="text-sm text-[var(--ink-2)]">No pending invites.</div>
-                )}
-              </div>
-            </section>
-          </aside>
-        </div>
-      )}
+      </form>
     </div>
   );
 }

@@ -1,15 +1,13 @@
 import { getProjectForUser } from "@/lib/auth/org";
-import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
 import { createClient } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
 import { SettingsForms } from "./settings-forms";
 
 interface Props {
   params: { projectId: string };
-  searchParams?: { tab?: string };
 }
 
-export default async function SettingsPage({ params, searchParams }: Props) {
+export default async function SettingsPage({ params }: Props) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -46,22 +44,6 @@ export default async function SettingsPage({ params, searchParams }: Props) {
   );
 
   if (!project) notFound();
-  const read = await getProjectOrgReadForUser({
-    userId: user.id,
-    orgId: project.org_id,
-    memberClient: supabase,
-  });
-
-  const [membersResult, invitesResult] = await Promise.all([
-    read
-      .from("org_members")
-      .select("id, org_id, user_id, role, display_name, joined_at")
-      .order("joined_at", { ascending: true }),
-    read
-      .from("org_invites")
-      .select("id, org_id, email, role, accepted_at, expires_at")
-      .order("created_at", { ascending: false }),
-  ]);
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -71,7 +53,7 @@ export default async function SettingsPage({ params, searchParams }: Props) {
         </div>
         <h1 className="text-2xl font-semibold text-[var(--ink)]">Project settings</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-2)]">
-          Configure the project context that shapes compose output and manage access to the workspace.
+          Configure the project context that shapes evidence review, synthesis, and document output.
         </p>
       </div>
 
@@ -85,15 +67,6 @@ export default async function SettingsPage({ params, searchParams }: Props) {
           operating_style: project.operating_style,
           gtm_context: project.gtm_context,
         }}
-        members={membersResult.data ?? []}
-        invites={invitesResult.data ?? []}
-        initialTab={
-          searchParams?.tab === "team"
-            ? "team"
-            : searchParams?.tab === "billing"
-            ? "billing"
-            : "project"
-        }
       />
     </div>
   );
