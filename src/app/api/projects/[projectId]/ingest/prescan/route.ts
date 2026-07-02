@@ -18,7 +18,7 @@ const PrescanSchema = z.object({
     "sales_call",
     "usability_study",
     "internal_meeting",
-  ]),
+  ]).optional(),
   raw_text: z.string().min(20, "Text must be at least 20 characters"),
 });
 

@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SOURCE_TYPE_LABELS } from "@/lib/labels";
-import type { SourceType } from "@/types/database";
+import { inferSourceType } from "@/lib/ingest/source-inference";
 
 type JobStatus = "idle" | "queued" | "pending" | "processing" | "done" | "failed";
 
@@ -15,19 +15,6 @@ interface IngestResult {
 interface IngestFormProps {
   projectId: string;
 }
-
-const INGEST_SOURCE_TYPES: SourceType[] = [
-  "customer_interview",
-  "sales_call",
-  "usability_study",
-  "internal_meeting",
-  "transcript",
-  "document",
-  "note",
-  "survey",
-  "support_ticket",
-  "other",
-];
 
 const TEXT_FILE_EXTENSIONS = new Set(["txt", "md", "markdown"]);
 const ALLOWED_FILE_EXTENSIONS = new Set([
@@ -42,7 +29,6 @@ const ALLOWED_FILE_EXTENSIONS = new Set([
 export function IngestForm({ projectId }: IngestFormProps) {
   const router = useRouter();
   const [title, setTitle] = useState("");
-  const [type, setType] = useState<SourceType>("customer_interview");
   const [rawText, setRawText] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -118,7 +104,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
       body: JSON.stringify({
         project_id: projectId,
         title,
-        type,
+        type: sourceInference.type,
         raw_text: rawText,
       }),
     });
@@ -227,46 +213,24 @@ export function IngestForm({ projectId }: IngestFormProps) {
   const isWorking = status === "queued" || status === "pending" || status === "processing";
   const isQueued = status === "queued" || status === "pending";
   const statusTitle = isQueued ? "Queued" : status === "processing" ? "Analyzing" : "Ingest status";
+  const sourceInference = useMemo(() => inferSourceType(rawText), [rawText]);
+  const sourceTypeLabel = SOURCE_TYPE_LABELS[sourceInference.type];
 
   return (
     <form onSubmit={onSubmit} className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
       <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
-        <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_180px]">
-          <div>
-            <label className="mb-2 block text-sm font-medium text-[var(--ink)]" htmlFor="title">
-              Title
-            </label>
-            <input
-              id="title"
-              required
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              className="w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
-              placeholder="Q1 call with Sarah K., Acme Corp"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium text-[var(--ink)]" htmlFor="type">
-              Type
-            </label>
-            <select
-              id="type"
-              value={type}
-              onChange={(event) => setType(event.target.value as SourceType)}
-              className="w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)]"
-            >
-              {INGEST_SOURCE_TYPES.map((sourceType) => (
-                <option key={sourceType} value={sourceType}>
-                  {SOURCE_TYPE_LABELS[sourceType]}
-                </option>
-              ))}
-            </select>
-            <p className="mt-2 text-xs leading-5 text-[var(--ink-2)]">
-              Choose what the source is, not the file format. A PDF transcript should still be a
-              customer interview.
-            </p>
-          </div>
+        <div>
+          <label className="mb-2 block text-sm font-medium text-[var(--ink)]" htmlFor="title">
+            Title
+          </label>
+          <input
+            id="title"
+            required
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            className="w-full rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
+            placeholder="Q1 call with Sarah K., Acme Corp"
+          />
         </div>
 
         <div className="mt-5">
@@ -310,6 +274,14 @@ export function IngestForm({ projectId }: IngestFormProps) {
             className="w-full resize-y rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
             placeholder="Paste the transcript, research note, or document text here."
           />
+          {rawText.trim() && (
+            <div className="mt-3 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm leading-6 text-[var(--ink-2)]">
+              Auto-detected as <span className="font-medium text-[var(--ink)]">{sourceTypeLabel}</span>
+              {sourceInference.structure === "conversation"
+                ? ` with ${sourceInference.speaker_count} speakers.`
+                : "."}
+            </div>
+          )}
         </div>
       </div>
 

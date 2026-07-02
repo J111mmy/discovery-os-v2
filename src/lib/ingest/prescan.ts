@@ -3,6 +3,7 @@ import {
   parseTranscriptSpeakerLegend,
   parseTranscriptTurns,
 } from "@/lib/ingest/transcript-turns";
+import { inferSourceType, type SourceInference } from "@/lib/ingest/source-inference";
 import { normalizeSpeakerName } from "@/lib/speakers/resolve";
 import type { SourceType } from "@/types/database";
 
@@ -54,6 +55,7 @@ export type PrescanDetectedOrg = {
 };
 
 export type PrescanResult = {
+  source_inference: SourceInference;
   speakers: PrescanSpeaker[];
   detected_orgs: PrescanDetectedOrg[];
 };
@@ -305,9 +307,11 @@ function orgCandidates(label: string | null, companies: CompanyRecord[]) {
 export async function prescanSourceEntities(input: {
   supabase: SupabaseLike;
   org_id: string;
-  type: SourceType;
+  type?: SourceType;
   raw_text: string;
 }): Promise<PrescanResult> {
+  const sourceInference = inferSourceType(input.raw_text);
+  const effectiveType = input.type ?? sourceInference.type;
   const [peopleResult, companiesResult] = await Promise.all([
     input.supabase
       .from("people")
@@ -340,7 +344,7 @@ export async function prescanSourceEntities(input: {
   );
   const labels = new Map<string, string>();
 
-  for (const label of parseTranscriptSpeakerLabels(input.raw_text, input.type)) {
+  for (const label of parseTranscriptSpeakerLabels(input.raw_text, effectiveType)) {
     pushUniqueLabel(labels, label, { allowInitial: speakerLegend.has(normalizeSpeakerName(label)) });
   }
   for (const note of Array.from(identityNotes.values())) {
@@ -358,7 +362,7 @@ export async function prescanSourceEntities(input: {
         ? "interviewer"
         : legendEntry?.role === "customer"
           ? "customer"
-          : roleFromType(input.type);
+          : roleFromType(effectiveType);
 
     return {
       id: `speaker-${index + 1}`,
@@ -379,5 +383,5 @@ export async function prescanSourceEntities(input: {
       org_match_candidates: orgCandidates(orgName, companies),
     }));
 
-  return { speakers, detected_orgs: detectedOrgs };
+  return { source_inference: sourceInference, speakers, detected_orgs: detectedOrgs };
 }

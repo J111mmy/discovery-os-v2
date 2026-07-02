@@ -11,27 +11,12 @@
  * Prescan errors and empty results both skip straight to ingest.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SOURCE_TYPE_LABELS } from "@/lib/labels";
-import type { SourceType } from "@/types/database";
 import type { PrescanResult, PrescanSpeaker, PrescanDetectedOrg } from "@/lib/ingest/prescan";
 import type { EntityResolution, ProjectEntityRole } from "@/lib/ingest/entity-resolutions";
-
-// ── Source types available in the modal ───────────────────────────
-
-const MODAL_SOURCE_TYPES: SourceType[] = [
-  "customer_interview",
-  "sales_call",
-  "usability_study",
-  "internal_meeting",
-  "transcript",
-  "document",
-  "note",
-  "survey",
-  "support_ticket",
-  "other",
-];
+import { inferSourceType } from "@/lib/ingest/source-inference";
 
 const TEXT_EXTENSIONS = new Set(["txt", "md", "markdown"]);
 const ALLOWED_EXTENSIONS = new Set(["pdf", "doc", "docx", "txt", "md", "markdown"]);
@@ -169,7 +154,6 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
   // Form state
   const [inputMode, setInputMode] = useState<InputMode>("paste");
   const [title, setTitle] = useState("");
-  const [type, setType] = useState<SourceType>("customer_interview");
   const [rawText, setRawText] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -200,7 +184,6 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
     if (!open) return;
     setInputMode("paste");
     setTitle("");
-    setType("customer_interview");
     setRawText("");
     setFileName(null);
     setFileError(null);
@@ -351,7 +334,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
         body: JSON.stringify({
           project_id: projectId,
           title: title.trim(),
-          type,
+          type: prescanResult?.source_inference.type ?? sourceInference.type,
           raw_text: rawText.trim(),
           entity_resolutions,
         }),
@@ -379,12 +362,15 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
     if (!projectId) return;
     setPrescanPhase("scanning");
     setSubmitError(null);
+    setPrescanResult(null);
+    setSpeakerDrafts([]);
+    setOrgDrafts([]);
 
     try {
       const res = await fetch(`/api/projects/${projectId}/ingest/prescan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, raw_text: rawText.trim() }),
+        body: JSON.stringify({ raw_text: rawText.trim() }),
       });
 
       if (!res.ok) {
@@ -435,6 +421,8 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
   const isWorking = jobStatus === "queued" || jobStatus === "processing";
   const isDone = jobStatus === "done";
   const isFailed = jobStatus === "failed";
+  const sourceInference = useMemo(() => inferSourceType(rawText), [rawText]);
+  const sourceTypeLabel = SOURCE_TYPE_LABELS[sourceInference.type];
   const canSubmit =
     prescanPhase === "idle" && !isWorking && !isDone && !extracting &&
     !!title.trim() && !!rawText.trim() && !!projectId;
@@ -518,35 +506,19 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
           <form onSubmit={handleSubmit}>
             <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
 
-              {/* Title + Type row */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 180px", gap: 10 }}>
-                <div>
-                  <label style={labelStyle} htmlFor="ae-title">Title</label>
-                  <input
-                    ref={titleRef}
-                    id="ae-title"
-                    required
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder="Q1 call with Sarah K., Acme Corp"
-                    disabled={isWorking}
-                    style={inputStyle}
-                  />
-                </div>
-                <div>
-                  <label style={labelStyle} htmlFor="ae-type">Type</label>
-                  <select
-                    id="ae-type"
-                    value={type}
-                    onChange={(e) => setType(e.target.value as SourceType)}
-                    disabled={isWorking}
-                    style={{ ...inputStyle, cursor: "pointer" }}
-                  >
-                    {MODAL_SOURCE_TYPES.map((t) => (
-                      <option key={t} value={t}>{SOURCE_TYPE_LABELS[t]}</option>
-                    ))}
-                  </select>
-                </div>
+              {/* Title */}
+              <div>
+                <label style={labelStyle} htmlFor="ae-title">Title</label>
+                <input
+                  ref={titleRef}
+                  id="ae-title"
+                  required
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Q1 call with Sarah K., Acme Corp"
+                  disabled={isWorking}
+                  style={inputStyle}
+                />
               </div>
 
               {/* Paste / File toggle */}
@@ -621,6 +593,26 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
                       {fileError}
                     </div>
                   )}
+                </div>
+              )}
+
+              {rawText.trim() && (
+                <div
+                  style={{
+                    padding: "9px 12px",
+                    borderRadius: 9,
+                    border: "1px solid var(--line)",
+                    background: "var(--surface-2)",
+                    color: "var(--ink-2)",
+                    fontSize: 12.5,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  Auto-detected as <strong style={{ color: "var(--ink)" }}>{sourceTypeLabel}</strong>
+                  {sourceInference.structure === "conversation"
+                    ? ` with ${sourceInference.speaker_count} speakers.`
+                    : "."}
+                  {" "}You can confirm speaker roles in the next step.
                 </div>
               )}
 
@@ -897,7 +889,11 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 22px", borderTop: "1px solid var(--line)", background: "var(--surface-2)", flexWrap: "wrap" }}>
               <button
                 type="button"
-                onClick={() => { setPrescanPhase("idle"); setSubmitError(null); }}
+                onClick={() => {
+                  setPrescanPhase("idle");
+                  setSubmitError(null);
+                  setPrescanResult(null);
+                }}
                 style={{ padding: "8px 14px", borderRadius: "var(--r-sm)", background: "transparent", border: "1px solid var(--line)", color: "var(--ink-2)", fontWeight: 540, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" }}
               >
                 Back

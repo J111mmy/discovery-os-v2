@@ -7,6 +7,7 @@ import { getProjectForUser } from "@/lib/auth/org";
 import { inngest } from "@/lib/inngest/client";
 import { PROCESSED_MARKER_ERROR, looksLikeProcessedMarker } from "@/lib/ingest/quality";
 import { EntityResolutionsSchema } from "@/lib/ingest/entity-resolutions";
+import { inferSourceType } from "@/lib/ingest/source-inference";
 import { z } from "zod";
 
 const IngestSchema = z.object({
@@ -22,7 +23,7 @@ const IngestSchema = z.object({
     "sales_call",
     "usability_study",
     "internal_meeting",
-  ]),
+  ]).optional(),
   title: z.string().min(1).max(255),
   description: z.string().optional(),
   raw_text: z.string().min(20, "Text must be at least 20 characters"),
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
 
   const {
     project_id,
-    type,
+    type: explicitType,
     title,
     description,
     raw_text,
@@ -66,6 +67,9 @@ export async function POST(req: NextRequest) {
   if (looksLikeProcessedMarker(raw_text)) {
     return NextResponse.json({ error: PROCESSED_MARKER_ERROR }, { status: 422 });
   }
+
+  const sourceInference = inferSourceType(raw_text);
+  const type = explicitType ?? sourceInference.type;
 
   const project = await getProjectForUser<{ id: string; org_id: string }>(
     user.id,
@@ -89,7 +93,7 @@ export async function POST(req: NextRequest) {
       type,
       title,
       description,
-      metadata: { ...(metadata ?? {}), raw_text, entity_resolutions },
+      metadata: { ...(metadata ?? {}), raw_text, entity_resolutions, source_inference: sourceInference },
       ingested_by: user.id,
       trust_scope: "pending",
     })
