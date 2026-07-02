@@ -233,7 +233,11 @@ export function SettingsForms({
 
   return (
     <div className="space-y-6">
-      <form onSubmit={saveProjectSettings} className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
+      <form
+        id="project-context"
+        onSubmit={saveProjectSettings}
+        className="scroll-mt-6 rounded-xl border border-[var(--line)] bg-[var(--surface)]"
+      >
           <div className="flex flex-col gap-3 border-b border-[var(--line)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-sm font-semibold text-[var(--ink)]">Project context</h2>

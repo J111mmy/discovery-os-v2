@@ -204,6 +204,66 @@ function ProblemDiscoverySubmitButton() {
   );
 }
 
+function SetupProjectBanner({ projectId }: { projectId: string }) {
+  return (
+    <div
+      style={{
+        border: "1px solid var(--accent)",
+        borderRadius: "var(--r-lg)",
+        background: "var(--accent-soft)",
+        padding: "18px 20px",
+        marginBottom: 18,
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 16,
+      }}
+    >
+      <div style={{ minWidth: 0, flex: "1 1 360px" }}>
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: ".12em",
+            textTransform: "uppercase",
+            color: "var(--accent)",
+            marginBottom: 6,
+          }}
+        >
+          Start here
+        </div>
+        <h2 style={{ margin: 0, fontSize: 17, fontWeight: 640, color: "var(--ink)" }}>
+          Set the project context before adding evidence
+        </h2>
+        <p style={{ margin: "6px 0 0", fontSize: 13, lineHeight: 1.6, color: "var(--ink-2)" }}>
+          Tell DiscOS what you are trying to learn, who you are talking to, and which decision this
+          research should inform. That gives evidence review, synthesis, and documents a clearer
+          north star.
+        </p>
+      </div>
+      <Link
+        href={`/projects/${projectId}/settings#project-context`}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: "var(--r-sm)",
+          background: "var(--accent)",
+          color: "white",
+          fontSize: 13,
+          fontWeight: 600,
+          padding: "9px 14px",
+          textDecoration: "none",
+          flexShrink: 0,
+        }}
+      >
+        Add context
+      </Link>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ConfRing — animated SVG donut
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1727,9 +1787,11 @@ export function WorkspaceView({
   };
 
   const showThemes = themeRows.length > 0 || trustedTotal > 0;
+  const needsInitialContext = !project.frame?.trim() && evidenceCount === 0;
 
   return (
     <div style={{ maxWidth: "72rem", margin: "0 auto" }}>
+      {needsInitialContext && <SetupProjectBanner projectId={project.id} />}
 
       {/* ── Page header ── */}
       <div
