@@ -70,6 +70,15 @@ type OutcomeAssessment = {
   }>;
 };
 
+type ResearchContext = {
+  goals?: string;
+  outcomes?: string;
+  buyers?: string;
+  scope_in?: string;
+  scope_out?: string;
+  research_questions?: string[];
+};
+
 type FrameDraftData = {
   problem: string;
   hypothesis: string;
@@ -130,7 +139,9 @@ export default async function ProjectPage({ params }: Props) {
     frame: string | null;
     frame_draft: FrameDraftData | null;
     frame_draft_generated_at: string | null;
-    research_context: { outcomes?: string } | null;
+    research_context: ResearchContext | null;
+    operating_style: string | null;
+    gtm_context: string | null;
     outcome_assessment: OutcomeAssessment | null;
     outcome_assessed_at: string | null;
     synthesis_stale: boolean;
@@ -139,7 +150,7 @@ export default async function ProjectPage({ params }: Props) {
   }>(
     user.id,
     params.projectId,
-    "id, org_id, name, description, frame, frame_draft, frame_draft_generated_at, research_context, outcome_assessment, outcome_assessed_at, synthesis_stale, last_synthesised_at, created_at"
+    "id, org_id, name, description, frame, frame_draft, frame_draft_generated_at, research_context, operating_style, gtm_context, outcome_assessment, outcome_assessed_at, synthesis_stale, last_synthesised_at, created_at"
   );
 
   if (!project) notFound();
@@ -314,7 +325,10 @@ export default async function ProjectPage({ params }: Props) {
         frame: project.frame,
         frame_draft: project.frame_draft,
         frame_draft_generated_at: project.frame_draft_generated_at,
+        research_context: project.research_context,
         research_outcome: project.research_context?.outcomes ?? null,
+        operating_style: project.operating_style,
+        gtm_context: project.gtm_context,
         synthesis_stale: project.synthesis_stale,
         last_synthesised_at: project.last_synthesised_at,
       }}

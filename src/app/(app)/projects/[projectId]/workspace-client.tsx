@@ -57,6 +57,15 @@ type OutcomeAssessment = {
   }>;
 };
 
+type ResearchContext = {
+  goals?: string;
+  outcomes?: string;
+  buyers?: string;
+  scope_in?: string;
+  scope_out?: string;
+  research_questions?: string[];
+};
+
 export interface WorkspaceViewProps {
   project: {
     id: string;
@@ -65,7 +74,10 @@ export interface WorkspaceViewProps {
     frame: string | null;
     frame_draft: FrameDraft | null;
     frame_draft_generated_at: string | null;
+    research_context: ResearchContext | null;
     research_outcome: string | null;
+    operating_style: string | null;
+    gtm_context: string | null;
     synthesis_stale: boolean;
     last_synthesised_at: string | null;
   };
@@ -554,6 +566,43 @@ function TeaserCard({
 // ProjectContextCard — collapsible research context
 // ─────────────────────────────────────────────────────────────────────────────
 
+type ProjectContextField = {
+  label: string;
+  value: string;
+  preWrap?: boolean;
+};
+
+function cleanText(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : null;
+}
+
+function projectContextFields(project: {
+  description: string | null;
+  frame: string | null;
+  research_context: ResearchContext | null;
+  operating_style: string | null;
+  gtm_context: string | null;
+}): ProjectContextField[] {
+  const context = project.research_context ?? {};
+  const questions = (context.research_questions ?? [])
+    .map((question) => question.trim())
+    .filter(Boolean);
+
+  return [
+    { label: "Description", value: cleanText(project.description) ?? "" },
+    { label: "Research frame", value: cleanText(project.frame) ?? "", preWrap: true },
+    { label: "Goals", value: cleanText(context.goals) ?? "", preWrap: true },
+    { label: "Desired outcomes", value: cleanText(context.outcomes) ?? "", preWrap: true },
+    { label: "Audience / buyers", value: cleanText(context.buyers) ?? "", preWrap: true },
+    { label: "In scope", value: cleanText(context.scope_in) ?? "", preWrap: true },
+    { label: "Out of scope", value: cleanText(context.scope_out) ?? "", preWrap: true },
+    { label: "Key research questions", value: questions.join("\n"), preWrap: true },
+    { label: "Operating style", value: cleanText(project.operating_style) ?? "", preWrap: true },
+    { label: "GTM context", value: cleanText(project.gtm_context) ?? "", preWrap: true },
+  ].filter((field) => field.value.trim().length > 0);
+}
+
 function ProjectContextCard({
   project,
 }: {
@@ -562,10 +611,13 @@ function ProjectContextCard({
     name: string;
     description: string | null;
     frame: string | null;
+    research_context: ResearchContext | null;
+    operating_style: string | null;
+    gtm_context: string | null;
   };
 }) {
   const [open, setOpen] = useState(false);
-  const fields = [project.description, project.frame].filter(Boolean);
+  const fields = projectContextFields(project);
   const configured = fields.length > 0;
 
   return (
@@ -665,8 +717,8 @@ function ProjectContextCard({
           </p>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {project.description && (
-              <div>
+            {fields.map((field) => (
+              <div key={field.label}>
                 <div
                   style={{
                     fontSize: 11,
@@ -677,7 +729,7 @@ function ProjectContextCard({
                     marginBottom: 5,
                   }}
                 >
-                  Description
+                  {field.label}
                 </div>
                 <div
                   style={{
@@ -688,43 +740,13 @@ function ProjectContextCard({
                     borderRadius: 9,
                     padding: "9px 11px",
                     border: "1px solid var(--line)",
+                    whiteSpace: field.preWrap ? "pre-wrap" : "normal",
                   }}
                 >
-                  {project.description}
+                  {field.value}
                 </div>
               </div>
-            )}
-
-            {project.frame && (
-              <div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: "var(--ink-faint)",
-                    textTransform: "uppercase",
-                    letterSpacing: ".08em",
-                    marginBottom: 5,
-                  }}
-                >
-                  Research frame
-                </div>
-                <div
-                  style={{
-                    fontSize: 13,
-                    color: "var(--ink-2)",
-                    lineHeight: 1.55,
-                    background: "var(--surface-2)",
-                    borderRadius: 9,
-                    padding: "9px 11px",
-                    border: "1px solid var(--line)",
-                    whiteSpace: "pre-wrap",
-                  }}
-                >
-                  {project.frame}
-                </div>
-              </div>
-            )}
+            ))}
 
             {!configured && (
               <p style={{ fontSize: 13, color: "var(--ink-faint)" }}>
