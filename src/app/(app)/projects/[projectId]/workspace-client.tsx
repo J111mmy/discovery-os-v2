@@ -87,8 +87,10 @@ export interface WorkspaceViewProps {
   gapSignals: GapSignal[] | null;
   suggestedWorkspaceRows: SuggestedWorkspacePreview[];
   synthesisRunning: boolean;
+  problemDiscoveryRunning: boolean;
   // Server actions passed in so this file stays "use client"
   onSynthesize: (formData: FormData) => Promise<void>;
+  onDiscoverProblems: (formData: FormData) => Promise<void>;
   onOpportunityStatus: (formData: FormData) => Promise<void>;
   onCreateFromOpportunity: (formData: FormData) => Promise<void>;
 }
@@ -133,6 +135,45 @@ function SynthesisSubmitButton({ isStale }: { isStale: boolean }) {
       }}
     >
       {label}
+    </button>
+  );
+}
+
+function ProblemDiscoverySubmitButton() {
+  const { pending } = useFormStatus();
+
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      aria-disabled={pending}
+      style={{
+        padding: "7px 14px",
+        borderRadius: "var(--r-sm)",
+        border: "1px solid var(--line)",
+        background: pending ? "var(--surface-2)" : "transparent",
+        color: "var(--ink-2)",
+        fontSize: 12.5,
+        fontWeight: 560,
+        cursor: pending ? "wait" : "pointer",
+        fontFamily: "inherit",
+        opacity: pending ? 0.78 : 1,
+        transition: ".14s",
+      }}
+      onMouseEnter={(e) => {
+        if (pending) return;
+        const el = e.currentTarget as HTMLElement;
+        el.style.background = "var(--surface-2)";
+        el.style.color = "var(--ink)";
+      }}
+      onMouseLeave={(e) => {
+        if (pending) return;
+        const el = e.currentTarget as HTMLElement;
+        el.style.background = "transparent";
+        el.style.color = "var(--ink-2)";
+      }}
+    >
+      {pending ? "Starting problem discovery..." : "Re-run problem discovery"}
     </button>
   );
 }
@@ -1636,7 +1677,9 @@ export function WorkspaceView({
   onAssessOutcome,
   suggestedWorkspaceRows,
   synthesisRunning,
+  problemDiscoveryRunning,
   onSynthesize,
+  onDiscoverProblems,
   onOpportunityStatus,
   onCreateFromOpportunity,
 }: WorkspaceViewProps) {
@@ -1940,29 +1983,56 @@ export function WorkspaceView({
                 </Link>
               )}
 
-              {/* Synthesis controls */}
-              {synthesisRunning ? (
-                <div
-                  style={{
-                    padding: "6px 12px",
-                    borderRadius: "var(--r-sm)",
-                    border: "1px solid rgba(212,163,42,.2)",
-                    background: "var(--warn-bg)",
-                    color: "var(--warn)",
-                    fontSize: 12,
-                    fontWeight: 500,
-                    flexShrink: 0,
-                  }}
-                >
-                  Synthesis running…
-                </div>
-              ) : project.synthesis_stale ||
-                (themeRows.length === 0 && trustedTotal > 0) ? (
-                <form action={onSynthesize} style={{ flexShrink: 0 }}>
-                  <input type="hidden" name="project_id" value={project.id} />
-                  <SynthesisSubmitButton isStale={project.synthesis_stale} />
-                </form>
-              ) : null}
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  justifyContent: "flex-end",
+                  gap: 8,
+                  flexShrink: 0,
+                }}
+              >
+                {synthesisRunning ? (
+                  <div
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: "var(--r-sm)",
+                      border: "1px solid rgba(212,163,42,.2)",
+                      background: "var(--warn-bg)",
+                      color: "var(--warn)",
+                      fontSize: 12,
+                      fontWeight: 500,
+                    }}
+                  >
+                    Synthesis running…
+                  </div>
+                ) : (
+                  <form action={onSynthesize}>
+                    <input type="hidden" name="project_id" value={project.id} />
+                    <SynthesisSubmitButton isStale={project.synthesis_stale} />
+                  </form>
+                )}
+                {problemDiscoveryRunning ? (
+                  <div
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: "var(--r-sm)",
+                      border: "1px solid rgba(212,163,42,.2)",
+                      background: "var(--warn-bg)",
+                      color: "var(--warn)",
+                      fontSize: 12,
+                      fontWeight: 500,
+                    }}
+                  >
+                    Problem discovery running…
+                  </div>
+                ) : (
+                  <form action={onDiscoverProblems}>
+                    <input type="hidden" name="project_id" value={project.id} />
+                    <ProblemDiscoverySubmitButton />
+                  </form>
+                )}
+              </div>
             </div>
 
             <div style={{ padding: "18px 20px" }}>

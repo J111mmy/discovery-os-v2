@@ -29,6 +29,19 @@ export async function runProjectSynthesisAction(formData: FormData) {
 
   if (!project) return;
 
+  const { count: runningSynthesisCount } = await supabase
+    .from("agent_runs")
+    .select("*", { count: "exact", head: true })
+    .eq("org_id", project.org_id)
+    .eq("project_id", project.id)
+    .eq("agent_type", "project-synthesis")
+    .eq("status", "running");
+
+  if ((runningSynthesisCount ?? 0) > 0) {
+    revalidatePath(`/projects/${project.id}`);
+    return;
+  }
+
   await supabase
     .from("projects")
     .update({ synthesis_stale: true })
@@ -37,6 +50,49 @@ export async function runProjectSynthesisAction(formData: FormData) {
 
   await inngest.send({
     name: "project/synthesis.requested",
+    data: { org_id: project.org_id, project_id: project.id },
+  });
+
+  revalidatePath(`/projects/${project.id}`);
+}
+
+export async function runProjectProblemsAction(formData: FormData) {
+  const projectId = String(formData.get("project_id") ?? "");
+  if (!projectId) return;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) redirect("/login");
+
+  const access = await requireActiveAccess({ id: user.id, email: user.email });
+  if (!access.ok) redirect(accessRedirectPath(access.status));
+
+  const project = await getProjectForUser<{ id: string; org_id: string }>(
+    user.id,
+    projectId,
+    "id, org_id"
+  );
+
+  if (!project) return;
+
+  const { count: runningProblemCount } = await supabase
+    .from("agent_runs")
+    .select("*", { count: "exact", head: true })
+    .eq("org_id", project.org_id)
+    .eq("project_id", project.id)
+    .eq("agent_type", "problem-discovery")
+    .eq("status", "running");
+
+  if ((runningProblemCount ?? 0) > 0) {
+    revalidatePath(`/projects/${project.id}`);
+    return;
+  }
+
+  await inngest.send({
+    name: "project/problems.requested",
     data: { org_id: project.org_id, project_id: project.id },
   });
 
@@ -64,6 +120,19 @@ export async function runProjectOpportunitiesAction(formData: FormData) {
   );
 
   if (!project) return;
+
+  const { count: runningOpportunityCount } = await supabase
+    .from("agent_runs")
+    .select("*", { count: "exact", head: true })
+    .eq("org_id", project.org_id)
+    .eq("project_id", project.id)
+    .eq("agent_type", "opportunity-generation")
+    .eq("status", "running");
+
+  if ((runningOpportunityCount ?? 0) > 0) {
+    revalidatePath(`/projects/${project.id}/opportunities`);
+    return;
+  }
 
   await inngest.send({
     name: "project/opportunities.requested",

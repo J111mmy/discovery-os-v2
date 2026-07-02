@@ -6,6 +6,7 @@ import { redirect, notFound } from "next/navigation";
 import { computeConfidence } from "@/lib/confidence";
 import {
   createProjectFromOpportunityAction,
+  runProjectProblemsAction,
   runProjectOutcomeAssessmentAction,
   runProjectSynthesisAction,
   updateProjectOpportunityStatusAction,
@@ -172,6 +173,7 @@ export default async function ProjectPage({ params }: Props) {
     { count: problemCount },
     { data: problemPreviews },
     { count: runningSynthesisCount },
+    { count: runningProblemDiscoveryCount },
     { count: runningOutcomeAssessmentCount },
     { data: trustedEvidenceMeta },
     { data: activityRuns },
@@ -217,6 +219,13 @@ export default async function ProjectPage({ params }: Props) {
       .select("*", { count: "exact", head: true })
       .eq("project_id", project.id)
       .eq("agent_type", "project-synthesis")
+      .eq("status", "running"),
+    read
+      .from("agent_runs")
+      .select("*", { count: "exact", head: true })
+      .eq("org_id", project.org_id)
+      .eq("project_id", project.id)
+      .eq("agent_type", "problem-discovery")
       .eq("status", "running"),
     read
       .from("agent_runs")
@@ -339,7 +348,9 @@ export default async function ProjectPage({ params }: Props) {
       gapSignals={gapSignals}
       suggestedWorkspaceRows={suggestedWorkspaceRows}
       synthesisRunning={synthesisRunning}
+      problemDiscoveryRunning={(runningProblemDiscoveryCount ?? 0) > 0}
       onSynthesize={runProjectSynthesisAction}
+      onDiscoverProblems={runProjectProblemsAction}
       onOpportunityStatus={updateProjectOpportunityStatusAction}
       onCreateFromOpportunity={createProjectFromOpportunityAction}
     />
