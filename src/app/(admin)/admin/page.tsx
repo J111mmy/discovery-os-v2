@@ -52,6 +52,12 @@ export default async function AdminPage() {
               Agent quality
             </a>
             <a
+              href="/admin/learning"
+              className="rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 py-2 text-sm font-medium text-[var(--ink-2)] transition-colors hover:text-[var(--ink)]"
+            >
+              Learning
+            </a>
+            <a
               href="/admin/costs"
               className="rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 py-2 text-sm font-medium text-[var(--ink-2)] transition-colors hover:text-[var(--ink)]"
             >
