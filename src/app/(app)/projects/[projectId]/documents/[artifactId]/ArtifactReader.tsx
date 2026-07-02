@@ -25,6 +25,7 @@
 
 import "../doc.css";
 import "../doc_kit.css";
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArtifactViewer } from "./ArtifactViewer";
@@ -66,6 +67,55 @@ type SectionConfidence = {
 
 type CitationsState = "loading" | "available" | "unavailable";
 type VerificationActionState = "idle" | "starting" | "queued" | "error";
+type TraceState = "loading" | "available" | "unavailable";
+
+type ArtifactTraceLink = {
+  relationship: string;
+  review_state: string;
+  rationale: string | null;
+};
+
+type ArtifactTraceProblem = {
+  id: string;
+  title: string;
+  statement: string | null;
+  status: string | null;
+  severity: string | null;
+  review_state: string | null;
+  link: ArtifactTraceLink;
+};
+
+type ArtifactTraceTheme = {
+  id: string;
+  label: string;
+  central_concept: string | null;
+  status: string | null;
+  review_state: string | null;
+  link: ArtifactTraceLink;
+};
+
+type ArtifactTraceOpportunity = {
+  id: string;
+  title: string;
+  how_might_we: string | null;
+  status: string | null;
+  confidence: number | null;
+  review_state: string | null;
+  link: ArtifactTraceLink;
+};
+
+type ArtifactTraceResponse = {
+  artifact_id: string;
+  counts: {
+    opportunities: number;
+    problems: number;
+    themes: number;
+    evidence: number;
+  };
+  opportunities: ArtifactTraceOpportunity[];
+  problems: ArtifactTraceProblem[];
+  themes: ArtifactTraceTheme[];
+};
 
 // ── Helpers ────────────────────────────────────────────────────
 function dateLabel(iso: string) {
@@ -84,6 +134,16 @@ function dateTimeLabel(iso: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(iso));
+}
+
+function truncateText(value: string | null | undefined, max = 150) {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  return trimmed.length > max ? `${trimmed.slice(0, max - 3)}...` : trimmed;
+}
+
+function plural(count: number, singular: string, pluralValue = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : pluralValue}`;
 }
 
 function VersionHistoryPanel({ versions }: { versions: ArtifactVersionSummary[] }) {
@@ -198,6 +258,8 @@ function HtmlReader({
   const [citationsState, setCitationsState] = useState<CitationsState>("loading");
   const [sectionConfidence, setSectionConfidence] = useState<SectionConfidence[]>([]);
   const [openCitation, setOpenCitation] = useState<{ n: number; rect: DOMRect } | null>(null);
+  const [trace, setTrace] = useState<ArtifactTraceResponse | null>(null);
+  const [traceState, setTraceState] = useState<TraceState>("loading");
   const [verificationActionState, setVerificationActionState] =
     useState<VerificationActionState>("idle");
   const [verificationActionMessage, setVerificationActionMessage] = useState<string | null>(null);
@@ -231,6 +293,35 @@ function HtmlReader({
     }
 
     void loadCitations();
+
+    return () => {
+      active = false;
+    };
+  }, [artifactId]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadTrace() {
+      try {
+        const response = await fetch(`/api/artifacts/${artifactId}/trace`, {
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          if (active) setTraceState("unavailable");
+          return;
+        }
+
+        const payload = (await response.json()) as ArtifactTraceResponse;
+        if (!active) return;
+        setTrace(payload);
+        setTraceState("available");
+      } catch {
+        if (active) setTraceState("unavailable");
+      }
+    }
+
+    void loadTrace();
 
     return () => {
       active = false;
@@ -565,6 +656,9 @@ function HtmlReader({
             {citationsState === "available" && (
               <TrustSummary sections={sectionConfidence} citations={citations} />
             )}
+            {traceState === "available" && trace && (
+              <TraceChainSummary trace={trace} projectId={projectId} />
+            )}
 
             {/*
              * contentHtml is the output of toSafeContentHtml() (server, page.tsx).
@@ -589,6 +683,148 @@ function HtmlReader({
           anchorRect={openCitation.rect}
           onClose={() => setOpenCitation(null)}
         />
+      )}
+    </div>
+  );
+}
+
+function TraceBadge({ children }: { children: ReactNode }) {
+  return (
+    <span className="rounded-full border border-[var(--line)] bg-[var(--surface-2)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--ink-faint)]">
+      {children}
+    </span>
+  );
+}
+
+function TraceSection({
+  title,
+  count,
+  children,
+}: {
+  title: string;
+  count: number;
+  children: ReactNode;
+}) {
+  if (count === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
+          {title}
+        </h3>
+        <span className="text-xs text-[var(--ink-faint)]">{count}</span>
+      </div>
+      <div className="space-y-2">{children}</div>
+    </div>
+  );
+}
+
+function TraceItem({
+  href,
+  title,
+  body,
+  status,
+  link,
+}: {
+  href: string;
+  title: string;
+  body: string | null;
+  status: string | null;
+  link: ArtifactTraceLink;
+}) {
+  return (
+    <div className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <Link href={href} className="text-sm font-medium text-[var(--ink)] hover:text-[var(--brand)]">
+          {title}
+        </Link>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {status && <TraceBadge>{status}</TraceBadge>}
+          <TraceBadge>{link.review_state}</TraceBadge>
+        </div>
+      </div>
+      {body && <p className="mt-1 text-xs leading-5 text-[var(--ink-2)]">{body}</p>}
+      {link.rationale && (
+        <p className="mt-1 text-xs leading-5 text-[var(--ink-faint)]">
+          {truncateText(link.rationale, 180)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function TraceChainSummary({
+  trace,
+  projectId,
+}: {
+  trace: ArtifactTraceResponse;
+  projectId: string;
+}) {
+  const total =
+    trace.counts.opportunities + trace.counts.problems + trace.counts.themes + trace.counts.evidence;
+
+  return (
+    <div className="mb-5 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3.5 py-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold text-[var(--ink)]">Trace chain</h2>
+          <p className="mt-0.5 text-xs text-[var(--ink-faint)]">
+            Artifact links stamped by structure-driven compose.
+          </p>
+        </div>
+        <span className="text-xs text-[var(--ink-faint)]">
+          {plural(trace.counts.evidence, "evidence", "evidence")} ·{" "}
+          {plural(trace.counts.problems, "problem")} · {plural(trace.counts.themes, "theme")} ·{" "}
+          {plural(trace.counts.opportunities, "opportunity", "opportunities")}
+        </span>
+      </div>
+
+      {total === 0 ? (
+        <p className="rounded-lg border border-dashed border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--ink-faint)]">
+          No structure links were recorded for this artifact.
+        </p>
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-3">
+          <TraceSection title="Opportunities" count={trace.opportunities.length}>
+            {trace.opportunities.map((opportunity) => (
+              <TraceItem
+                key={opportunity.id}
+                href={`/projects/${projectId}/opportunities`}
+                title={opportunity.title}
+                body={truncateText(opportunity.how_might_we)}
+                status={opportunity.status}
+                link={opportunity.link}
+              />
+            ))}
+          </TraceSection>
+
+          <TraceSection title="Problems" count={trace.problems.length}>
+            {trace.problems.map((problem) => (
+              <TraceItem
+                key={problem.id}
+                href={`/projects/${projectId}/problems?problem=${problem.id}`}
+                title={problem.title}
+                body={truncateText(problem.statement)}
+                status={problem.status ?? problem.severity}
+                link={problem.link}
+              />
+            ))}
+          </TraceSection>
+
+          <TraceSection title="Themes" count={trace.themes.length}>
+            {trace.themes.map((theme) => (
+              <TraceItem
+                key={theme.id}
+                href={`/projects/${projectId}/themes/${theme.id}`}
+                title={theme.label}
+                body={truncateText(theme.central_concept)}
+                status={theme.status}
+                link={theme.link}
+              />
+            ))}
+          </TraceSection>
+        </div>
       )}
     </div>
   );
