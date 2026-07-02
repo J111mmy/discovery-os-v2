@@ -1,5 +1,8 @@
 import type { ProjectEntityRole } from "@/lib/ingest/entity-resolutions";
-import { parseTranscriptTurns } from "@/lib/ingest/transcript-turns";
+import {
+  parseTranscriptSpeakerLegend,
+  parseTranscriptTurns,
+} from "@/lib/ingest/transcript-turns";
 import { normalizeSpeakerName } from "@/lib/speakers/resolve";
 import type { SourceType } from "@/types/database";
 
@@ -121,28 +124,48 @@ function similarity(a: string, b: string) {
   return clampScore(intersection / union);
 }
 
-function isUsefulLabel(label: string) {
+function isUsefulLabel(label: string, options: { allowInitial?: boolean } = {}) {
   const normalized = normalizeSpeakerName(label);
   if (!normalized) return false;
-  if (normalized.length < 2) return false;
+  if (normalized.length < 2 && !options.allowInitial) return false;
   if (/^\d+$/.test(normalized)) return false;
   if (USELESS_SPEAKER_LABELS.has(normalized)) return false;
   return true;
 }
 
-function pushUniqueLabel(labels: Map<string, string>, label: string) {
+function pushUniqueLabel(
+  labels: Map<string, string>,
+  label: string,
+  options: { allowInitial?: boolean } = {}
+) {
   const trimmed = label.trim();
   const normalized = normalizeSpeakerName(trimmed);
-  if (!isUsefulLabel(trimmed) || labels.has(normalized)) return;
+  if (!isUsefulLabel(trimmed, options) || labels.has(normalized)) return;
   labels.set(normalized, trimmed);
 }
 
 function parseTranscriptSpeakerLabels(rawText: string, type: SourceType) {
   const labels = new Map<string, string>();
+  const legend = parseTranscriptSpeakerLegend(rawText);
+  const legendLabels = new Set(legend.map((entry) => normalizeSpeakerName(entry.label)));
+  const counts = new Map<string, number>();
   const turns = parseTranscriptTurns(rawText);
 
   for (const turn of turns) {
-    pushUniqueLabel(labels, turn.speaker);
+    const normalized = normalizeSpeakerName(turn.speaker);
+    if (!normalized) continue;
+    counts.set(normalized, (counts.get(normalized) ?? 0) + 1);
+    if (!labels.has(normalized)) labels.set(normalized, turn.speaker);
+  }
+
+  for (const [normalized, label] of Array.from(labels.entries())) {
+    const count = counts.get(normalized) ?? 0;
+    if (count >= 2 || legendLabels.has(normalized)) continue;
+    labels.delete(normalized);
+  }
+
+  for (const entry of legend) {
+    pushUniqueLabel(labels, entry.label, { allowInitial: true });
   }
 
   if (!TRANSCRIPT_LIKE_TYPES.has(type) && labels.size < 2) return [];
@@ -309,25 +332,39 @@ export async function prescanSourceEntities(input: {
   const companies = (companiesResult.data ?? []) as CompanyRecord[];
   const companyById = new Map(companies.map((company) => [company.id, company]));
   const identityNotes = parseInlineIdentityNotes(input.raw_text);
+  const speakerLegend = new Map(
+    parseTranscriptSpeakerLegend(input.raw_text).map((entry) => [
+      normalizeSpeakerName(entry.label),
+      entry,
+    ])
+  );
   const labels = new Map<string, string>();
 
   for (const label of parseTranscriptSpeakerLabels(input.raw_text, input.type)) {
-    pushUniqueLabel(labels, label);
+    pushUniqueLabel(labels, label, { allowInitial: speakerLegend.has(normalizeSpeakerName(label)) });
   }
   for (const note of Array.from(identityNotes.values())) {
     pushUniqueLabel(labels, note.raw_label);
   }
 
   const speakers = Array.from(labels.values()).map((rawLabel, index) => {
-    const note = identityNotes.get(normalizeSpeakerName(rawLabel)) ?? null;
-    const suggestedName = note?.suggested_name ?? rawLabel;
+    const normalizedRawLabel = normalizeSpeakerName(rawLabel);
+    const note = identityNotes.get(normalizedRawLabel) ?? null;
+    const legendEntry = speakerLegend.get(normalizedRawLabel) ?? null;
+    const suggestedName = note?.suggested_name ?? legendEntry?.name ?? rawLabel;
     const suggestedOrg = note?.suggested_org_name ?? null;
+    const suggestedRole =
+      legendEntry?.role === "interviewer"
+        ? "interviewer"
+        : legendEntry?.role === "customer"
+          ? "customer"
+          : roleFromType(input.type);
 
     return {
       id: `speaker-${index + 1}`,
       raw_label: rawLabel,
       suggested_name: suggestedName,
-      suggested_role: roleFromType(input.type),
+      suggested_role: suggestedRole,
       suggested_org_name: suggestedOrg,
       person_match_candidates: personCandidates(suggestedName, people, companyById),
       org_match_candidates: orgCandidates(suggestedOrg, companies),

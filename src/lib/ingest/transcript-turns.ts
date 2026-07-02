@@ -7,6 +7,12 @@ export type TranscriptTurn = {
   end_time: string | null;
 };
 
+export type TranscriptSpeakerLegendEntry = {
+  label: string;
+  name: string;
+  role: "interviewer" | "customer" | null;
+};
+
 type TextLine = {
   raw: string;
   trimmed: string;
@@ -36,6 +42,37 @@ function isInitialLine(value: string) {
   return /^[A-Z]{1,4}$/.test(value.trim());
 }
 
+const COMMON_INITIAL_SPEAKERS = new Set(["i", "p", "q", "a", "r"]);
+
+const METADATA_KEYS = new Set([
+  "company",
+  "country",
+  "date",
+  "email",
+  "institution",
+  "location",
+  "organisation",
+  "organization",
+  "phone",
+  "role",
+  "title",
+]);
+
+function roleHintForLegendValue(value: string): TranscriptSpeakerLegendEntry["role"] {
+  const normalized = normalizeLabel(value);
+  if (/\b(interviewer|researcher|moderator|facilitator)\b/.test(normalized)) {
+    return "interviewer";
+  }
+  if (/\b(participant|interviewee|respondent|customer|user)\b/.test(normalized)) {
+    return "customer";
+  }
+  return null;
+}
+
+function isMetadataKey(value: string) {
+  return METADATA_KEYS.has(normalizeLabel(value));
+}
+
 function isSpeakerNameLine(value: string) {
   const trimmed = value.trim();
   return (
@@ -47,8 +84,47 @@ function isSpeakerNameLine(value: string) {
   );
 }
 
-function isSpeakerLabel(value: string) {
+function isSpeakerLabel(value: string, legendLabels: Set<string>) {
+  const normalized = normalizeLabel(value);
+  if (legendLabels.has(normalized)) return true;
+  if (COMMON_INITIAL_SPEAKERS.has(normalized)) return true;
   return isSpeakerNameLine(value);
+}
+
+export function parseTranscriptSpeakerLegend(text: string): TranscriptSpeakerLegendEntry[] {
+  const entries = new Map<string, TranscriptSpeakerLegendEntry>();
+  const lines = getLines(text);
+  let sawDialogue = false;
+
+  for (const line of lines) {
+    if (!line.trimmed) continue;
+    if (sawDialogue) break;
+
+    const match = line.trimmed.match(/^([A-Za-z][A-Za-z0-9 _.-]{0,24}):\s*(.{2,80})$/);
+    if (!match) continue;
+
+    const label = match[1].trim();
+    const value = match[2].trim();
+    const normalizedLabel = normalizeLabel(label);
+    const role = roleHintForLegendValue(value);
+
+    if (isMetadataKey(label)) continue;
+
+    if (role) {
+      entries.set(normalizedLabel, {
+        label,
+        name: value.replace(/[.;:]+$/g, "").trim(),
+        role,
+      });
+      continue;
+    }
+
+    if (isSpeakerNameLine(label) || COMMON_INITIAL_SPEAKERS.has(normalizedLabel)) {
+      sawDialogue = true;
+    }
+  }
+
+  return Array.from(entries.values());
 }
 
 function getLines(text: string): TextLine[] {
@@ -85,7 +161,7 @@ function getLines(text: string): TextLine[] {
 }
 
 const inlineTimestampSpeakerBoundary =
-  /\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s+([A-Za-z][A-Za-z0-9 .'-]{1,80}):\s*/g;
+  /\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s+([A-Za-z][A-Za-z0-9 .'-]{0,80}):\s*/g;
 
 function isInlineSpeakerBoundaryLabel(value: string) {
   const normalized = normalizeLabel(value);
@@ -144,6 +220,8 @@ function splitInlineTimestampSpeakerLines(lines: TextLine[]) {
 
 export function parseTranscriptTurns(text: string): TranscriptTurn[] {
   const lines = splitInlineTimestampSpeakerLines(getLines(text));
+  const legend = parseTranscriptSpeakerLegend(text);
+  const legendLabels = new Set(legend.map((entry) => normalizeLabel(entry.label)));
   const speakerColonLine =
     /^(?:\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s+)?([A-Za-z][^:\n]{0,80}):\s*(.*)$/;
   const timestampSpeakerLine =
@@ -202,7 +280,20 @@ export function parseTranscriptTurns(text: string): TranscriptTurn[] {
     if (!line.trimmed) continue;
 
     const speakerColonMatch = line.trimmed.match(speakerColonLine);
-    if (speakerColonMatch?.[2] && isSpeakerLabel(speakerColonMatch[2])) {
+    if (speakerColonMatch?.[2]) {
+      const label = speakerColonMatch[2].trim();
+      const content = (speakerColonMatch[3] ?? "").trim();
+      const normalizedLabel = normalizeLabel(label);
+      const isLegendDefinition =
+        curSpeaker === null &&
+        legendLabels.has(normalizedLabel) &&
+        roleHintForLegendValue(content) !== null;
+
+      if (isLegendDefinition || isMetadataKey(label)) {
+        continue;
+      }
+    }
+    if (speakerColonMatch?.[2] && isSpeakerLabel(speakerColonMatch[2], legendLabels)) {
       startTurn(
         speakerColonMatch[2],
         speakerColonMatch[1] ?? null,
@@ -213,7 +304,7 @@ export function parseTranscriptTurns(text: string): TranscriptTurn[] {
     }
 
     const timestampSpeakerMatch = line.trimmed.match(timestampSpeakerLine);
-    if (timestampSpeakerMatch?.[2] && isSpeakerLabel(timestampSpeakerMatch[2])) {
+    if (timestampSpeakerMatch?.[2] && isSpeakerLabel(timestampSpeakerMatch[2], legendLabels)) {
       startTurn(
         timestampSpeakerMatch[2],
         timestampSpeakerMatch[1] ?? null,
