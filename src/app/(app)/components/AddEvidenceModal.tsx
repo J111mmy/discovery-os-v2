@@ -190,6 +190,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
   // Ref so the poll count never causes the polling effect to tear down and
   // recreate the interval (which caused the form/Analyzing flicker — #49).
   const pollCountRef = useRef(0);
+  const ingestInFlightRef = useRef(false);
 
   const titleRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -214,10 +215,17 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
     setClaimsCreated(null);
     setSubmitError(null);
     pollCountRef.current = 0;
+    ingestInFlightRef.current = false;
     const id = setTimeout(() => titleRef.current?.focus(), 50);
     return () => clearTimeout(id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  useEffect(() => {
+    if (jobStatus === "idle" || jobStatus === "failed" || jobStatus === "done") {
+      ingestInFlightRef.current = false;
+    }
+  }, [jobStatus]);
 
   // Close on Escape (only when in idle form state)
   useEffect(() => {
@@ -331,6 +339,8 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
   // prescan finds nothing / errors).
   async function startIngest(entity_resolutions: EntityResolution[]) {
     if (!projectId) return;
+    if (ingestInFlightRef.current) return;
+    ingestInFlightRef.current = true;
     setPrescanPhase("idle");
     setSubmitError(null);
     setJobStatus("queued");
@@ -349,6 +359,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
       const data = await res.json();
       if (!res.ok) {
         setSubmitError(typeof data.error === "string" ? data.error : "Could not start ingest.");
+        ingestInFlightRef.current = false;
         setJobStatus("idle");
         return;
       }
@@ -357,6 +368,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
       setJobStatus("processing");
     } catch {
       setSubmitError("Network error. Please try again.");
+      ingestInFlightRef.current = false;
       setJobStatus("idle");
     }
   }
@@ -893,7 +905,8 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
               <button
                 type="button"
                 onClick={() => void startIngest([])}
-                style={{ padding: "8px 14px", borderRadius: "var(--r-sm)", background: "transparent", border: "none", color: "var(--ink-faint)", fontWeight: 500, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}
+                disabled={isWorking}
+                style={{ padding: "8px 14px", borderRadius: "var(--r-sm)", background: "transparent", border: "none", color: "var(--ink-faint)", fontWeight: 500, fontSize: 13, cursor: isWorking ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: isWorking ? 0.55 : 1 }}
               >
                 Skip, ingest as-is
               </button>
@@ -901,12 +914,14 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
               <button
                 type="button"
                 onClick={handleConfirmAndIngest}
+                disabled={isWorking}
                 style={{
                   display: "flex", alignItems: "center", gap: 6,
                   padding: "9px 18px", borderRadius: "var(--r-md)",
                   background: "var(--accent)", color: "#fff",
-                  fontWeight: 580, fontSize: 14, cursor: "pointer",
+                  fontWeight: 580, fontSize: 14, cursor: isWorking ? "not-allowed" : "pointer",
                   border: "none", fontFamily: "inherit",
+                  opacity: isWorking ? 0.55 : 1,
                 }}
               >
                 Confirm &amp; ingest
