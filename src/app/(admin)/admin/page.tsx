@@ -40,6 +40,12 @@ export default async function AdminPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             <a
+              href="/admin/agents"
+              className="rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 py-2 text-sm font-medium text-[var(--ink-2)] transition-colors hover:text-[var(--ink)]"
+            >
+              Agent catalog
+            </a>
+            <a
               href="/admin/costs"
               className="rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 py-2 text-sm font-medium text-[var(--ink-2)] transition-colors hover:text-[var(--ink)]"
             >
