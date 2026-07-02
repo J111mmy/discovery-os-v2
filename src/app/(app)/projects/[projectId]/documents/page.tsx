@@ -33,6 +33,13 @@ function citationMapEvidenceIds(artifact: ArtifactRow): string[] {
   );
 }
 
+function countSourcesAfter(sourceCreatedAts: string[], baselineAt: string): number {
+  const baseline = new Date(baselineAt).getTime();
+  return sourceCreatedAts.reduce((count, createdAt) => {
+    return new Date(createdAt).getTime() > baseline ? count + 1 : count;
+  }, 0);
+}
+
 export default async function DocumentsPage({ params }: Props) {
   const supabase = await createClient();
   const {
@@ -70,13 +77,26 @@ export default async function DocumentsPage({ params }: Props) {
   const allEvidenceIds = Array.from(new Set(Array.from(evidenceIdsByArtifact.values()).flat()));
 
   const sourceIdByEvidenceId = new Map<string, string>();
+  const [evidenceRowsResult, sourceRowsResult] = await Promise.all([
+    allEvidenceIds.length > 0
+      ? read.from("evidence").select("id, source_id").in("id", allEvidenceIds)
+      : Promise.resolve({ data: [] }),
+    read.from("sources").select("created_at").eq("project_id", project.id),
+  ]);
+
   if (allEvidenceIds.length > 0) {
-    const { data } = await read.from("evidence").select("id, source_id").in("id", allEvidenceIds);
-    const evidenceRows = (data ?? []) as Array<{ id: string; source_id: string | null }>;
+    const evidenceRows = (evidenceRowsResult.data ?? []) as Array<{
+      id: string;
+      source_id: string | null;
+    }>;
     evidenceRows.forEach((row) => {
       if (row.source_id) sourceIdByEvidenceId.set(row.id, row.source_id);
     });
   }
+
+  const sourceCreatedAts = ((sourceRowsResult.data ?? []) as Array<{ created_at: string }>).map(
+    (row) => row.created_at
+  );
 
   const artifacts: ArtifactCardData[] = artifactRows.map((a) => {
     const evidenceIds = evidenceIdsByArtifact.get(a.id) ?? [];
@@ -92,6 +112,7 @@ export default async function DocumentsPage({ params }: Props) {
       updated_at: a.updated_at,
       citationCount: evidenceIds.length,
       sourceCount: sourceIds.size,
+      staleSourceCount: countSourcesAfter(sourceCreatedAts, a.updated_at),
     };
   });
 

@@ -80,6 +80,7 @@ export interface WorkspaceViewProps {
     gtm_context: string | null;
     synthesis_stale: boolean;
     last_synthesised_at: string | null;
+    sources_since_last_synthesis: number;
   };
   outcomeAssessment: OutcomeAssessment | null;
   outcomeAssessedAt: string | null;
@@ -149,6 +150,19 @@ function SynthesisSubmitButton({ isStale }: { isStale: boolean }) {
       {label}
     </button>
   );
+}
+
+function staleSourcesLabel(count: number, lastSynthesisedAt: string | null) {
+  if (count > 0) {
+    const noun = count === 1 ? "source" : "sources";
+    return lastSynthesisedAt
+      ? `${count} ${noun} added since last synthesis`
+      : `${count} ${noun} ready for first synthesis`;
+  }
+
+  return lastSynthesisedAt
+    ? "New evidence available since last synthesis"
+    : "Project has not been synthesised yet";
 }
 
 function ProblemDiscoverySubmitButton() {
@@ -1944,7 +1958,11 @@ export function WorkspaceView({
                     fontFamily: "inherit",
                   }}
                 >
-                  New evidence available, run synthesis
+                  {staleSourcesLabel(
+                    project.sources_since_last_synthesis,
+                    project.last_synthesised_at
+                  )}
+                  , run synthesis
                 </button>
               </form>
             )}

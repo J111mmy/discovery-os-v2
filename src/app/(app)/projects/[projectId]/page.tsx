@@ -188,6 +188,7 @@ export default async function ProjectPage({ params }: Props) {
     { count: runningOutcomeAssessmentCount },
     { data: trustedEvidenceMeta },
     { data: activityRuns },
+    { count: sourcesSinceLastSynthesisCount },
   ] = await Promise.all([
     read
       .from("evidence")
@@ -257,6 +258,18 @@ export default async function ProjectPage({ params }: Props) {
       .eq("project_id", project.id)
       .order("started_at", { ascending: false })
       .limit(10),
+    (() => {
+      let query = read
+        .from("sources")
+        .select("*", { count: "exact", head: true })
+        .eq("project_id", project.id);
+
+      if (project.last_synthesised_at) {
+        query = query.gt("created_at", project.last_synthesised_at);
+      }
+
+      return query;
+    })(),
   ]);
 
   const themeRows = (themes ?? []) as ThemeRow[];
@@ -331,6 +344,7 @@ export default async function ProjectPage({ params }: Props) {
         gtm_context: project.gtm_context,
         synthesis_stale: project.synthesis_stale,
         last_synthesised_at: project.last_synthesised_at,
+        sources_since_last_synthesis: sourcesSinceLastSynthesisCount ?? 0,
       }}
       outcomeAssessment={project.outcome_assessment}
       outcomeAssessedAt={project.outcome_assessed_at}

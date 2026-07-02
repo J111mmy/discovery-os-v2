@@ -14,6 +14,7 @@ export type ArtifactCardData = {
   updated_at: string;
   citationCount: number;
   sourceCount: number;
+  staleSourceCount: number;
 };
 
 type SortMode = "date" | "type" | "trust";
@@ -58,6 +59,17 @@ function TrustSignal({ artifact }: { artifact: ArtifactCardData }) {
   return null;
 }
 
+function FreshnessSignal({ artifact }: { artifact: ArtifactCardData }) {
+  if (artifact.staleSourceCount <= 0) return null;
+
+  return (
+    <span className="rounded-full border border-warn/20 bg-warn-bg px-2 py-0.5 text-xs font-medium text-warn">
+      Out of date · {artifact.staleSourceCount} new source
+      {artifact.staleSourceCount !== 1 ? "s" : ""}
+    </span>
+  );
+}
+
 function ArtifactCard({ artifact, projectId }: { artifact: ArtifactCardData; projectId: string }) {
   return (
     <Link href={`/projects/${projectId}/documents/${artifact.id}`} className="group block">
@@ -77,8 +89,9 @@ function ArtifactCard({ artifact, projectId }: { artifact: ArtifactCardData; pro
           <p className="mb-3 line-clamp-2 flex-1 text-xs leading-5 text-[var(--ink-2)]">{artifact.prompt}</p>
         )}
 
-        <div className="mt-auto flex items-center gap-2 pt-1">
+        <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
           <TrustSignal artifact={artifact} />
+          <FreshnessSignal artifact={artifact} />
         </div>
       </article>
     </Link>
