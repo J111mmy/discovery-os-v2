@@ -16,6 +16,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useFormStatus } from "react-dom";
 import { FrameDraftBanner, type FrameDraft } from "./settings/frame-draft-banner";
 import type {
   ProjectOpportunityConfidence,
@@ -90,6 +91,50 @@ export interface WorkspaceViewProps {
   onSynthesize: (formData: FormData) => Promise<void>;
   onOpportunityStatus: (formData: FormData) => Promise<void>;
   onCreateFromOpportunity: (formData: FormData) => Promise<void>;
+}
+
+function SynthesisSubmitButton({ isStale }: { isStale: boolean }) {
+  const { pending } = useFormStatus();
+  const label = pending
+    ? "Starting synthesis..."
+    : isStale
+      ? "New evidence: run synthesis ->"
+      : "Run synthesis";
+
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      aria-disabled={pending}
+      style={{
+        padding: "7px 14px",
+        borderRadius: "var(--r-sm)",
+        border: "1px solid var(--accent)",
+        background: pending ? "var(--accent-soft)" : "transparent",
+        color: "var(--accent)",
+        fontSize: 12.5,
+        fontWeight: 560,
+        cursor: pending ? "wait" : "pointer",
+        fontFamily: "inherit",
+        opacity: pending ? 0.78 : 1,
+        transition: ".14s",
+      }}
+      onMouseEnter={(e) => {
+        if (pending) return;
+        const el = e.currentTarget as HTMLElement;
+        el.style.background = "var(--accent)";
+        el.style.color = "#fff";
+      }}
+      onMouseLeave={(e) => {
+        if (pending) return;
+        const el = e.currentTarget as HTMLElement;
+        el.style.background = "transparent";
+        el.style.color = "var(--accent)";
+      }}
+    >
+      {label}
+    </button>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1915,35 +1960,7 @@ export function WorkspaceView({
                 (themeRows.length === 0 && trustedTotal > 0) ? (
                 <form action={onSynthesize} style={{ flexShrink: 0 }}>
                   <input type="hidden" name="project_id" value={project.id} />
-                  <button
-                    type="submit"
-                    style={{
-                      padding: "7px 14px",
-                      borderRadius: "var(--r-sm)",
-                      border: "1px solid var(--accent)",
-                      background: "transparent",
-                      color: "var(--accent)",
-                      fontSize: 12.5,
-                      fontWeight: 560,
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      transition: ".14s",
-                    }}
-                    onMouseEnter={(e) => {
-                      const el = e.currentTarget as HTMLElement;
-                      el.style.background = "var(--accent)";
-                      el.style.color = "#fff";
-                    }}
-                    onMouseLeave={(e) => {
-                      const el = e.currentTarget as HTMLElement;
-                      el.style.background = "transparent";
-                      el.style.color = "var(--accent)";
-                    }}
-                  >
-                    {project.synthesis_stale
-                      ? "New evidence — run synthesis →"
-                      : "Run synthesis"}
-                  </button>
+                  <SynthesisSubmitButton isStale={project.synthesis_stale} />
                 </form>
               ) : null}
             </div>
