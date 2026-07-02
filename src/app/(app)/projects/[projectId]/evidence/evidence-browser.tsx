@@ -413,10 +413,13 @@ function TopicLens({ projectId, items }: { projectId: string; items: TopicLensIt
       {items.map((item) => (
         <article
           key={item.id}
-          className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4"
+          className="rounded-xl border border-dashed border-[var(--line-strong)] bg-[var(--surface)] p-4"
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
+              <div className="mb-2 inline-flex rounded-full border border-[var(--line)] bg-[var(--surface-2)] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--ink-faint)]">
+                Descriptive topic
+              </div>
               <Link
                 href={`/projects/${projectId}/evidence?topic_id=${item.id}`}
                 className="text-base font-semibold text-[var(--ink)] transition-colors hover:text-[var(--accent)]"
@@ -458,10 +461,13 @@ function ThemeLens({ projectId, items }: { projectId: string; items: ThemeLensIt
       {items.map((item) => (
         <article
           key={item.id}
-          className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4"
+          className="rounded-xl border border-[var(--accent)]/40 bg-[var(--surface)] p-4 shadow-[0_18px_42px_-34px_var(--accent)]"
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
+              <div className="mb-2 inline-flex rounded-full border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--accent)]">
+                Interpretive theme
+              </div>
               <Link
                 href={`/projects/${projectId}/evidence?theme_id=${item.id}`}
                 className="text-base font-semibold text-[var(--ink)] transition-colors hover:text-[var(--accent)]"
