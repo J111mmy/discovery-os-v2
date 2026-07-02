@@ -7,6 +7,7 @@ const root = process.cwd();
 const functionsDir = path.join(root, "src/lib/inngest/functions");
 const appDir = path.join(root, "src/app");
 const TIMEOUT_LIMIT_MS = 60_000;
+const PREMIUM_MAX_TOKENS_LIMIT = 8_000;
 
 function walk(dir, predicate = () => true) {
   if (!fs.existsSync(dir)) return [];
@@ -101,10 +102,16 @@ function findCallObjects(source, callee) {
   let match;
   while ((match = pattern.exec(source))) {
     const openParen = source.indexOf("(", match.index);
-    const objectStart = source.indexOf("{", openParen);
-    if (objectStart === -1) continue;
+    let argumentStart = openParen + 1;
+    while (/\s/.test(source[argumentStart] ?? "")) argumentStart += 1;
+    if (source[argumentStart] !== "{") {
+      calls.push({ callee, index: match.index, object: null, inlineObject: false });
+      pattern.lastIndex = argumentStart + 1;
+      continue;
+    }
+    const objectStart = argumentStart;
     const object = extractBalanced(source, objectStart);
-    calls.push({ callee, index: match.index, object: object.text });
+    calls.push({ callee, index: match.index, object: object.text, inlineObject: true });
     pattern.lastIndex = object.end;
   }
   return calls;
@@ -171,10 +178,14 @@ function getUserTriggeredProjectEvents() {
 }
 
 function hasProjectConcurrency(config) {
+  const concurrencyIndex = config.search(/\bconcurrency\s*:/);
+  if (concurrencyIndex === -1) return false;
+  const objectStart = config.indexOf("{", concurrencyIndex);
+  if (objectStart === -1) return false;
+  const object = extractBalanced(config, objectStart).text;
   return (
-    /\bconcurrency\s*:\s*{[\s\S]*?\blimit\s*:\s*1[\s\S]*?\bkey\s*:\s*["']event\.data\.project_id["'][\s\S]*?}/.test(
-      config
-    )
+    /\blimit\s*:\s*1\b/.test(object) &&
+    /\bkey\s*:\s*["']event\.data\.project_id["']/.test(object)
   );
 }
 
@@ -187,19 +198,33 @@ for (const file of walk(functionsDir, (fullPath) => fullPath.endsWith(".ts"))) {
   const localValues = parseLocalNumericValues(source);
   const calls = [...findCallObjects(source, "callLLM"), ...findCallObjects(source, "streamLLM")];
   const llmCalls = calls.filter((call) => /\b(callLLM|streamLLM)\b/.test(call.callee));
-  const premiumCalls = llmCalls.filter((call) => /\btier\s*:\s*["']premium["']/.test(call.object));
+  const premiumCalls = llmCalls.filter(
+    (call) => call.object && /\btier\s*:\s*["']premium["']/.test(call.object)
+  );
   const config = getCreateFunctionConfig(source);
   const eventName = getFunctionEvent(source);
 
   for (const call of llmCalls) {
     const callLocation = `${relative}:${lineFor(source, call.index)}`;
 
+    if (!call.inlineObject || !call.object) {
+      failures.push(
+        `${callLocation} ${call.callee} must use an inline object literal so agent standards can inspect telemetry, timeout, tier, and maxTokens.`
+      );
+      continue;
+    }
+
     if (!/\btelemetry\s*:/.test(call.object)) {
       failures.push(`${callLocation} ${call.callee} is missing telemetry (R7).`);
     }
 
     const timeoutExpression = getPropertyExpression(call.object, "timeoutMs");
-    if (timeoutExpression) {
+    const isPremiumCall = /\btier\s*:\s*["']premium["']/.test(call.object);
+    if (isPremiumCall && !timeoutExpression) {
+      failures.push(
+        `${callLocation} premium ${call.callee} is missing an explicit timeoutMs below ${TIMEOUT_LIMIT_MS} (R3).`
+      );
+    } else if (timeoutExpression) {
       const timeout = resolveNumericExpression(timeoutExpression, localValues);
       if (timeout == null) {
         failures.push(
@@ -210,8 +235,22 @@ for (const file of walk(functionsDir, (fullPath) => fullPath.endsWith(".ts"))) {
       }
     }
 
-    if (/\btier\s*:\s*["']premium["']/.test(call.object) && !/\bmaxTokens\s*:/.test(call.object)) {
-      failures.push(`${callLocation} premium ${call.callee} is missing an explicit maxTokens cap (R2).`);
+    if (isPremiumCall) {
+      const maxTokensExpression = getPropertyExpression(call.object, "maxTokens");
+      if (!maxTokensExpression) {
+        failures.push(`${callLocation} premium ${call.callee} is missing an explicit maxTokens cap (R2).`);
+      } else {
+        const maxTokens = resolveNumericExpression(maxTokensExpression, localValues);
+        if (maxTokens == null) {
+          failures.push(
+            `${callLocation} premium ${call.callee} maxTokens uses an unresolved expression (${maxTokensExpression}) (R2).`
+          );
+        } else if (maxTokens > PREMIUM_MAX_TOKENS_LIMIT) {
+          failures.push(
+            `${callLocation} premium ${call.callee} maxTokens is ${maxTokens}; must be <= ${PREMIUM_MAX_TOKENS_LIMIT} (R2).`
+          );
+        }
+      }
     }
   }
 
@@ -220,7 +259,9 @@ for (const file of walk(functionsDir, (fullPath) => fullPath.endsWith(".ts"))) {
       failures.push(`${relative} makes premium LLM calls but has no readable createFunction config.`);
     } else {
       const retriesExpression = getPropertyExpression(config, "retries");
-      if (retriesExpression) {
+      if (!retriesExpression) {
+        failures.push(`${relative} makes premium LLM calls but is missing explicit retries <= 1 (R4).`);
+      } else {
         const retries = resolveNumericExpression(retriesExpression, localValues);
         if (retries == null) {
           failures.push(`${relative} premium function has unresolved retries (${retriesExpression}) (R4).`);
