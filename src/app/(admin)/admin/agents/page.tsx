@@ -40,6 +40,62 @@ function DetailList({ title, items }: { title: string; items: string[] }) {
   );
 }
 
+function AgentInteractionMap() {
+  const handoffs = AGENT_REGISTRY.flatMap((agent) =>
+    agent.handoffs.map((handoff) => ({
+      from: agent,
+      handoff,
+      to: AGENT_REGISTRY.find((candidate) => candidate.id === handoff.agentId),
+    }))
+  );
+
+  return (
+    <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-[var(--ink)]">Interaction map</h2>
+          <p className="mt-1 max-w-3xl text-sm text-[var(--ink-2)]">
+            The main handoffs between agents, including the event that carries
+            work forward and the condition that causes the handoff.
+          </p>
+        </div>
+        <span className="rounded-full border border-[var(--line)] bg-[var(--surface-2)] px-3 py-1 text-xs font-medium text-[var(--ink-2)]">
+          {handoffs.length} handoffs
+        </span>
+      </div>
+
+      <div className="mt-5 space-y-3">
+        {handoffs.map(({ from, handoff, to }) => (
+          <div
+            key={`${from.id}-${handoff.event}-${handoff.agentId}`}
+            className="grid gap-3 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-4 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-center"
+          >
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-faint)]">
+                From
+              </div>
+              <div className="mt-1 font-medium text-[var(--ink)]">{from.name}</div>
+              <div className="mt-1 text-xs text-[var(--ink-faint)]">{from.event}</div>
+            </div>
+            <div className="rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 py-1 text-center text-xs font-medium text-[var(--ink-2)]">
+              {handoff.event}
+            </div>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-faint)]">
+                To
+              </div>
+              <div className="mt-1 font-medium text-[var(--ink)]">
+                {to?.name ?? handoff.agentId}
+              </div>
+              <div className="mt-1 text-xs text-[var(--ink-2)]">{handoff.when}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function AgentCard({ agent }: { agent: AgentRegistryItem }) {
   return (
     <article className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
@@ -53,6 +109,25 @@ function AgentCard({ agent }: { agent: AgentRegistryItem }) {
         </div>
         <div className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-xs font-medium text-[var(--ink-2)]">
           {agent.event}
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-faint)]">
+            Triggered by
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {agent.triggeredBy.map((trigger) => (
+              <Chip key={trigger}>{trigger}</Chip>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-faint)]">
+            Completion signal
+          </div>
+          <p className="mt-2 text-sm text-[var(--ink-2)]">{agent.completionSignal}</p>
         </div>
       </div>
 
@@ -142,6 +217,8 @@ export default function AdminAgentsPage() {
           </p>
         </article>
       </section>
+
+      <AgentInteractionMap />
 
       {groupedAgents.map((group) => (
         <section key={group.category} className="space-y-3">
