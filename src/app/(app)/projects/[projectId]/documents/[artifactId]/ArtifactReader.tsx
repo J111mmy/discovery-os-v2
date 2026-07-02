@@ -45,9 +45,16 @@ export interface ArtifactReaderProps {
   wordCount: number | null;
   backHref: string;
   backLabel: string;
+  versions: ArtifactVersionSummary[];
 }
 
 type TocItem = { id: string; label: string };
+
+export type ArtifactVersionSummary = {
+  id: string;
+  version: number;
+  saved_at: string;
+};
 
 type SectionConfidence = {
   id: string;
@@ -69,6 +76,39 @@ function dateLabel(iso: string) {
   }).format(new Date(iso));
 }
 
+function dateTimeLabel(iso: string) {
+  return new Intl.DateTimeFormat("en", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(iso));
+}
+
+function VersionHistoryPanel({ versions }: { versions: ArtifactVersionSummary[] }) {
+  if (versions.length <= 1) return null;
+
+  return (
+    <details className="mb-5 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3.5 py-2.5 text-xs text-[var(--ink-2)]">
+      <summary className="cursor-pointer font-medium text-[var(--ink)]">
+        Version history · {versions.length} saved versions
+      </summary>
+      <ol className="mt-3 space-y-2">
+        {versions.map((version, index) => (
+          <li key={version.id} className="flex items-center justify-between gap-3">
+            <span className="font-medium text-[var(--ink)]">
+              v{version.version}
+              {index === 0 ? " · current" : ""}
+            </span>
+            <span className="text-[var(--ink-faint)]">{dateTimeLabel(version.saved_at)}</span>
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}
+
 // ── Component ──────────────────────────────────────────────────
 export function ArtifactReader({
   artifactId,
@@ -81,6 +121,7 @@ export function ArtifactReader({
   wordCount,
   backHref,
   backLabel,
+  versions,
 }: ArtifactReaderProps) {
   // Fallback: render markdown until content_html migration lands
   if (!contentHtml) {
@@ -105,6 +146,7 @@ export function ArtifactReader({
           <h1 className="text-2xl font-semibold text-[var(--ink)]">{title}</h1>
         </div>
         <article className="rounded-xl border border-[var(--border)] bg-[var(--surface-1)] p-6">
+          <VersionHistoryPanel versions={versions} />
           <ArtifactViewer artifactId={artifactId} projectId={projectId} contentMd={contentMd} />
         </article>
         <AiDisclaimer />
@@ -124,6 +166,7 @@ export function ArtifactReader({
       wordCount={wordCount}
       backHref={backHref}
       backLabel={backLabel}
+      versions={versions}
     />
   );
 }
@@ -143,6 +186,7 @@ function HtmlReader({
   wordCount,
   backHref,
   backLabel,
+  versions,
 }: HtmlReaderProps) {
   const [progress, setProgress] = useState(0);
   const [tocItems, setTocItems] = useState<TocItem[]>([]);
@@ -517,6 +561,7 @@ function HtmlReader({
                 Citations unavailable for this document.
               </div>
             )}
+            <VersionHistoryPanel versions={versions} />
             {citationsState === "available" && (
               <TrustSummary sections={sectionConfidence} citations={citations} />
             )}

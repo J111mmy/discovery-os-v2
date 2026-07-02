@@ -5,7 +5,7 @@ import { markdownToSanitizedArtifactHtml } from "@/lib/sanitize/artifact-markdow
 import { createClient } from "@/lib/supabase/server";
 import type { ArtifactType } from "@/types/database";
 import { notFound, redirect } from "next/navigation";
-import { ArtifactReader } from "./ArtifactReader";
+import { ArtifactReader, type ArtifactVersionSummary } from "./ArtifactReader";
 
 interface Props {
   params: { projectId: string; artifactId: string };
@@ -20,6 +20,12 @@ type ArtifactRow = {
   created_at: string;
   word_count: number | null;
   metadata: Record<string, unknown> | null;
+};
+
+type ArtifactVersionRow = {
+  id: string;
+  version: number;
+  saved_at: string;
 };
 
 function toSafeContentHtml(rawContentHtml: string | null, contentMd: string): string | null {
@@ -63,12 +69,19 @@ export default async function ArtifactDetailPage({ params }: Props) {
     memberClient: supabase,
   });
 
-  const { data: artifact } = await read
-    .from("artifacts")
-    .select("id, title, type, content_md, content_html, created_at, word_count, metadata")
-    .eq("project_id", project.id)
-    .eq("id", params.artifactId)
-    .single();
+  const [{ data: artifact }, { data: versionRows }] = await Promise.all([
+    read
+      .from("artifacts")
+      .select("id, title, type, content_md, content_html, created_at, word_count, metadata")
+      .eq("project_id", project.id)
+      .eq("id", params.artifactId)
+      .single(),
+    read
+      .from("artifact_versions")
+      .select("id, version, saved_at")
+      .eq("artifact_id", params.artifactId)
+      .order("version", { ascending: false }),
+  ]);
 
   if (!artifact) notFound();
 
@@ -78,6 +91,13 @@ export default async function ArtifactDetailPage({ params }: Props) {
   const backHref = `/projects/${project.id}/documents`;
   const backLabel = "All documents";
   const contentHtml = toSafeContentHtml(artifactRow.content_html, artifactRow.content_md);
+  const versions: ArtifactVersionSummary[] = ((versionRows ?? []) as ArtifactVersionRow[]).map(
+    (row) => ({
+      id: row.id,
+      version: row.version,
+      saved_at: row.saved_at,
+    })
+  );
 
   return (
     <>
@@ -92,6 +112,7 @@ export default async function ArtifactDetailPage({ params }: Props) {
         wordCount={artifactRow.word_count}
         backHref={backHref}
         backLabel={backLabel}
+        versions={versions}
       />
     </>
   );
