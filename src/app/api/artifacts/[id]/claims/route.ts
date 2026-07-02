@@ -119,9 +119,8 @@ export async function GET(
 
   const { data: claimsData, error: claimsError } = await read
     .from("artifact_claims")
-    .select("id, claim_text, section_heading, verification_status, created_at")
-    .eq("artifact_id", artifactRow.id)
-    .order("created_at", { ascending: true });
+    .select("id, claim_text, section_heading, verification_status")
+    .eq("artifact_id", artifactRow.id);
 
   if (claimsError) {
     return NextResponse.json({ error: "Could not load artifact claims" }, { status: 500 });
