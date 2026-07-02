@@ -426,7 +426,7 @@ function TopicLens({ projectId, items }: { projectId: string; items: TopicLensIt
               <p className="mt-1 text-xs text-[var(--ink-2)]">{trustMixText(item.trust_mix)}</p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-1.5">
-              <LensStat label="records" value={item.support_count} />
+              <LensStat label="evidence" value={item.support_count} />
               <LensStat label="themes" value={item.linked_theme_count} />
               <LensStat label="problems" value={item.linked_problem_count} />
             </div>
@@ -475,7 +475,7 @@ function ThemeLens({ projectId, items }: { projectId: string; items: ThemeLensIt
               )}
             </div>
             <div className="flex shrink-0 flex-wrap gap-1.5">
-              <LensStat label="records" value={item.support_count} />
+              <LensStat label="evidence" value={item.support_count} />
               <LensStat label="topics" value={item.supporting_topic_count} />
               <LensStat label="problems" value={item.related_problem_count} />
             </div>
@@ -514,7 +514,7 @@ function ProblemLens({ projectId, items }: { projectId: string; items: ProblemLe
             <div className="flex shrink-0 flex-wrap gap-1.5">
               {item.status && <LensStat label="" value={item.status} />}
               {item.severity && <LensStat label="" value={item.severity} />}
-              <LensStat label="records" value={item.evidence_count} />
+              <LensStat label="evidence" value={item.evidence_count} />
             </div>
           </div>
           <div className="mt-3 flex flex-wrap gap-1.5">
@@ -551,7 +551,7 @@ function SourceLens({ projectId, items }: { projectId: string; items: SourceLens
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-1.5">
-              <LensStat label="records" value={item.evidence_count} />
+              <LensStat label="evidence" value={item.evidence_count} />
               <LensStat label="topics" value={item.topic_count} />
             </div>
           </div>
@@ -884,7 +884,7 @@ export function EvidenceBrowser({
               {themeFilter}
             </span>
             <span className="text-xs text-[var(--ink-2)]">
-              · {initialRecords.length} record{initialRecords.length !== 1 ? "s" : ""}
+              · {initialRecords.length} evidence
             </span>
           </div>
           <Link
@@ -1026,7 +1026,7 @@ export function EvidenceBrowser({
             {trimmedQuery
               ? "No matches in this bucket."
               : hiddenInternalCount > 0
-              ? "All visible records are hidden"
+              ? "All visible evidence is hidden"
               : activeTab === "pending"
               ? "Nothing left to review"
               : activeTab === "trusted"
@@ -1037,12 +1037,12 @@ export function EvidenceBrowser({
             {trimmedQuery
               ? "Try a broader search or clear the search field."
               : hiddenInternalCount > 0
-              ? `${hiddenInternalCount} internal-speaker record${hiddenInternalCount === 1 ? " is" : "s are"} hidden. Toggle "Show internal" to see them.`
+              ? `${hiddenInternalCount} internal-speaker evidence ${hiddenInternalCount === 1 ? "is" : "are"} hidden. Toggle "Show internal" to see them.`
               : activeTab === "pending"
-              ? "Every record has been sorted. New sessions will add more here when the AI is unsure."
+              ? "All evidence here has been sorted. New sessions will add more when the AI is unsure."
               : activeTab === "trusted"
-              ? "Promote records from Needs review to build your trusted set."
-              : "Weak or off-topic records land here automatically."}
+              ? "Promote evidence from Needs review to build your trusted set."
+              : "Weak or off-topic evidence lands here automatically."}
           </p>
         </div>
       ) : (

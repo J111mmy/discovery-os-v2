@@ -623,9 +623,9 @@ export default async function EvidencePage({ params, searchParams }: Props) {
           <div className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
             Evidence
           </div>
-          <h1 className="text-2xl font-semibold text-[var(--ink)]">Review source-backed records</h1>
+          <h1 className="text-2xl font-semibold text-[var(--ink)]">Review evidence</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-2)]">
-            Search across the latest evidence, promote strong records to trusted, and keep weak claims out of drafts.
+            Search across the latest evidence, promote strong evidence to trusted, and keep weak evidence out of drafts.
           </p>
         </div>
       </div>
