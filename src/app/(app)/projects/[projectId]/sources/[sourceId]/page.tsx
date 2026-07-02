@@ -216,7 +216,8 @@ export default async function SourceDetailPage({ params }: Props) {
             projectId={project.id}
             sourceId={typedSource.id}
             variant="detail"
-            showRetry={displayStatus === "failed"}
+            showRetry={displayStatus === "failed" || displayStatus === "done"}
+            retryMode={displayStatus === "done" ? "reprocess" : "retry"}
           />
         </div>
       </div>

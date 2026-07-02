@@ -8,6 +8,7 @@ interface SourceActionsProps {
   sourceId: string;
   variant?: "list" | "detail";
   showRetry?: boolean;
+  retryMode?: "retry" | "reprocess";
 }
 
 export function SourceActions({
@@ -15,6 +16,7 @@ export function SourceActions({
   sourceId,
   variant = "list",
   showRetry = true,
+  retryMode = "retry",
 }: SourceActionsProps) {
   const router = useRouter();
   const [isRetrying, setIsRetrying] = useState(false);
@@ -22,6 +24,15 @@ export function SourceActions({
   const [error, setError] = useState<string | null>(null);
 
   async function retrySource() {
+    if (
+      retryMode === "reprocess" &&
+      !window.confirm(
+        "Re-process this source? This will replace its extracted evidence and source chunks, and may use AI credits."
+      )
+    ) {
+      return;
+    }
+
     setError(null);
     setIsRetrying(true);
 
@@ -41,6 +52,9 @@ export function SourceActions({
 
     router.refresh();
   }
+
+  const actionLabel = retryMode === "reprocess" ? "Re-process" : "Retry";
+  const busyLabel = retryMode === "reprocess" ? "Re-processing..." : "Retrying...";
 
   async function deleteSource() {
     setError(null);
@@ -75,7 +89,7 @@ export function SourceActions({
             disabled={isRetrying || isDeleting}
             className="rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-medium text-[var(--ink)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {isRetrying ? "Retrying..." : "Retry"}
+            {isRetrying ? busyLabel : actionLabel}
           </button>
         )}
         <button

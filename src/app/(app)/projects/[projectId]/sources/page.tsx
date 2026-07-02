@@ -169,7 +169,7 @@ export default async function SourcesPage({ params }: Props) {
           </div>
           <h1 className="text-2xl font-semibold text-[var(--ink)]">Manage source material</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-2)]">
-            Inspect ingest jobs, retry source processing, and remove inputs that should not feed evidence.
+            Inspect ingest jobs, re-process source material, and remove inputs that should not feed evidence.
           </p>
         </div>
         <AddSourceButton

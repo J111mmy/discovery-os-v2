@@ -267,7 +267,8 @@ function SourceDrawer({
           <SourceActions
             projectId={projectId}
             sourceId={source.id}
-            showRetry={source.hasFailed}
+            showRetry={source.hasFailed || source.displayStatus === "done"}
+            retryMode={source.displayStatus === "done" ? "reprocess" : "retry"}
           />
         </div>
 

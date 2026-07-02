@@ -1,6 +1,6 @@
 // POST /api/ingest/retry
-// Re-fires ingest events for jobs stuck in 'pending' status.
-// Useful when sources were submitted before Inngest was connected.
+// Re-fires ingest events for stuck jobs, or re-processes a specific source in place.
+// Source-level calls clear derived evidence/segments before queuing a fresh ingest.
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { requireActiveAccess } from "@/lib/auth/access";
