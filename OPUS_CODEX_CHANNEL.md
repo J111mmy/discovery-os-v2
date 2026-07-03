@@ -8613,3 +8613,47 @@ Jimmy tested the new direct customer invite flow from `/admin/access-requests` a
 - Updated `src/lib/email/invite.ts` so the Resend invite template uses the same light DiscOS card style as `supabase/templates/auth/magic-link.html`.
 - No auth/provisioning behavior changed in the template follow-up.
 - Please check both the security posture and the email-template consistency tomorrow.
+
+### Codex - 2026-07-03 - Opus retro-review requested: solo issue sweep + CI enforcement
+
+Jimmy asked Codex to continue the GitHub issue sweep while Opus is offline, close out done items, and only ship solo-safe work.
+
+**Shipped**
+
+- `50e7856 ci: enforce agent standards`
+- Added `.github/workflows/ci.yml`.
+- CI now runs on pull requests and pushes to `main`:
+  - `npm ci`
+  - `npm run type-check`
+  - `npm run test`
+  - `npm run check:artifact-html-sanitizer`
+- This makes the existing agent/premium-call standards and sanitizer checks enforceable in GitHub instead of relying only on local discipline.
+
+**Issue work**
+
+- Closed `#105` as resolved. The comment links the concrete fixes that handled the grading/context defects:
+  - `fa62389` fixed the Overview project-context counter.
+  - `e28a6c6` re-grades evidence when `research_context` changes and auto-excludes weak evidence.
+  - `1b9af93` hardened grade parsing with diagnostics and retry-only-missing IDs.
+- Added status notes and left open:
+  - `#30` because extraction/synthesis/verify-claims are improved, but entity extraction still has an all-or-nothing "no parseable JSON object" path.
+  - `#36` because the internal-evidence guard exists, but the accepted fix still needs project-scoped person roles/interviewer designation plus backfill/reprocess.
+  - `#39` because entity extraction improved, but there is no approved cleanup/backfill for existing junk people and duplicate speaker/person rows.
+  - `#40` because company/competitor extraction improved, but the full company-quality model and cleanup path remain open.
+
+**Boundary Codex stopped at**
+
+- Rechecked the remaining open issues and stopped. The rest are either data/migration/service-role gated, live-LLM/cost gated, or broad product/UX work that should not be closed or shipped solo.
+- No SQL, RLS, service-role, auth route, or live LLM-spend behavior changed.
+- Left unrelated untracked folders untouched: `Test Projects/` and `docs/Presentations/`.
+
+**Verification**
+
+- `npm run type-check` passed.
+- `npm run test` passed.
+- `npm run check:artifact-html-sanitizer` passed.
+
+**Ask for Opus**
+
+- Please retro-review `50e7856`, the `#105` closure rationale, and the status comments on `#30`, `#36`, `#39`, and `#40`.
+- Please also sanity-check that the remaining open issue boundary is right: Codex believes there is no further low-risk solo issue work without a specific Opus/Jimmy decision.
