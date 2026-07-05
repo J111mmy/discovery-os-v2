@@ -1,6 +1,6 @@
 // LLM client — wraps Anthropic SDK with task_tier abstraction
-import Anthropic from "@anthropic-ai/sdk";
-import OpenAI from "openai";
+import Anthropic, { APIConnectionTimeoutError as AnthropicTimeoutError } from "@anthropic-ai/sdk";
+import OpenAI, { APIConnectionTimeoutError as OpenAITimeoutError } from "openai";
 import { createServiceClient } from "@/lib/supabase/server";
 import { EMBEDDING_MODEL } from "./models";
 import { appendUserFacingStyleRules } from "./prompts/style";
@@ -260,6 +260,62 @@ async function recordLLMCostEvent(input: {
   }
 }
 
+// callLLM/streamLLM are non-streaming from the client's perspective: on a client-side
+// timeout, the provider has already received the full request and keeps generating
+// server-side, so it bills full input+output even though we discard the response
+// (see CLAUDE.md cost-safety law, #112). Recording nothing here undercounts real COGS.
+// We can't know actual output length on a timeout, so we record the worst case: the
+// full maxTokens budget the request allowed. Input tokens are estimated from character
+// count (no usage payload exists on a timeout) using a standard ~4 chars/token
+// approximation (a tracking estimate, not a billing-precision figure).
+// The `:timeout` step suffix is a deliberate, queryable marker (`step LIKE '%:timeout'`):
+// Phase 2's credit ledger will need to record this cost (we paid it) without charging
+// the customer for a call that returned nothing, and this is the hook that lets it do so.
+function isProviderTimeoutError(error: unknown): boolean {
+  return error instanceof AnthropicTimeoutError || error instanceof OpenAITimeoutError;
+}
+
+function estimateTokensFromChars(charCount: number): number {
+  return Math.ceil(charCount / 4);
+}
+
+function estimateInputTokensForRequest(systemPrompt: string, messages: LLMCallOptions["messages"]): number {
+  const messageChars = messages.reduce(
+    (sum, message) => sum + contentToText(message.content).length,
+    0
+  );
+  return estimateTokensFromChars(systemPrompt.length + messageChars);
+}
+
+async function recordTimeoutCostEvent(input: {
+  telemetry: LLMTelemetryContext | undefined;
+  provider: "anthropic" | "openai";
+  model: string;
+  tier: TaskTier;
+  systemPrompt: string;
+  messages: LLMCallOptions["messages"];
+  maxTokens: number;
+}) {
+  if (!input.telemetry) return;
+
+  const inputTokens = estimateInputTokensForRequest(input.systemPrompt, input.messages);
+  const outputTokens = input.maxTokens;
+
+  await recordLLMCostEvent({
+    telemetry: { ...input.telemetry, step: `${input.telemetry.step}:timeout` },
+    provider: input.provider,
+    model: input.model,
+    tier: input.tier,
+    inputTokens,
+    outputTokens,
+    estimatedCostUsd: estimateLLMCostUsd({
+      model: input.model,
+      inputTokens,
+      outputTokens,
+    }),
+  });
+}
+
 function parseProviderBodyFromMessage(message: unknown) {
   if (typeof message !== "string") return null;
 
@@ -356,6 +412,17 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
     } catch (error) {
       const message = providerErrorMessage("Anthropic", error);
       console.error(message);
+      if (isProviderTimeoutError(error)) {
+        await recordTimeoutCostEvent({
+          telemetry: opts.telemetry,
+          provider: "anthropic",
+          model: config.model,
+          tier: opts.tier,
+          systemPrompt,
+          messages: opts.messages,
+          maxTokens: opts.maxTokens ?? config.maxTokens,
+        });
+      }
       throw new Error(message);
     }
 
@@ -431,6 +498,17 @@ export async function callLLM(opts: LLMCallOptions): Promise<LLMCallResult> {
     } catch (error) {
       const message = providerErrorMessage("OpenAI", error);
       console.error(message);
+      if (isProviderTimeoutError(error)) {
+        await recordTimeoutCostEvent({
+          telemetry: opts.telemetry,
+          provider: "openai",
+          model: config.model,
+          tier: opts.tier,
+          systemPrompt,
+          messages: opts.messages,
+          maxTokens: opts.maxTokens ?? config.maxTokens,
+        });
+      }
       throw new Error(message);
     }
 
@@ -515,6 +593,17 @@ export async function streamLLM(
     } catch (error) {
       const message = providerErrorMessage("Anthropic", error);
       console.error(message);
+      if (isProviderTimeoutError(error)) {
+        await recordTimeoutCostEvent({
+          telemetry: opts.telemetry,
+          provider: "anthropic",
+          model: config.model,
+          tier: opts.tier,
+          systemPrompt,
+          messages: opts.messages,
+          maxTokens: opts.maxTokens ?? config.maxTokens,
+        });
+      }
       throw new Error(message);
     }
 
@@ -604,6 +693,17 @@ export async function streamLLM(
     } catch (error) {
       const message = providerErrorMessage("OpenAI", error);
       console.error(message);
+      if (isProviderTimeoutError(error)) {
+        await recordTimeoutCostEvent({
+          telemetry: opts.telemetry,
+          provider: "openai",
+          model: config.model,
+          tier: opts.tier,
+          systemPrompt,
+          messages: opts.messages,
+          maxTokens: opts.maxTokens ?? config.maxTokens,
+        });
+      }
       throw new Error(message);
     }
 
