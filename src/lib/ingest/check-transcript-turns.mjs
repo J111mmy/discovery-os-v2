@@ -35,7 +35,11 @@ require.extensions[".ts"] = function loadTs(module, filename) {
 };
 
 const { parseTranscriptSpeakerLegend, parseTranscriptTurns } = require("./transcript-turns.ts");
-const { prescanSourceEntities } = require("./prescan.ts");
+const {
+  buildPrescanSpeakerSample,
+  parseDynamicSpeakerRoster,
+  prescanSourceEntities,
+} = require("./prescan.ts");
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -146,6 +150,35 @@ We still do most of it manually.
     JSON.stringify(botSpeakers) === JSON.stringify(["PARTICIPANT 10", "RESEARCHER"]),
     `bots fixture speakers were ${botSpeakers.join(", ")}`
   );
+
+  const dynamicRoster = parseDynamicSpeakerRoster(`
+Here is the roster:
+{
+  "speakers": [
+    {"label": "I", "display_name": "Interviewer", "role": "interviewer", "org": null},
+    {"label": "P", "display_name": "Participant", "role": "customer", "org": "Academic Library"}
+  ]
+}
+`);
+  assert(dynamicRoster.length === 2, "dynamic roster parser should extract wrapped JSON");
+  assert(
+    dynamicRoster[0].raw_label === "I" && dynamicRoster[0].suggested_role === "interviewer",
+    "dynamic roster should preserve shorthand interviewer labels"
+  );
+  assert(
+    dynamicRoster[1].suggested_org_name === "Academic Library",
+    "dynamic roster should preserve speaker organisation hints"
+  );
+
+  const longTranscript = Array.from({ length: 180 }, (_, index) =>
+    `${index % 2 === 0 ? "Researcher" : "Participant"}: ${"long answer ".repeat(80)} ${index}`
+  ).join("\n");
+  const sample = buildPrescanSpeakerSample(longTranscript);
+  assert(
+    sample.text.length <= 12000,
+    `prescan speaker sample should be bounded, got ${sample.text.length} chars`
+  );
+  assert(sample.sampled_turn_count <= 48, "prescan speaker sample should cap sampled turns");
 
   console.log("Transcript turn checks passed.");
 }

@@ -71,6 +71,10 @@ export async function POST(
       org_id: project.org_id,
       type,
       raw_text,
+      llm: {
+        enabled: true,
+        project_id: params.projectId,
+      },
     });
     return NextResponse.json(result);
   } catch (error) {

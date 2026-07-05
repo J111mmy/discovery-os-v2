@@ -1,9 +1,13 @@
 import type { ProjectEntityRole } from "@/lib/ingest/entity-resolutions";
+import { z } from "zod";
 import {
   parseTranscriptSpeakerLegend,
   parseTranscriptTurns,
+  type TranscriptSpeakerLegendEntry,
+  type TranscriptTurn,
 } from "@/lib/ingest/transcript-turns";
 import { inferSourceType, type SourceInference } from "@/lib/ingest/source-inference";
+import { callLLM } from "@/lib/llm/client";
 import { normalizeSpeakerName } from "@/lib/speakers/resolve";
 import type { SourceType } from "@/types/database";
 
@@ -66,6 +70,47 @@ type IdentityNote = {
   suggested_org_name: string | null;
   role_hint: string | null;
 };
+
+type DynamicSpeakerRosterItem = {
+  raw_label: string;
+  suggested_name: string | null;
+  suggested_role: ProjectEntityRole | null;
+  suggested_org_name: string | null;
+};
+
+type SpeakerSample = {
+  text: string;
+  turn_count: number;
+  sampled_turn_count: number;
+  truncated: boolean;
+};
+
+type PrescanLLMOptions = {
+  enabled: boolean;
+  project_id: string;
+};
+
+const PRESCAN_LLM_MAX_HEADER_CHARS = 2400;
+const PRESCAN_LLM_MAX_TURN_CHARS = 360;
+const PRESCAN_LLM_FIRST_TURNS = 40;
+const PRESCAN_LLM_LATER_TURNS = 8;
+const PRESCAN_LLM_MAX_SAMPLE_CHARS = 12000;
+const PRESCAN_LLM_MAX_TOKENS = 900;
+const PRESCAN_LLM_TIMEOUT_MS = 20_000;
+
+const DynamicSpeakerRosterSchema = z.object({
+  speakers: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1).max(120),
+        display_name: z.string().trim().min(1).max(120).nullable().optional(),
+        role: z.enum(["customer", "internal", "interviewer"]).nullable().optional(),
+        org: z.string().trim().min(1).max(160).nullable().optional(),
+      })
+    )
+    .max(24)
+    .default([]),
+});
 
 const TRANSCRIPT_LIKE_TYPES = new Set<SourceType>([
   "transcript",
@@ -146,6 +191,68 @@ function pushUniqueLabel(
   labels.set(normalized, trimmed);
 }
 
+function clipText(value: string, maxChars: number) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxChars) return normalized;
+  return `${normalized.slice(0, maxChars).trim()}...`;
+}
+
+function uniqueTurnIndexes(turns: TranscriptTurn[]) {
+  const indexes = new Set<number>();
+  const firstCount = Math.min(PRESCAN_LLM_FIRST_TURNS, turns.length);
+
+  for (let i = 0; i < firstCount; i++) indexes.add(i);
+
+  const remaining = turns.length - firstCount;
+  if (remaining > 0) {
+    const sampleCount = Math.min(PRESCAN_LLM_LATER_TURNS, remaining);
+    for (let i = 1; i <= sampleCount; i++) {
+      indexes.add(firstCount + Math.floor((i * remaining) / (sampleCount + 1)));
+    }
+  }
+
+  return Array.from(indexes).sort((a, b) => a - b);
+}
+
+export function buildPrescanSpeakerSample(rawText: string): SpeakerSample {
+  const turns = parseTranscriptTurns(rawText);
+  const firstTurnStart = turns[0]?.char_start ?? rawText.length;
+  const header = rawText.slice(0, Math.min(firstTurnStart, PRESCAN_LLM_MAX_HEADER_CHARS)).trim();
+  const lines: string[] = [];
+
+  if (header) {
+    lines.push("HEADER");
+    lines.push(clipText(header, PRESCAN_LLM_MAX_HEADER_CHARS));
+  }
+
+  if (turns.length > 0) {
+    lines.push("SAMPLED_TURNS");
+    for (const turnIndex of uniqueTurnIndexes(turns)) {
+      const turn = turns[turnIndex];
+      if (!turn) continue;
+      const time = turn.start_time ? ` ${turn.start_time}` : "";
+      lines.push(
+        `[${turnIndex + 1}]${time} ${turn.speaker}: ${clipText(
+          turn.content,
+          PRESCAN_LLM_MAX_TURN_CHARS
+        )}`
+      );
+    }
+  } else {
+    lines.push("TEXT_SAMPLE");
+    lines.push(clipText(rawText, PRESCAN_LLM_MAX_SAMPLE_CHARS));
+  }
+
+  const full = lines.join("\n");
+  const truncated = full.length > PRESCAN_LLM_MAX_SAMPLE_CHARS;
+  return {
+    text: truncated ? full.slice(0, PRESCAN_LLM_MAX_SAMPLE_CHARS).trim() : full,
+    turn_count: turns.length,
+    sampled_turn_count: turns.length > 0 ? uniqueTurnIndexes(turns).length : 0,
+    truncated,
+  };
+}
+
 function parseTranscriptSpeakerLabels(rawText: string, type: SourceType) {
   const labels = new Map<string, string>();
   const legend = parseTranscriptSpeakerLegend(rawText);
@@ -172,6 +279,33 @@ function parseTranscriptSpeakerLabels(rawText: string, type: SourceType) {
 
   if (!TRANSCRIPT_LIKE_TYPES.has(type) && labels.size < 2) return [];
   return Array.from(labels.values());
+}
+
+function extractJsonObject(value: string) {
+  const start = value.indexOf("{");
+  const end = value.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+  return value.slice(start, end + 1);
+}
+
+export function parseDynamicSpeakerRoster(value: string): DynamicSpeakerRosterItem[] {
+  const json = extractJsonObject(value);
+  if (!json) return [];
+
+  try {
+    const parsed = DynamicSpeakerRosterSchema.safeParse(JSON.parse(json));
+    if (!parsed.success) return [];
+    return parsed.data.speakers
+      .map((speaker) => ({
+        raw_label: speaker.label.trim(),
+        suggested_name: cleanName(speaker.display_name ?? null),
+        suggested_role: speaker.role ?? null,
+        suggested_org_name: cleanOrgName(speaker.org ?? null),
+      }))
+      .filter((speaker) => isUsefulLabel(speaker.raw_label, { allowInitial: true }));
+  } catch {
+    return [];
+  }
 }
 
 function cleanName(value: string | null | undefined) {
@@ -273,6 +407,82 @@ function roleFromType(type: SourceType): ProjectEntityRole | null {
   return null;
 }
 
+function formatLegendForPrompt(legend: TranscriptSpeakerLegendEntry[]) {
+  if (legend.length === 0) return "None detected.";
+  return legend
+    .slice(0, 20)
+    .map((entry) => `${entry.label}: ${entry.name}${entry.role ? ` (${entry.role})` : ""}`)
+    .join("\n");
+}
+
+async function identifySpeakersWithLLM(input: {
+  org_id: string;
+  project_id: string;
+  raw_text: string;
+  type: SourceType;
+  deterministic_labels: string[];
+  legend: TranscriptSpeakerLegendEntry[];
+}) {
+  const sample = buildPrescanSpeakerSample(input.raw_text);
+  if (!sample.text.trim()) return [];
+
+  try {
+    const result = await callLLM({
+      tier: "cheap",
+      system: [
+        "You identify speakers for a pre-ingest transcript review.",
+        "Return strict JSON only, no markdown.",
+        "Use only the supplied bounded sample. Do not invent people or organisations.",
+        "A speaker is a participant in the conversation, not a metadata key or export heading.",
+        "Classify interviewer, researcher, moderator, or facilitator as role \"interviewer\".",
+        "Classify the person being interviewed, respondent, participant, customer, buyer, or user as role \"customer\".",
+        "Use role \"internal\" only when the sample clearly says the speaker belongs to the product team or internal company.",
+        "If a label is a shorthand such as I, P, Q, or A, keep it as label and put the expanded identity in display_name when clear.",
+        "Output shape: {\"speakers\":[{\"label\":\"raw label\",\"display_name\":\"name or role label\",\"role\":\"customer|internal|interviewer\",\"org\":\"org or null\"}]}",
+      ].join("\n"),
+      messages: [
+        {
+          role: "user",
+          content: [
+            `SOURCE_TYPE: ${input.type}`,
+            `TURN_COUNT: ${sample.turn_count}`,
+            `SAMPLED_TURN_COUNT: ${sample.sampled_turn_count}`,
+            `SAMPLE_TRUNCATED: ${sample.truncated ? "yes" : "no"}`,
+            "",
+            "DETERMINISTIC_LABEL_CANDIDATES",
+            input.deterministic_labels.length
+              ? input.deterministic_labels.slice(0, 30).join("\n")
+              : "None detected.",
+            "",
+            "LEGEND",
+            formatLegendForPrompt(input.legend),
+            "",
+            "BOUNDED_TRANSCRIPT_SAMPLE",
+            sample.text,
+          ].join("\n"),
+        },
+      ],
+      maxTokens: PRESCAN_LLM_MAX_TOKENS,
+      timeoutMs: PRESCAN_LLM_TIMEOUT_MS,
+      temperature: 0,
+      telemetry: {
+        orgId: input.org_id,
+        projectId: input.project_id,
+        agentType: "ingest-prescan",
+        step: "identify-speakers",
+      },
+    });
+
+    return parseDynamicSpeakerRoster(result.content);
+  } catch (error) {
+    console.error("[ingest/prescan] speaker LLM pass failed; using deterministic prescan only", {
+      message: error instanceof Error ? error.message : String(error),
+      project_id: input.project_id,
+    });
+    return [];
+  }
+}
+
 function personCandidates(
   label: string,
   people: PersonRecord[],
@@ -309,6 +519,7 @@ export async function prescanSourceEntities(input: {
   org_id: string;
   type?: SourceType;
   raw_text: string;
+  llm?: PrescanLLMOptions;
 }): Promise<PrescanResult> {
   const sourceInference = inferSourceType(input.raw_text);
   const effectiveType = input.type ?? sourceInference.type;
@@ -336,8 +547,9 @@ export async function prescanSourceEntities(input: {
   const companies = (companiesResult.data ?? []) as CompanyRecord[];
   const companyById = new Map(companies.map((company) => [company.id, company]));
   const identityNotes = parseInlineIdentityNotes(input.raw_text);
+  const legendEntries = parseTranscriptSpeakerLegend(input.raw_text);
   const speakerLegend = new Map(
-    parseTranscriptSpeakerLegend(input.raw_text).map((entry) => [
+    legendEntries.map((entry) => [
       normalizeSpeakerName(entry.label),
       entry,
     ])
@@ -351,18 +563,39 @@ export async function prescanSourceEntities(input: {
     pushUniqueLabel(labels, note.raw_label);
   }
 
+  const dynamicRoster =
+    input.llm?.enabled && input.llm.project_id
+      ? await identifySpeakersWithLLM({
+          org_id: input.org_id,
+          project_id: input.llm.project_id,
+          raw_text: input.raw_text,
+          type: effectiveType,
+          deterministic_labels: Array.from(labels.values()),
+          legend: legendEntries,
+        })
+      : [];
+  const dynamicRosterByLabel = new Map(
+    dynamicRoster.map((speaker) => [normalizeSpeakerName(speaker.raw_label), speaker])
+  );
+
+  for (const speaker of dynamicRoster) {
+    pushUniqueLabel(labels, speaker.raw_label, { allowInitial: true });
+  }
+
   const speakers = Array.from(labels.values()).map((rawLabel, index) => {
     const normalizedRawLabel = normalizeSpeakerName(rawLabel);
     const note = identityNotes.get(normalizedRawLabel) ?? null;
     const legendEntry = speakerLegend.get(normalizedRawLabel) ?? null;
-    const suggestedName = note?.suggested_name ?? legendEntry?.name ?? rawLabel;
-    const suggestedOrg = note?.suggested_org_name ?? null;
+    const dynamic = dynamicRosterByLabel.get(normalizedRawLabel) ?? null;
+    const suggestedName =
+      note?.suggested_name ?? legendEntry?.name ?? dynamic?.suggested_name ?? rawLabel;
+    const suggestedOrg = note?.suggested_org_name ?? dynamic?.suggested_org_name ?? null;
     const suggestedRole =
-      legendEntry?.role === "interviewer"
+      (legendEntry?.role === "interviewer"
         ? "interviewer"
         : legendEntry?.role === "customer"
           ? "customer"
-          : roleFromType(effectiveType);
+          : dynamic?.suggested_role ?? roleFromType(effectiveType));
 
     return {
       id: `speaker-${index + 1}`,
@@ -375,7 +608,16 @@ export async function prescanSourceEntities(input: {
     };
   });
 
-  const detectedOrgs = detectMentionedOrgs(input.raw_text, Array.from(identityNotes.values()))
+  const detectedOrgNames = new Map<string, string>();
+  for (const orgName of detectMentionedOrgs(input.raw_text, Array.from(identityNotes.values()))) {
+    detectedOrgNames.set(normalizeSpeakerName(orgName), orgName);
+  }
+  for (const speaker of dynamicRoster) {
+    if (!speaker.suggested_org_name) continue;
+    detectedOrgNames.set(normalizeSpeakerName(speaker.suggested_org_name), speaker.suggested_org_name);
+  }
+
+  const detectedOrgs = Array.from(detectedOrgNames.values())
     .filter((orgName) => !speakers.some((speaker) => speaker.suggested_org_name === orgName))
     .map((orgName, index) => ({
       id: `org-${index + 1}`,
