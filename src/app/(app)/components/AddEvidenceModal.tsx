@@ -416,6 +416,16 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
     );
   }
 
+  // Remove an entire speaker row from the review list.
+  function removeSpeaker(id: string) {
+    setSpeakerDrafts((prev) => prev.filter((d) => d.id !== id));
+  }
+
+  // Remove an entire org row from the review list.
+  function removeOrg(id: string) {
+    setOrgDrafts((prev) => prev.filter((d) => d.id !== id));
+  }
+
   // ── Derived state ──────────────────────────────────────────────
 
   const isWorking = jobStatus === "queued" || jobStatus === "processing";
@@ -688,7 +698,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
                           key={draft.id}
                           style={{ borderRadius: 10, border: "1px solid var(--line)", background: "var(--surface-2)", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}
                         >
-                          {/* Row 1: raw label + name + role */}
+                          {/* Row 1: raw label + name + role + remove */}
                           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                             <span style={{ fontSize: 11.5, fontWeight: 640, padding: "2px 8px", borderRadius: 6, background: "var(--surface-3)", color: "var(--ink-3)", border: "1px solid var(--line)", flexShrink: 0, fontFamily: "var(--font-mono)" }}>
                               {draft.raw_label}
@@ -710,6 +720,13 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
                                 <option key={r} value={r}>{ROLE_LABELS[r]}</option>
                               ))}
                             </select>
+                            <button
+                              type="button"
+                              onClick={() => removeSpeaker(draft.id)}
+                              aria-label={`Remove speaker ${draft.raw_label}`}
+                              title="Remove this speaker"
+                              style={{ padding: "3px 7px", borderRadius: 5, border: "1px solid var(--line)", background: "transparent", color: "var(--ink-3)", cursor: "pointer", fontSize: 14, lineHeight: 1, flexShrink: 0 }}
+                            >×</button>
                           </div>
 
                           {/* Row 2: org name */}
@@ -834,6 +851,13 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
                               />
                               Tool / product (skip)
                             </label>
+                            <button
+                              type="button"
+                              onClick={() => removeOrg(draft.id)}
+                              aria-label={`Remove organization ${draft.name}`}
+                              title="Remove this organization"
+                              style={{ padding: "3px 7px", borderRadius: 5, border: "1px solid var(--line)", background: "transparent", color: "var(--ink-3)", cursor: "pointer", fontSize: 14, lineHeight: 1, flexShrink: 0 }}
+                            >×</button>
                           </div>
 
                           {/* Company match suggestion */}
