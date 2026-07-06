@@ -8946,3 +8946,296 @@ index f91d933..824c19d 100644
 **Ask for Opus**
 
 Please review the diff above. If approved, I will commit as a single change (e.g. `fix(llm): record worst-case cost on client-side provider timeouts (#129 phase 1)`) and consider #129 Phase 1 closed unless a rollup/org-view gap is identified.
+
+### Replacement implementer - 2026-07-03 - #36 internal-evidence filter applied to synthesis (themes)
+
+Picked up #36: apply `filterInternalEvidence` to `synthesise-project.ts`, the one grounding path it was never wired into. Themes are the root of the ontology chain (themes -> problems -> opportunities/Ask), so leaving synthesis unfiltered meant every downstream filter (discover-problems, generate-opportunities, compose, Ask) was already filtering internal speech out of its own direct evidence reads, but the theme layer itself still baked internal-speaker evidence (the interviewer's own questions, quoted as "customer buyer" evidence) into every theme built from it.
+
+**What changed - `src/lib/inngest/functions/synthesise-project.ts` only**
+
+Mirrored the exact pattern already used in `discover-problems.ts` (same helper, same shape, no new approach):
+
+- Added `source_id`, `segment_id`, `source_type?`, `segment_speaker?` to the `TrustedEvidence` type and to the `fetch-context` evidence select (previously only `id, content, summary, classification, sentiment`).
+- After the initial three-way `Promise.all` (trusted evidence, all-project evidence ids, existing themes), added a second stage inside `fetch-context`: fetch `sources.type` and `source_segments.speaker` for the trusted evidence's source/segment ids, plus `loadInternalEvidenceGuardContext({ supabase, org_id })`, all in one `Promise.all` (same three-way shape as discover-problems' evidence-enrichment stage).
+- Populate `source_type`/`segment_speaker` onto each trusted-evidence row, then `filterInternalEvidence(allTrustedEvidence, internalGuardContext)`. The filtered result becomes `trustedEvidence` for the rest of the function, so every downstream use (LLM batching, `allowedEvidenceIds` in `write-themes`) is already working from customer-only evidence. No other logic in the function changed.
+- Added `internalEvidenceExcluded` to the `fetch-context` output and threaded it into all three places the function reports counts: the `complete-empty` path, the early-return when `trustedEvidence.length === 0`, and the final `write-themes` output - so `agent_runs.output.internal_evidence_excluded` is now visible per run, same field name as `discover-problems.ts` uses (`internal_evidence_excluded`).
+
+**Why this is safe against the resilient-parse / fail-closed guard already in this file**
+
+`allowedEvidenceIds` in `write-themes` is built from `trustedEvidence.map(record => record.id)`, and `trustedEvidence` is now the filtered set. So even if the model's theme output somehow referenced an internal-evidence id (it never sees internal evidence in its batches now, since batching happens after the filter), `allowedEvidenceIds` would already exclude it and the existing "writeable themes" logic (label + at least one allowed evidence id) would silently drop it, same as it already does for any other invalid id. No change needed to that guard.
+
+**Not changed**
+
+- No SQL, no migration, no new DB column (reused the existing `internal_evidence_excluded` naming convention, no schema change).
+- No change to `discover-problems.ts`, `generate-opportunities.ts`, `structure.ts`, `structural-context.ts`, or `query/evidence.ts` (all five already filter).
+- No change to batch size, `maxTokens`, `timeoutMs`, `retries`, or concurrency on this function; this is a pre-batch input-filtering change only, not a spend-surface or cost-shape change.
+- Did not touch `Test Projects/` or `docs/Presentations/`.
+
+**Verification**
+
+- `npm run type-check` passed.
+- `npm run build` passed, including `check:agent-standards` (guard clean) and the full Next build.
+- `npm run test` passed (`check:agent-standards` + `check:transcript-turns`).
+- `git diff --check` passed. No em-dashes introduced (checked the diff for `--`-added lines containing one; none).
+
+**Diff** (`src/lib/inngest/functions/synthesise-project.ts`, 208 lines)
+
+```diff
+diff --git a/src/lib/inngest/functions/synthesise-project.ts b/src/lib/inngest/functions/synthesise-project.ts
+index fa3924a..21a0ea4 100644
+--- a/src/lib/inngest/functions/synthesise-project.ts
++++ b/src/lib/inngest/functions/synthesise-project.ts
+@@ -10,13 +10,21 @@ import {
+   PROJECT_SYNTHESIS_PROMPT_VERSION,
+ } from "@/lib/llm/prompts/synthesis";
+ import { VISIBLE_REVIEW_STATES } from "@/lib/research-ontology/review-states";
++import {
++  filterInternalEvidence,
++  loadInternalEvidenceGuardContext,
++} from "@/lib/evidence/internal";
+ 
+ type TrustedEvidence = {
+   id: string;
++  source_id: string | null;
++  segment_id: string | null;
+   content: string;
+   summary: string | null;
+   classification: string | null;
+   sentiment: string | null;
++  source_type?: string | null;
++  segment_speaker?: string | null;
+ };
+ 
+ type ThemeContext = {
+@@ -193,49 +201,114 @@ export const synthesiseProject = inngest.createFunction(
+         return data.id as string;
+       });
+ 
+-      const { trustedEvidence, allProjectEvidenceIds, existingThemes } = await step.run(
+-        "fetch-context",
+-        async () => {
+-          const [trustedResult, allEvidenceResult, themesResult] = await Promise.all([
+-            supabase
+-              .from("evidence")
+-              .select("id, content, summary, classification, sentiment")
+-              .eq("org_id", org_id)
+-              .eq("project_id", project_id)
+-              .eq("trust_scope", "trusted")
+-              .order("created_at", { ascending: true }),
+-            supabase
+-              .from("evidence")
+-              .select("id")
+-              .eq("org_id", org_id)
+-              .eq("project_id", project_id),
+-            supabase
+-              .from("themes")
+-              .select("id, label, description")
+-              .eq("org_id", org_id)
+-              .order("evidence_count", { ascending: false })
+-              .limit(200),
++      const {
++        trustedEvidence,
++        allProjectEvidenceIds,
++        existingThemes,
++        internalEvidenceExcluded,
++      } = await step.run("fetch-context", async () => {
++        const [trustedResult, allEvidenceResult, themesResult] = await Promise.all([
++          supabase
++            .from("evidence")
++            .select("id, source_id, segment_id, content, summary, classification, sentiment")
++            .eq("org_id", org_id)
++            .eq("project_id", project_id)
++            .eq("trust_scope", "trusted")
++            .order("created_at", { ascending: true }),
++          supabase
++            .from("evidence")
++            .select("id")
++            .eq("org_id", org_id)
++            .eq("project_id", project_id),
++          supabase
++            .from("themes")
++            .select("id, label, description")
++            .eq("org_id", org_id)
++            .order("evidence_count", { ascending: false })
++            .limit(200),
++        ]);
++
++        if (trustedResult.error) {
++          throw new Error(`Failed to fetch trusted evidence: ${trustedResult.error.message}`);
++        }
++        if (allEvidenceResult.error) {
++          throw new Error(`Failed to fetch project evidence IDs: ${allEvidenceResult.error.message}`);
++        }
++        if (themesResult.error) {
++          throw new Error(`Failed to fetch themes: ${themesResult.error.message}`);
++        }
++
++        const allTrustedEvidence = (trustedResult.data ?? []) as TrustedEvidence[];
++
++        // Exclude internal-speaker evidence (interviewer/team turns) from synthesis
++        // inputs, mirroring discover-problems.ts. Themes are the root of the
++        // ontology chain (themes -> problems -> opportunities/Ask), so filtering
++        // downstream agents but not synthesis left internal speech quoted as
++        // customer evidence baked into every theme (issue #36).
++        let filteredTrustedEvidence = allTrustedEvidence;
++        if (allTrustedEvidence.length > 0) {
++          const sourceIds = Array.from(
++            new Set(allTrustedEvidence.map((row) => row.source_id).filter((id): id is string => Boolean(id)))
++          );
++          const segmentIds = Array.from(
++            new Set(allTrustedEvidence.map((row) => row.segment_id).filter((id): id is string => Boolean(id)))
++          );
++          const [sourcesResult, segmentsResult, internalGuardContext] = await Promise.all([
++            sourceIds.length > 0
++              ? supabase
++                  .from("sources")
++                  .select("id, type")
++                  .eq("org_id", org_id)
++                  .eq("project_id", project_id)
++                  .in("id", sourceIds)
++              : Promise.resolve({ data: [], error: null }),
++            segmentIds.length > 0
++              ? supabase
++                  .from("source_segments")
++                  .select("id, speaker")
++                  .eq("org_id", org_id)
++                  .in("id", segmentIds)
++              : Promise.resolve({ data: [], error: null }),
++            loadInternalEvidenceGuardContext({ supabase, org_id }),
+           ]);
+ 
+-          if (trustedResult.error) {
+-            throw new Error(`Failed to fetch trusted evidence: ${trustedResult.error.message}`);
++          if (sourcesResult.error) {
++            throw new Error(`Failed to fetch evidence sources: ${sourcesResult.error.message}`);
+           }
+-          if (allEvidenceResult.error) {
+-            throw new Error(`Failed to fetch project evidence IDs: ${allEvidenceResult.error.message}`);
++          if (segmentsResult.error) {
++            throw new Error(`Failed to fetch evidence segments: ${segmentsResult.error.message}`);
+           }
+-          if (themesResult.error) {
+-            throw new Error(`Failed to fetch themes: ${themesResult.error.message}`);
++
++          const sourceTypeById = new Map(
++            ((sourcesResult.data ?? []) as Array<{ id: string; type: string | null }>).map((source) => [
++              source.id,
++              source.type,
++            ])
++          );
++          const segmentSpeakerById = new Map(
++            ((segmentsResult.data ?? []) as Array<{ id: string; speaker: string | null }>).map((segment) => [
++              segment.id,
++              segment.speaker,
++            ])
++          );
++
++          for (const row of allTrustedEvidence) {
++            row.source_type = row.source_id ? sourceTypeById.get(row.source_id) ?? null : null;
++            row.segment_speaker = row.segment_id ? segmentSpeakerById.get(row.segment_id) ?? null : null;
+           }
+ 
+-          return {
+-            trustedEvidence: (trustedResult.data ?? []) as TrustedEvidence[],
+-            allProjectEvidenceIds: ((allEvidenceResult.data ?? []) as Array<{ id: string }>).map(
+-              (record) => record.id
+-            ),
+-            existingThemes: (themesResult.data ?? []) as ThemeContext[],
+-          };
++          filteredTrustedEvidence = filterInternalEvidence(allTrustedEvidence, internalGuardContext);
+         }
+-      );
++
++        return {
++          trustedEvidence: filteredTrustedEvidence,
++          allProjectEvidenceIds: ((allEvidenceResult.data ?? []) as Array<{ id: string }>).map(
++            (record) => record.id
++          ),
++          existingThemes: (themesResult.data ?? []) as ThemeContext[],
++          internalEvidenceExcluded: allTrustedEvidence.length - filteredTrustedEvidence.length,
++        };
++      });
+ 
+       if (trustedEvidence.length === 0) {
+         await step.run("complete-empty", async () => {
+@@ -243,10 +316,20 @@ export const synthesiseProject = inngest.createFunction(
+             agentRunId,
+             org_id,
+             project_id,
+-            output: { trusted_evidence: 0, themes_created: 0, links_created: 0 },
++            output: {
++              trusted_evidence: 0,
++              themes_created: 0,
++              links_created: 0,
++              internal_evidence_excluded: internalEvidenceExcluded,
++            },
+           });
+         });
+-        return { trusted_evidence: 0, themes_created: 0, links_created: 0 };
++        return {
++          trusted_evidence: 0,
++          themes_created: 0,
++          links_created: 0,
++          internal_evidence_excluded: internalEvidenceExcluded,
++        };
+       }
+ 
+       const batches = chunk(trustedEvidence, PROJECT_SYNTHESIS_EVIDENCE_PER_BATCH);
+@@ -474,6 +557,7 @@ export const synthesiseProject = inngest.createFunction(
+ 
+         return {
+           trusted_evidence: trustedEvidence.length,
++          internal_evidence_excluded: internalEvidenceExcluded,
+           themes_created: touchedThemeIds.size,
+           themes_parsed: synthesis.themes.length,
+           themes_dropped: synthesis.dropped_themes,
+```
+
+**Acceptance criteria - what I could and could not verify myself**
+
+1. "Themes are built excluding internal-speaker evidence (verify against a project with a flagged internal speaker)": verified by code inspection and by the fact that `synthesise-project.ts` now calls the same `loadInternalEvidenceGuardContext` + `filterInternalEvidence` pair as `discover-problems.ts`, on the same `people.affiliation = 'internal'` data #128 made correct. I did not trigger a live synthesis run to observe this end-to-end. Cost governance (CLAUDE.md 0.6) reserves project-wide synthesis for explicit on-demand user action, and I do not have standing authorization from this task to trigger a real (spend) synthesis run. If you want a live confirmation before merge, tell me which project to run it on and I will trigger it.
+2. "Re-run the Ask that showed the leak... confirm internal speakers no longer appear as grounding": same reasoning - Ask is also a live LLM-spend, user-triggered surface. Holding for your go-ahead rather than triggering it myself.
+3. "Audit query to scope which projects need re-synthesis": below. Read-only, aggregate, mirrors the exact `isInternalEvidence` logic (internal_meeting source type, OR `metadata.speaker_person_id` matching an internal person, OR normalised segment-speaker name matching an internal person's name). Per CLAUDE.md 0.5 ("Jimmy runs all SQL in Supabase"), I did not run this myself - paste it into the Supabase SQL editor:
+
+```sql
+select
+  p.org_id,
+  p.id as project_id,
+  p.name as project_name,
+  count(distinct th.id) as theme_count,
+  count(distinct te.evidence_id) filter (
+    where ip.id is not null or s.type = 'internal_meeting'
+  ) as internal_evidence_in_themes
+from projects p
+join themes th on th.project_id = p.id and th.org_id = p.org_id
+left join theme_evidence te on te.theme_id = th.id and te.org_id = p.org_id
+left join evidence e on e.id = te.evidence_id and e.org_id = p.org_id
+left join sources s on s.id = e.source_id and s.org_id = p.org_id
+left join source_segments ss on ss.id = e.segment_id
+left join people ip on ip.org_id = p.org_id
+  and ip.affiliation = 'internal'
+  and (
+    ip.id::text = e.metadata->>'speaker_person_id'
+    or lower(regexp_replace(ip.name, '\s+', ' ', 'g')) = lower(regexp_replace(ss.speaker, '\s+', ' ', 'g'))
+  )
+group by p.org_id, p.id, p.name
+having count(distinct te.evidence_id) filter (
+    where ip.id is not null or s.type = 'internal_meeting'
+  ) > 0
+order by internal_evidence_in_themes desc;
+```
+
+Any project this returns has at least one existing theme currently linked to internal-speaker evidence - a candidate for the same operational re-synthesis already planned for `DiscOS - Vlaue`.
+
+**Held / not done**
+
+- Not committed yet. Holding for review of the diff above before `git commit`, consistent with how #129 was handled (posted, held, you reviewed, then it landed as `2157b26`). Confirmed via `git log` that both #129 (`2157b26`) and #128's Design layer-3 (`960d165`) are already committed and the tree is otherwise clean.
+- Did not trigger a live synthesis run or a live Ask query (see acceptance-criteria note above).
+- Did not run the audit query myself (Jimmy runs all SQL).
+- Did not touch #14 Phase 3 `--apply`, Migration B, `evidence_themes` drop, or any agent batch/cost-shape change.
+
+**Ask for Opus / Jimmy**
+
+1. Please review the diff. If approved I will commit as `fix(synthesis): apply internal-evidence filter to theme synthesis (#36)`.
+2. Tell me if you want me to trigger a live synthesis re-run (and on which project) to close out the end-to-end verification, or if that's yours to trigger.
+3. The audit query above is ready whenever you want to run it to scope the re-synthesis cleanup list.

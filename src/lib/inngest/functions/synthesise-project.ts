@@ -10,13 +10,21 @@ import {
   PROJECT_SYNTHESIS_PROMPT_VERSION,
 } from "@/lib/llm/prompts/synthesis";
 import { VISIBLE_REVIEW_STATES } from "@/lib/research-ontology/review-states";
+import {
+  filterInternalEvidence,
+  loadInternalEvidenceGuardContext,
+} from "@/lib/evidence/internal";
 
 type TrustedEvidence = {
   id: string;
+  source_id: string | null;
+  segment_id: string | null;
   content: string;
   summary: string | null;
   classification: string | null;
   sentiment: string | null;
+  source_type?: string | null;
+  segment_speaker?: string | null;
 };
 
 type ThemeContext = {
@@ -193,49 +201,114 @@ export const synthesiseProject = inngest.createFunction(
         return data.id as string;
       });
 
-      const { trustedEvidence, allProjectEvidenceIds, existingThemes } = await step.run(
-        "fetch-context",
-        async () => {
-          const [trustedResult, allEvidenceResult, themesResult] = await Promise.all([
-            supabase
-              .from("evidence")
-              .select("id, content, summary, classification, sentiment")
-              .eq("org_id", org_id)
-              .eq("project_id", project_id)
-              .eq("trust_scope", "trusted")
-              .order("created_at", { ascending: true }),
-            supabase
-              .from("evidence")
-              .select("id")
-              .eq("org_id", org_id)
-              .eq("project_id", project_id),
-            supabase
-              .from("themes")
-              .select("id, label, description")
-              .eq("org_id", org_id)
-              .order("evidence_count", { ascending: false })
-              .limit(200),
+      const {
+        trustedEvidence,
+        allProjectEvidenceIds,
+        existingThemes,
+        internalEvidenceExcluded,
+      } = await step.run("fetch-context", async () => {
+        const [trustedResult, allEvidenceResult, themesResult] = await Promise.all([
+          supabase
+            .from("evidence")
+            .select("id, source_id, segment_id, content, summary, classification, sentiment")
+            .eq("org_id", org_id)
+            .eq("project_id", project_id)
+            .eq("trust_scope", "trusted")
+            .order("created_at", { ascending: true }),
+          supabase
+            .from("evidence")
+            .select("id")
+            .eq("org_id", org_id)
+            .eq("project_id", project_id),
+          supabase
+            .from("themes")
+            .select("id, label, description")
+            .eq("org_id", org_id)
+            .order("evidence_count", { ascending: false })
+            .limit(200),
+        ]);
+
+        if (trustedResult.error) {
+          throw new Error(`Failed to fetch trusted evidence: ${trustedResult.error.message}`);
+        }
+        if (allEvidenceResult.error) {
+          throw new Error(`Failed to fetch project evidence IDs: ${allEvidenceResult.error.message}`);
+        }
+        if (themesResult.error) {
+          throw new Error(`Failed to fetch themes: ${themesResult.error.message}`);
+        }
+
+        const allTrustedEvidence = (trustedResult.data ?? []) as TrustedEvidence[];
+
+        // Exclude internal-speaker evidence (interviewer/team turns) from synthesis
+        // inputs, mirroring discover-problems.ts. Themes are the root of the
+        // ontology chain (themes -> problems -> opportunities/Ask), so filtering
+        // downstream agents but not synthesis left internal speech quoted as
+        // customer evidence baked into every theme (issue #36).
+        let filteredTrustedEvidence = allTrustedEvidence;
+        if (allTrustedEvidence.length > 0) {
+          const sourceIds = Array.from(
+            new Set(allTrustedEvidence.map((row) => row.source_id).filter((id): id is string => Boolean(id)))
+          );
+          const segmentIds = Array.from(
+            new Set(allTrustedEvidence.map((row) => row.segment_id).filter((id): id is string => Boolean(id)))
+          );
+          const [sourcesResult, segmentsResult, internalGuardContext] = await Promise.all([
+            sourceIds.length > 0
+              ? supabase
+                  .from("sources")
+                  .select("id, type")
+                  .eq("org_id", org_id)
+                  .eq("project_id", project_id)
+                  .in("id", sourceIds)
+              : Promise.resolve({ data: [], error: null }),
+            segmentIds.length > 0
+              ? supabase
+                  .from("source_segments")
+                  .select("id, speaker")
+                  .eq("org_id", org_id)
+                  .in("id", segmentIds)
+              : Promise.resolve({ data: [], error: null }),
+            loadInternalEvidenceGuardContext({ supabase, org_id }),
           ]);
 
-          if (trustedResult.error) {
-            throw new Error(`Failed to fetch trusted evidence: ${trustedResult.error.message}`);
+          if (sourcesResult.error) {
+            throw new Error(`Failed to fetch evidence sources: ${sourcesResult.error.message}`);
           }
-          if (allEvidenceResult.error) {
-            throw new Error(`Failed to fetch project evidence IDs: ${allEvidenceResult.error.message}`);
-          }
-          if (themesResult.error) {
-            throw new Error(`Failed to fetch themes: ${themesResult.error.message}`);
+          if (segmentsResult.error) {
+            throw new Error(`Failed to fetch evidence segments: ${segmentsResult.error.message}`);
           }
 
-          return {
-            trustedEvidence: (trustedResult.data ?? []) as TrustedEvidence[],
-            allProjectEvidenceIds: ((allEvidenceResult.data ?? []) as Array<{ id: string }>).map(
-              (record) => record.id
-            ),
-            existingThemes: (themesResult.data ?? []) as ThemeContext[],
-          };
+          const sourceTypeById = new Map(
+            ((sourcesResult.data ?? []) as Array<{ id: string; type: string | null }>).map((source) => [
+              source.id,
+              source.type,
+            ])
+          );
+          const segmentSpeakerById = new Map(
+            ((segmentsResult.data ?? []) as Array<{ id: string; speaker: string | null }>).map((segment) => [
+              segment.id,
+              segment.speaker,
+            ])
+          );
+
+          for (const row of allTrustedEvidence) {
+            row.source_type = row.source_id ? sourceTypeById.get(row.source_id) ?? null : null;
+            row.segment_speaker = row.segment_id ? segmentSpeakerById.get(row.segment_id) ?? null : null;
+          }
+
+          filteredTrustedEvidence = filterInternalEvidence(allTrustedEvidence, internalGuardContext);
         }
-      );
+
+        return {
+          trustedEvidence: filteredTrustedEvidence,
+          allProjectEvidenceIds: ((allEvidenceResult.data ?? []) as Array<{ id: string }>).map(
+            (record) => record.id
+          ),
+          existingThemes: (themesResult.data ?? []) as ThemeContext[],
+          internalEvidenceExcluded: allTrustedEvidence.length - filteredTrustedEvidence.length,
+        };
+      });
 
       if (trustedEvidence.length === 0) {
         await step.run("complete-empty", async () => {
@@ -243,10 +316,20 @@ export const synthesiseProject = inngest.createFunction(
             agentRunId,
             org_id,
             project_id,
-            output: { trusted_evidence: 0, themes_created: 0, links_created: 0 },
+            output: {
+              trusted_evidence: 0,
+              themes_created: 0,
+              links_created: 0,
+              internal_evidence_excluded: internalEvidenceExcluded,
+            },
           });
         });
-        return { trusted_evidence: 0, themes_created: 0, links_created: 0 };
+        return {
+          trusted_evidence: 0,
+          themes_created: 0,
+          links_created: 0,
+          internal_evidence_excluded: internalEvidenceExcluded,
+        };
       }
 
       const batches = chunk(trustedEvidence, PROJECT_SYNTHESIS_EVIDENCE_PER_BATCH);
@@ -474,6 +557,7 @@ export const synthesiseProject = inngest.createFunction(
 
         return {
           trusted_evidence: trustedEvidence.length,
+          internal_evidence_excluded: internalEvidenceExcluded,
           themes_created: touchedThemeIds.size,
           themes_parsed: synthesis.themes.length,
           themes_dropped: synthesis.dropped_themes,
