@@ -10,6 +10,11 @@ type CookieToSet = {
 };
 
 type AccessStatus = "active" | "pending" | "declined" | "suspended";
+type AccessGateResult =
+  | { kind: "status"; status: AccessStatus }
+  | { kind: "unavailable"; reason: "timeout" | "rpc_error" | "invalid_status" };
+
+const ACCESS_STATUS_TIMEOUT_MS = 1500;
 
 function accessPath(status: AccessStatus) {
   if (status === "suspended") return "/access-suspended";
@@ -20,6 +25,49 @@ function accessPath(status: AccessStatus) {
 
 function isAccessStatus(value: unknown): value is AccessStatus {
   return value === "active" || value === "pending" || value === "declined" || value === "suspended";
+}
+
+async function getAccessGateResult(
+  supabase: ReturnType<typeof createServerClient>
+): Promise<AccessGateResult> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<AccessGateResult>((resolve) => {
+    timeoutId = setTimeout(
+      () => resolve({ kind: "unavailable", reason: "timeout" }),
+      ACCESS_STATUS_TIMEOUT_MS
+    );
+  });
+
+  const rpc = Promise.resolve(supabase.rpc("current_access_status"))
+    .then(({ data, error }) => {
+      if (error) {
+        console.error("[access-gate] current_access_status failed", {
+          message: error.message,
+        });
+        return { kind: "unavailable", reason: "rpc_error" } as const;
+      }
+
+      if (!isAccessStatus(data)) {
+        console.error("[access-gate] current_access_status returned invalid status", {
+          status: data,
+        });
+        return { kind: "unavailable", reason: "invalid_status" } as const;
+      }
+
+      return { kind: "status", status: data } as const;
+    })
+    .catch((error) => {
+      console.error("[access-gate] current_access_status threw", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return { kind: "unavailable", reason: "rpc_error" } as const;
+    });
+
+  try {
+    return await Promise.race([rpc, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 }
 
 export async function middleware(request: NextRequest) {
@@ -60,6 +108,7 @@ export async function middleware(request: NextRequest) {
     path.startsWith("/access-pending") ||
     path.startsWith("/access-declined") ||
     path.startsWith("/access-suspended") ||
+    path.startsWith("/access-unavailable") ||
     path.startsWith("/callback") ||
     path.startsWith("/api/access-requests") ||
     path.startsWith("/api/auth/sign-out") ||
@@ -71,11 +120,14 @@ export async function middleware(request: NextRequest) {
   }
 
   if (user && !isPublic) {
-    const { data, error } = await supabase.rpc("current_access_status");
-    const status = isAccessStatus(data) ? data : error ? "pending" : "pending";
+    const gate = await getAccessGateResult(supabase);
 
-    if (status !== "active") {
-      return NextResponse.redirect(new URL(accessPath(status), request.url));
+    if (gate.kind === "unavailable") {
+      return NextResponse.redirect(new URL("/access-unavailable", request.url));
+    }
+
+    if (gate.status !== "active") {
+      return NextResponse.redirect(new URL(accessPath(gate.status), request.url));
     }
   }
 

@@ -9239,3 +9239,67 @@ Any project this returns has at least one existing theme currently linked to int
 1. Please review the diff. If approved I will commit as `fix(synthesis): apply internal-evidence filter to theme synthesis (#36)`.
 2. Tell me if you want me to trigger a live synthesis re-run (and on which project) to close out the end-to-end verification, or if that's yours to trigger.
 3. The audit query above is ready whenever you want to run it to scope the re-synthesis cleanup list.
+
+### Codex - 2026-07-07 - #133 access-gate timeout and pending-review misroute ready for Opus review
+
+Jimmy routed #133 as P0 auth-path work. Built on branch `codex/133-access-gate-hotpath`.
+
+**Problem**
+
+- `src/middleware.ts` called `current_access_status()` on every protected request.
+- Any RPC error or invalid return was coerced to `pending`, which sent valid users to `/access-pending`.
+- A slow RPC could also hold middleware until Vercel returned `504 MIDDLEWARE_INVOCATION_TIMEOUT`.
+
+**Code diff**
+
+- `src/middleware.ts`
+  - Adds a 1500ms local timeout around `current_access_status()`.
+  - Only routes to `/access-pending`, `/access-declined`, or `/access-suspended` when the RPC returns that real status.
+  - RPC error, thrown error, invalid data, or timeout now routes to `/access-unavailable`.
+  - This still fails closed: the user is not granted app access when the gate cannot verify them.
+- `src/app/access-unavailable/page.tsx`
+  - New neutral retry page with copy: "We could not verify access".
+  - Includes "Try again" to `/projects` and "Sign out".
+- `src/app/access-state-card.tsx`
+  - Adds optional primary action support for the retry button.
+  - Existing pending, declined, and suspended pages keep their current behavior.
+
+**SQL migration plan**
+
+- Added `supabase/migrations/0039_access_gate_hot_path.sql`.
+- Not applied. Jimmy applies after Opus review.
+- Adds:
+  - `idx_access_requests_email_created on public.access_requests(email, created_at desc)`
+- Replaces `public.current_access_status()` with a hot-path-ordered body:
+  - unauthenticated returns `anonymous`
+  - `user_access_status = suspended` returns `suspended`
+  - any `org_members` row returns `active`
+  - super admin row returns `active`
+  - latest access request by email returns `declined` or `pending`
+  - default remains `pending`
+- Existing indexed lookups remain:
+  - `user_access_status.user_id` primary key
+  - `org_members.user_id` via `idx_org_members_user`
+  - `super_admins.user_id` primary key
+- No RLS policy changes.
+- Function remains `security definer`, `search_path = public, pg_temp`, executable by `authenticated` only.
+
+**Acceptance mapping**
+
+- Valid member on transient RPC error no longer sees the pending-review onboarding screen.
+- Genuinely pending users still reach `/access-pending`, but only when the RPC returns `pending`.
+- Middleware has its own 1500ms guard so a slow access RPC should return the neutral retry page before the middleware invocation hits Vercel's hard timeout.
+- SQL migration targets the one missing access-request lookup index and short-circuits the most common active-member path.
+
+**Verification**
+
+- `npm run type-check` passed.
+- `npm run test` passed.
+- `npm run build` passed.
+
+**Review ask**
+
+- Please review the auth fail-mode in `src/middleware.ts`.
+- Please review the new neutral page copy and route.
+- Please review `0039_access_gate_hot_path.sql` before Jimmy applies it.
+- After approval, Jimmy applies SQL and merges the branch.
