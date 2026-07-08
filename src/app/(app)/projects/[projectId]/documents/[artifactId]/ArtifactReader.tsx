@@ -253,6 +253,12 @@ function HtmlReader({
   const [activeSec, setActiveSec] = useState<string | null>(null);
   const articleRef = useRef<HTMLDivElement>(null);
 
+  // ── Front of house: Present mode ──────────────────────────────
+  const [presenting, setPresenting] = useState(false);
+  const [presentIndex, setPresentIndex] = useState(0);
+  const presentIndexRef = useRef(0);
+  const docviewRef = useRef<HTMLDivElement>(null);
+
   // ── #78: citation trust layer ─────────────────────────────────
   const [citations, setCitations] = useState<CitationRecord[]>([]);
   const [citationsState, setCitationsState] = useState<CitationsState>("loading");
@@ -527,6 +533,74 @@ function HtmlReader({
     scrollEl.scrollTo({ top: offset, behavior: "smooth" });
   }
 
+  // ── Present mode: enter/exit + section navigation ─────────────
+  function presentNav(delta: number) {
+    if (tocItems.length === 0) return;
+    const clamped = Math.max(0, Math.min(tocItems.length - 1, presentIndexRef.current + delta));
+    presentIndexRef.current = clamped;
+    setPresentIndex(clamped);
+    document.getElementById(tocItems[clamped].id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function enterPresent() {
+    presentIndexRef.current = 0;
+    setPresentIndex(0);
+    setPresenting(true);
+    // Fullscreen is best-effort (requires a user gesture; rejects otherwise).
+    docviewRef.current?.requestFullscreen?.().catch(() => {});
+  }
+
+  function exitPresent() {
+    setPresenting(false);
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+  }
+
+  // Auto-enter when linked as /documents/[id]?present=1 (from Front of house).
+  // No fullscreen call here: the API needs a user gesture.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("present") === "1") {
+      setPresenting(true);
+    }
+  }, []);
+
+  // Present-mode keyboard navigation + fullscreen-exit sync.
+  useEffect(() => {
+    if (!presenting) return;
+
+    function jump(index: number) {
+      if (tocItems.length === 0) return;
+      const clamped = Math.max(0, Math.min(tocItems.length - 1, index));
+      presentIndexRef.current = clamped;
+      setPresentIndex(clamped);
+      document.getElementById(tocItems[clamped].id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") {
+        event.preventDefault();
+        jump(presentIndexRef.current + 1);
+      } else if (event.key === "ArrowLeft" || event.key === "PageUp") {
+        event.preventDefault();
+        jump(presentIndexRef.current - 1);
+      } else if (event.key === "Escape") {
+        setPresenting(false);
+        if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+      }
+    }
+
+    function onFsChange() {
+      if (!document.fullscreenElement) setPresenting(false);
+    }
+
+    window.addEventListener("keydown", onKey);
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("fullscreenchange", onFsChange);
+    };
+  }, [presenting, tocItems]);
+
   async function startVerification() {
     setVerificationActionState("starting");
     setVerificationActionMessage(null);
@@ -549,7 +623,26 @@ function HtmlReader({
   }
 
   return (
-    <div className="docview">
+    <div ref={docviewRef} className={presenting ? "docview presenting" : "docview"}>
+
+      {presenting && (
+        <div className="present-hud" role="toolbar" aria-label="Presentation controls">
+          <button type="button" onClick={() => presentNav(-1)} aria-label="Previous section">
+            ←
+          </button>
+          <span className="present-hud-label">
+            {tocItems.length > 0
+              ? `${presentIndex + 1} / ${tocItems.length} · ${tocItems[presentIndex]?.label ?? title}`
+              : title}
+          </span>
+          <button type="button" onClick={() => presentNav(1)} aria-label="Next section">
+            →
+          </button>
+          <button type="button" onClick={exitPresent} aria-label="Exit presentation">
+            Exit
+          </button>
+        </div>
+      )}
 
       {/* Sticky toolbar */}
       <div className="doc-toolbar">
@@ -562,6 +655,14 @@ function HtmlReader({
           <span className="doc-type-badge">{type}</span>
           <span>{dateLabel(createdAt)}</span>
           {wordCount !== null && <span>{wordCount} words</span>}
+          <button
+            type="button"
+            onClick={enterPresent}
+            className="doc-toolbar-back"
+            aria-label="Present this document"
+          >
+            Present
+          </button>
           <button
             type="button"
             onClick={() => window.print()}
