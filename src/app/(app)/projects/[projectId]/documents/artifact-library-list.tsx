@@ -70,7 +70,7 @@ function FreshnessSignal({ artifact }: { artifact: ArtifactCardData }) {
   );
 }
 
-function ArtifactCard({ artifact, projectId }: { artifact: ArtifactCardData; projectId: string }) {
+export function ArtifactCard({ artifact, projectId }: { artifact: ArtifactCardData; projectId: string }) {
   return (
     <Link href={`/projects/${projectId}/documents/${artifact.id}`} className="group block">
       <article className="flex h-full flex-col rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 transition-all duration-150 group-hover:border-[var(--line-strong)] group-hover:bg-[var(--surface-hover)] group-hover:shadow-md">

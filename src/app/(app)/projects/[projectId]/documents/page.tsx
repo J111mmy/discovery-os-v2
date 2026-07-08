@@ -5,7 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import type { ArtifactType, ArtifactVerificationStatus } from "@/types/database";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArtifactLibraryList, type ArtifactCardData } from "./artifact-library-list";
+import { type ArtifactCardData } from "./artifact-library-list";
+import { FrontOfHouse } from "./front-of-house";
 
 interface Props {
   params: { projectId: string };
@@ -123,9 +124,11 @@ export default async function DocumentsPage({ params }: Props) {
           <div className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
             Documents
           </div>
-          <h1 className="text-2xl font-semibold text-[var(--ink)]">Artifact library</h1>
+          <h1 className="text-2xl font-semibold text-[var(--ink)]">Front of house</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-2)]">
-            Re-open generated drafts, continue editing, and keep the working document set tidy.
+            The audience-facing layer of the project: executive reviews, go-to-market and sales
+            material, product specs, research artifacts. Every document is grounded in the evidence
+            behind it.
           </p>
         </div>
         <Link
@@ -150,7 +153,7 @@ export default async function DocumentsPage({ params }: Props) {
           </Link>
         </div>
       ) : (
-        <ArtifactLibraryList projectId={project.id} artifacts={artifacts} />
+        <FrontOfHouse projectId={project.id} artifacts={artifacts} />
       )}
     </div>
   );
