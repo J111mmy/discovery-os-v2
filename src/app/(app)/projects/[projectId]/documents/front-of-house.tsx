@@ -10,7 +10,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { AUDIENCE_LANES, audienceForType, type AudienceKey } from "@/lib/artifacts/audience";
-import { ArtifactCard, type ArtifactCardData } from "./artifact-library-list";
+import { ArtifactCard, trustLine, type ArtifactCardData } from "./artifact-library-list";
 
 type Lens = "all" | AudienceKey;
 
@@ -36,12 +36,7 @@ function SpineCard({ artifact, projectId }: { artifact: ArtifactCardData; projec
           {artifact.title}
         </h3>
       </Link>
-      {artifact.citationCount > 0 && (
-        <p className="text-xs text-[var(--ink-2)]">
-          Grounded · {artifact.citationCount} citation{artifact.citationCount !== 1 ? "s" : ""} · {artifact.sourceCount} source
-          {artifact.sourceCount !== 1 ? "s" : ""}
-        </p>
-      )}
+      <p className="text-xs text-[var(--ink-2)]">{trustLine(artifact)}</p>
       <div className="mt-auto flex items-center gap-3 pt-4 text-xs font-medium">
         <Link
           href={`/projects/${projectId}/documents/${artifact.id}`}
