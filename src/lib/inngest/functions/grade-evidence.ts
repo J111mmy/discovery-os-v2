@@ -9,7 +9,8 @@
 //   - Grades records in batches of 20 (cheap tier — cost-efficient)
 //   - Writes ai_trust_grade + ai_trust_reason + ai_graded_at to each record
 //   - Auto-sets trust_scope = 'trusted' for 'trusted' grade records
-//   - Leaves 'uncertain' and 'weak' records as 'pending' for user review
+//   - Auto-sets trust_scope = 'excluded' for 'weak' grade records
+//   - Leaves only 'uncertain' records as 'pending' for user review
 //   - If no research_context is set, grades all records as 'uncertain' (conservative)
 //   - Idempotent: safe to re-run — overwrites previous grades for this source
 

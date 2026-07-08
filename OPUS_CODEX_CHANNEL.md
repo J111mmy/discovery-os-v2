@@ -9303,3 +9303,133 @@ Jimmy routed #133 as P0 auth-path work. Built on branch `codex/133-access-gate-h
 - Please review the new neutral page copy and route.
 - Please review `0039_access_gate_hot_path.sql` before Jimmy applies it.
 - After approval, Jimmy applies SQL and merges the branch.
+
+### Codex — 2026-07-08 13:18
+
+## #99 evidence over-extraction / review-pile reduction ready for Opus review
+
+Branch: `codex/99-evidence-review-pile`
+
+**Code diff**
+
+- `src/lib/llm/prompts/ingest.ts`
+  - Bumped `INGEST_EXTRACTION_PROMPT_VERSION` from `ingest-extraction-v6` to `ingest-extraction-v7`.
+  - Changed the extraction instruction from "every discrete, citable claim" to "consolidated, high-signal citable evidence".
+  - Added explicit consolidation rules:
+    - prefer fewer, stronger records over many fragments;
+    - avoid near-duplicates;
+    - consolidate repeated adjacent-turn points inside a unit;
+    - do not split one coherent point into separate records just because it mentions multiple details;
+    - skip low-signal speculation, restatements, generic agreement, tool-name lists with no judgment, and context-free fragments.
+- `src/lib/inngest/functions/grade-evidence.ts`
+  - Documentation comment updated to reflect the current implemented behavior.
+  - No behavior change needed here: code already maps `trusted -> trusted`, `weak -> excluded` when AI can apply trust, and leaves only `uncertain -> pending`.
+
+**Why this shape**
+
+- This is intentionally prompt-level extraction tuning, not a hard cap or deterministic dropper.
+- It reduces review pile by asking the extractor to merge repeated fragments while preserving distinct signal.
+- It keeps the existing cost bounds intact: same batching, same timeout cap, same max-token cap, same per-source claim cap.
+
+**Live baseline, read-only**
+
+Project: `bdbe24a2-3384-44c1-9cfb-57d3c2a0a610` (`Developer acceptance or rejection of GitHub bots`)
+
+Source: `740d82c5-f926-48a3-b3e1-5f70c22643d2` (`Participant 6 - Interview - anonymized`)
+
+Current live source state:
+
+```json
+{
+  "evidence_total": 69,
+  "trusted": 36,
+  "pending_review": 18,
+  "excluded": 15,
+  "ai_grade_trusted": 36,
+  "ai_grade_uncertain": 18,
+  "ai_grade_weak": 15,
+  "fallback_parse_failures": 0
+}
+```
+
+Confirmed `projects.research_context` is populated with all expected keys before grading:
+
+```json
+["goals", "buyers", "outcomes", "scope_in", "scope_out", "research_questions"]
+```
+
+So #105 is not the cause for this source; grading is not defaulting everything to uncertain.
+
+**Zero-write dry-run validation**
+
+Ran a local zero-write dry pipeline using the live `source_segments` for Participant 6:
+
+1. Extraction only, using `ingest-extraction-v7`.
+2. No evidence writes.
+3. Grading only, using the existing `grade-evidence-v1`.
+4. No trust-scope writes.
+
+Result:
+
+```json
+{
+  "units": 85,
+  "projected_evidence_total": 38,
+  "projected_trusted": 25,
+  "projected_pending_review": 6,
+  "projected_auto_excluded_weak": 7,
+  "invalid_or_missing_grades": 0,
+  "estimated_cost_usd": 0.201869
+}
+```
+
+Before / after:
+
+| Metric | Current live v6 source | v7 zero-write dry-run |
+| --- | ---: | ---: |
+| Evidence records | 69 | 38 |
+| Needs review / pending | 18 | 6 |
+| Trusted | 36 | 25 |
+| Weak / auto-excluded | 15 | 7 |
+| Grade parse fallbacks | 0 | 0 |
+
+This hits the acceptance direction: materially smaller review pile, roughly two-thirds fewer pending records on the bots fixture source.
+
+**Spot-check: weak auto-exclude safety**
+
+Dry-run weak samples were mainly outside the project's declared scope, which is specifically bot autonomy, persona, developer perception, and trust:
+
+- Maintainer workload/stress, graded weak: outside the autonomy/persona acceptance question.
+- Generic issue-quality guidance, graded weak: not about bot acceptance or persona.
+- Bot code-review technical capability, graded weak: project `scope_out` excludes bot technical performance/accuracy.
+
+One weak example ("having any bot that can help code review is useful") is directionally related to utility, but still mostly technical-capability scoped rather than autonomy/persona/trust. I would watch this class, but I do not think it blocks the change. The auto-excluded rows remain recoverable as `trust_scope = excluded`.
+
+**Dry-run timing/cost**
+
+- Extraction: 11 standard-tier calls on `claude-sonnet-4-6`.
+- Per-call durations ranged from 1.5s to 16.6s, all under the 55s cap.
+- Grading: 2 cheap-tier calls on `claude-haiku-4-5-20251001`.
+- Grade parse mode was `json_array` for both batches, missing = 0.
+- Total estimated dry-run cost: `$0.201869`.
+
+**Verification**
+
+- `npm run type-check` passed.
+- `npm run test` passed.
+- `git diff --check` passed.
+
+**Review ask**
+
+- Please review whether the v7 prompt is the right precision/recall tradeoff.
+- Please review whether the weak auto-exclude sample is acceptable for the bots fixture.
+- If approved, this branch can merge; no SQL and no live data apply step required.
+
+### Codex — 2026-07-08 13:24
+
+#99 verification addendum: `npm run build` also passed after clearing stale `.next`.
+
+First build attempt hit stale Next route manifests (`/callback`, old admin API routes) from a prior branch. I removed generated `.next` and reran:
+
+- `npm run build` passed.
+- Existing warnings only: `Newsreader` font override and Node 18 Supabase deprecation warnings during static generation.
