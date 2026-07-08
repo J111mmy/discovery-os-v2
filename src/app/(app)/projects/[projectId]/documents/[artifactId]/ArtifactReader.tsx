@@ -533,13 +533,17 @@ function HtmlReader({
     scrollEl.scrollTo({ top: offset, behavior: "smooth" });
   }
 
-  // ── Present mode: enter/exit + section navigation ─────────────
+  // ── Present mode: slide engine ─────────────────────────────────
+  // Slide 0 is a synthetic title slide; slides 1..N map to the document's
+  // h2 sections. In present mode every top-level block is assigned to its
+  // section's slide and only the active slide's blocks render: a real 16:9
+  // deck, not a scrolled page. Pure DOM/CSS, zero tokens to present.
+  const slideCount = tocItems.length + 1;
+
   function presentNav(delta: number) {
-    if (tocItems.length === 0) return;
-    const clamped = Math.max(0, Math.min(tocItems.length - 1, presentIndexRef.current + delta));
+    const clamped = Math.max(0, Math.min(slideCount - 1, presentIndexRef.current + delta));
     presentIndexRef.current = clamped;
     setPresentIndex(clamped);
-    document.getElementById(tocItems[clamped].id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function enterPresent() {
@@ -564,25 +568,47 @@ function HtmlReader({
     }
   }, []);
 
+  // Assign each top-level block to a slide and show only the active slide.
+  // Blocks before the first h2 section belong to slide 1 alongside it.
+  useEffect(() => {
+    const el = articleRef.current;
+    if (!el) return;
+
+    const blocks = Array.from(el.children) as HTMLElement[];
+
+    if (!presenting) {
+      blocks.forEach((node) => node.style.removeProperty("display"));
+      return;
+    }
+
+    let slide = 0;
+    blocks.forEach((node) => {
+      if (node.matches("h2[data-section]") || node.querySelector("h2[data-section]")) {
+        slide = Math.min(slide + 1, tocItems.length);
+      }
+      const assigned = Math.max(1, slide);
+      node.style.display = presentIndex === assigned ? "" : "none";
+    });
+  }, [presenting, presentIndex, tocItems]);
+
   // Present-mode keyboard navigation + fullscreen-exit sync.
   useEffect(() => {
     if (!presenting) return;
 
-    function jump(index: number) {
-      if (tocItems.length === 0) return;
-      const clamped = Math.max(0, Math.min(tocItems.length - 1, index));
+    function jump(delta: number) {
+      const count = tocItems.length + 1;
+      const clamped = Math.max(0, Math.min(count - 1, presentIndexRef.current + delta));
       presentIndexRef.current = clamped;
       setPresentIndex(clamped);
-      document.getElementById(tocItems[clamped].id)?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
     function onKey(event: KeyboardEvent) {
       if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") {
         event.preventDefault();
-        jump(presentIndexRef.current + 1);
+        jump(1);
       } else if (event.key === "ArrowLeft" || event.key === "PageUp") {
         event.preventDefault();
-        jump(presentIndexRef.current - 1);
+        jump(-1);
       } else if (event.key === "Escape") {
         setPresenting(false);
         if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
@@ -627,20 +653,38 @@ function HtmlReader({
 
       {presenting && (
         <div className="present-hud" role="toolbar" aria-label="Presentation controls">
-          <button type="button" onClick={() => presentNav(-1)} aria-label="Previous section">
+          <button type="button" onClick={() => presentNav(-1)} aria-label="Previous slide">
             ←
           </button>
           <span className="present-hud-label">
-            {tocItems.length > 0
-              ? `${presentIndex + 1} / ${tocItems.length} · ${tocItems[presentIndex]?.label ?? title}`
-              : title}
+            {`${presentIndex + 1} / ${slideCount} · ${
+              presentIndex === 0 ? title : tocItems[presentIndex - 1]?.label ?? title
+            }`}
           </span>
-          <button type="button" onClick={() => presentNav(1)} aria-label="Next section">
+          <button type="button" onClick={() => presentNav(1)} aria-label="Next slide">
             →
           </button>
           <button type="button" onClick={exitPresent} aria-label="Exit presentation">
             Exit
           </button>
+        </div>
+      )}
+
+      {presenting && presentIndex === 0 && (
+        <div className="present-title" aria-label="Title slide">
+          <div className="present-title-kicker">{type}</div>
+          <h1 className="present-title-main">{title}</h1>
+          <p className="present-title-meta">
+            {citations.length > 0
+              ? `Backed by ${
+                  new Set(citations.map((c) => c.source_id ?? c.source_title ?? c.evidence_id)).size
+                } customer conversation${
+                  new Set(citations.map((c) => c.source_id ?? c.source_title ?? c.evidence_id)).size !== 1 ? "s" : ""
+                }`
+              : "Working draft"}
+            {" · "}
+            {dateLabel(createdAt)}
+          </p>
         </div>
       )}
 

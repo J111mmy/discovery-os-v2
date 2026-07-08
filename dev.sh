@@ -1,10 +1,10 @@
 #!/bin/bash
 # Discovery OS v2 — One-command dev startup
 # Usage: ./dev.sh
-# Starts Next.js on port 3000 + Inngest dev server, both in the same terminal
+# Starts Next.js on port 4321 + Inngest dev server, both in the same terminal
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_PORT=3000
+APP_PORT=4321
 INNGEST_PORT=8288
 
 echo "🧹 Cleaning up any stale processes..."

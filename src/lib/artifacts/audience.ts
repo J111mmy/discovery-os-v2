@@ -66,6 +66,7 @@ export const AUDIENCE_LANES: AudienceLane[] = [
       { label: "PRD", hint: "Requirements traced to the problems behind them." },
       { label: "Opportunity brief", hint: "One opportunity, its problems, its evidence." },
       { label: "Persona", hint: "Who they are, in their own recorded words." },
+      { label: "Prototype brief", hint: "A build-ready prompt pack for v0 or Lovable, grounded in the evidence." },
     ],
   },
   {

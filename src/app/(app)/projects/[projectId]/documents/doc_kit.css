@@ -663,3 +663,82 @@ ol.flow {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── Present mode v2: 16:9 slide stage ─────────────────────────
+   Overrides the v1 scrolled-page treatment above. One slide at a
+   time on a fixed 16:9 stage, exec-deck proportions. */
+.docview.presenting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  overflow: hidden;
+}
+.docview.presenting .doc-scroll {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.docview.presenting .reader {
+  width: min(1400px, 94vw);
+  aspect-ratio: 16 / 9;
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 4vh 5vw;
+  box-sizing: border-box;
+  border-radius: 18px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.1));
+  background: var(--surface, #10182b);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+}
+.docview.presenting .dp-h2 {
+  font-size: 2.6rem;
+  margin-top: 0;
+}
+.docview.presenting table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 1.05rem;
+}
+.docview.presenting th,
+.docview.presenting td {
+  padding: 0.5em 0.7em;
+}
+
+/* Title slide */
+.present-title {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 10vw;
+  background: var(--bg, #0b0f1a);
+}
+.present-title-kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.85rem;
+  color: var(--accent, #6a7cff);
+  margin-bottom: 18px;
+}
+.present-title-main {
+  font-size: clamp(2.2rem, 5vw, 4rem);
+  line-height: 1.15;
+  color: var(--ink, #eef2f8);
+  max-width: 22ch;
+  margin: 0 0 22px;
+}
+.present-title-meta {
+  font-size: 1.05rem;
+  color: var(--ink-2, #aab3c5);
+}
