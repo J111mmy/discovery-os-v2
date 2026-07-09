@@ -25,7 +25,10 @@ sleep 1
 echo ""
 echo "🚀 Starting Next.js on port $APP_PORT..."
 cd "$PROJECT_DIR"
-PORT=$APP_PORT npm run dev &
+# INNGEST_DEV=1 forces the Inngest SDK into local dev mode so events go to the
+# local dev server (8288) instead of Inngest Cloud. Without it, a set
+# INNGEST_EVENT_KEY in .env.local routes events to Cloud and local runs never fire.
+PORT=$APP_PORT INNGEST_DEV=1 npm run dev &
 NEXT_PID=$!
 
 echo "⏳ Waiting for Next.js to be ready..."
