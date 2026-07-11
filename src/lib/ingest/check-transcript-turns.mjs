@@ -40,6 +40,8 @@ const {
   parseDynamicSpeakerRoster,
   prescanSourceEntities,
 } = require("./prescan.ts");
+const { inferSourceType } = require("./source-inference.ts");
+const { normalizeAllInternalTranscriptSpeakers } = require("./speaker-roles.ts");
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -149,6 +151,65 @@ We still do most of it manually.
   assert(
     JSON.stringify(botSpeakers) === JSON.stringify(["PARTICIPANT 10", "RESEARCHER"]),
     `bots fixture speakers were ${botSpeakers.join(", ")}`
+  );
+
+  const teamsExport = `
+AI-generated content may be incorrect
+John Price started transcription
+
+John Price
+0 minutes 8 seconds0:08
+John Price 0 minutes 8 seconds
+Let's put this on BMD. There we go.
+
+Marc Soester
+0 minutes 14 seconds0:14
+Marc Soester 0 minutes 14 seconds
+I'm heading off in a couple of minutes. I've got another meeting, another demo.
+PH
+
+Peter Huemayer
+0 minutes 18 seconds0:18
+Peter Huemayer 0 minutes 18 seconds
+Hello, good morning.
+
+John Price
+0 minutes 18 seconds0:18
+John Price 0 minutes 18 seconds
+No dramas at all. It's going to be much the same.
+`;
+  const teamsTurns = parseTranscriptTurns(teamsExport);
+  const teamsSpeakers = labels(teamsTurns);
+  assert(
+    teamsTurns.length >= 4,
+    `Teams export fixture should parse speaker turns, got ${teamsTurns.length}`
+  );
+  assert(
+    teamsSpeakers.includes("John Price") &&
+      teamsSpeakers.includes("Marc Soester") &&
+      teamsSpeakers.includes("Peter Huemayer"),
+    `Teams export fixture speakers were ${teamsSpeakers.join(", ")}`
+  );
+  const teamsInference = inferSourceType(teamsExport);
+  assert(
+    teamsInference.structure === "conversation" && teamsInference.type === "transcript",
+    `Teams export fixture inferred ${teamsInference.type}/${teamsInference.structure}`
+  );
+
+  const allInternal = normalizeAllInternalTranscriptSpeakers(
+    [
+      { id: "speaker-1", raw_label: "John Price", suggested_role: "interviewer" },
+      { id: "speaker-2", raw_label: "Sarah", suggested_role: "interviewer" },
+    ],
+    "transcript"
+  );
+  assert(
+    allInternal.suggestion?.speaker_name === "Sarah",
+    "all-internal two-speaker interview should suggest the second speaker as customer"
+  );
+  assert(
+    allInternal.speakers[1].suggested_role === "customer",
+    "all-internal fallback should pre-select the likely participant as customer"
   );
 
   const dynamicRoster = parseDynamicSpeakerRoster(`
