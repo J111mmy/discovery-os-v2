@@ -263,7 +263,7 @@ export default async function SourceDetailPage({ params }: Props) {
           <p className="mt-1">
             {sourceLooksLikeMarker
               ? "This looks like a processed marker file rather than the original transcript. Delete this source and upload the original transcript text."
-              : "The job completed but did not extract any citable claims. Check the source text below, then retry if it is the original transcript or document."}
+              : "The job completed without citable external evidence. Re-add the source and confirm speaker roles if someone should be Customer."}
           </p>
         </div>
       )}

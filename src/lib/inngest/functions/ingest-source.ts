@@ -12,6 +12,7 @@ import {
   parseEntityResolutions,
   type EntityResolution,
 } from "@/lib/ingest/entity-resolutions";
+import { normalizeAllInternalTranscriptSpeakers } from "@/lib/ingest/speaker-roles";
 import { parseTranscriptTurns, type TranscriptTurn } from "@/lib/ingest/transcript-turns";
 import { PROCESSED_MARKER_ERROR, looksLikeProcessedMarker } from "@/lib/ingest/quality";
 import { redactPII } from "@/lib/llm/pii";
@@ -483,6 +484,30 @@ function internalSpeakerNamesFromResolutions(entityResolutions: EntityResolution
     .filter(Boolean);
 }
 
+function normalizeEntityResolutionRolesForSource(
+  entityResolutions: EntityResolution[],
+  type: SourceType
+) {
+  if (entityResolutions.length === 0) {
+    return { entityResolutions, suggestion: null };
+  }
+
+  const normalized = normalizeAllInternalTranscriptSpeakers(
+    entityResolutions.map((resolution) => ({
+      ...resolution,
+      raw_label: resolution.raw_label,
+      resolved_name: resolution.resolved_name ?? null,
+      project_role: resolution.project_role ?? null,
+    })),
+    type
+  );
+
+  return {
+    entityResolutions: normalized.speakers,
+    suggestion: normalized.suggestion,
+  };
+}
+
 function segmentText(text: string, type: SourceType): RawSegment[] {
   const transcriptTurns = parseTranscriptTurns(text);
 
@@ -496,6 +521,11 @@ function segmentText(text: string, type: SourceType): RawSegment[] {
   }
 
   return segmentDocument(text);
+}
+
+function sourceTypeForSpeakerDefaults(text: string, type: SourceType): SourceType {
+  if (type === "internal_meeting") return type;
+  return looksLikeTranscriptTurns(parseTranscriptTurns(text)) ? "transcript" : type;
 }
 
 function formatFrame(project: ProjectContext) {
@@ -627,6 +657,8 @@ async function syncSourceSpeakers(input: {
     const desiredAffiliation: Affiliation =
       resolution && isInternalProjectRole(resolution.project_role)
         ? "internal"
+        : resolution?.project_role === "customer"
+          ? "external"
         : inferredInternal.has(key)
           ? "internal"
           : "unknown";
@@ -637,11 +669,14 @@ async function syncSourceSpeakers(input: {
 
     if (existing) {
       person = existing;
-      if (desiredAffiliation === "internal" && existing.affiliation === "unknown") {
+      if (
+        (desiredAffiliation === "internal" || desiredAffiliation === "external") &&
+        existing.affiliation === "unknown"
+      ) {
         const { data: updated, error: updateError } = await input.supabase
           .from("people")
           .update({
-            affiliation: "internal",
+            affiliation: desiredAffiliation,
             updated_at: new Date().toISOString(),
           })
           .eq("org_id", input.org_id)
@@ -1244,9 +1279,20 @@ export const ingestSource = inngest.createFunction(
         return text;
       });
 
-      const entityResolutions = await step.run("parse-entity-resolutions", async () =>
-        parseEntityResolutions(source.metadata?.entity_resolutions)
-      );
+      const entityResolutions = await step.run("parse-entity-resolutions", async () => {
+        const parsedResolutions = parseEntityResolutions(source.metadata?.entity_resolutions);
+        const normalized = normalizeEntityResolutionRolesForSource(
+          parsedResolutions,
+          sourceTypeForSpeakerDefaults(rawText, source.type)
+        );
+        if (normalized.suggestion) {
+          console.warn("Adjusted all-internal source speaker roles before extraction", {
+            source_id,
+            suggested_customer: normalized.suggestion.speaker_name,
+          });
+        }
+        return normalized.entityResolutions;
+      });
 
       const rawSegments = await step.run("segment-text", async () => {
         const segments = segmentText(rawText, source.type);
@@ -1688,7 +1734,7 @@ export const ingestSource = inngest.createFunction(
             .update({
               status: "failed",
               error:
-                "No evidence was created. Check that this is the original source text, then retry.",
+                "No evidence was created. DiscOS could not find citable evidence from an external participant. Re-add the source and confirm speaker roles if someone should be marked as Customer.",
               completed_at: new Date().toISOString(),
               result: {
                 segments_created: segments.length,

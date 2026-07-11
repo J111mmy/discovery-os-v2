@@ -138,7 +138,7 @@ export default async function SourcesPage({ params }: Props) {
       ? "Queued — sources run one at a time for better quality and lower cost."
       : hasFailed
       ? needsCheck
-        ? "Processing completed but produced no evidence. Check the source text, then retry."
+        ? "Processing completed without citable external evidence. Re-add the source and confirm speaker roles if someone should be Customer."
         : isStale
         ? "Processing took too long. Use Retry to run it again."
         : "Processing did not complete. Use Retry to try again."

@@ -164,6 +164,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
   const [prescanResult, setPrescanResult] = useState<PrescanResult | null>(null);
   const [speakerDrafts, setSpeakerDrafts] = useState<SpeakerDraft[]>([]);
   const [orgDrafts, setOrgDrafts] = useState<OrgDraft[]>([]);
+  const [speakerSuggestionConfirmed, setSpeakerSuggestionConfirmed] = useState(false);
 
   // Ingest job state
   const [jobId, setJobId] = useState<string | null>(null);
@@ -192,6 +193,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
     setPrescanResult(null);
     setSpeakerDrafts([]);
     setOrgDrafts([]);
+    setSpeakerSuggestionConfirmed(false);
     setJobId(null);
     setSourceId(null);
     setJobStatus("idle");
@@ -244,7 +246,9 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
         if (data.status === "done") {
           const result = data.result ?? { evidence_created: 0 };
           if ((result.evidence_created ?? 0) === 0) {
-            setSubmitError("No evidence was created. Try again from the full ingest page.");
+            setSubmitError(
+              "No evidence was created. DiscOS could not find citable evidence from an external participant. Re-add the source and confirm speaker roles if someone should be marked as Customer."
+            );
             setJobStatus("failed");
             return;
           }
@@ -365,6 +369,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
     setPrescanResult(null);
     setSpeakerDrafts([]);
     setOrgDrafts([]);
+    setSpeakerSuggestionConfirmed(false);
 
     try {
       const res = await fetch(`/api/projects/${projectId}/ingest/prescan`, {
@@ -402,8 +407,23 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
     void startIngest(buildResolutions(speakerDrafts, orgDrafts));
   }
 
+  function confirmSuggestedExternalSpeaker() {
+    const suggestion = prescanResult?.all_internal_speaker_suggestion;
+    if (!suggestion) return;
+
+    setSpeakerDrafts((prev) =>
+      prev.map((draft) =>
+        draft.id === suggestion.speaker_id || draft.raw_label === suggestion.raw_label
+          ? { ...draft, role: "customer" }
+          : draft
+      )
+    );
+    setSpeakerSuggestionConfirmed(true);
+  }
+
   // Update a single field on a speaker draft.
   function updateSpeaker(id: string, patch: Partial<SpeakerDraft>) {
+    if (patch.role) setSpeakerSuggestionConfirmed(false);
     setSpeakerDrafts((prev) =>
       prev.map((d) => (d.id === id ? { ...d, ...patch } : d))
     );
@@ -433,6 +453,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
   const isFailed = jobStatus === "failed";
   const sourceInference = useMemo(() => inferSourceType(rawText), [rawText]);
   const sourceTypeLabel = SOURCE_TYPE_LABELS[sourceInference.type];
+  const allInternalSuggestion = prescanResult?.all_internal_speaker_suggestion ?? null;
   const canSubmit =
     prescanPhase === "idle" && !isWorking && !isDone && !extracting &&
     !!title.trim() && !!rawText.trim() && !!projectId;
@@ -683,6 +704,48 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
         {prescanPhase === "review" && !isWorking && !isDone && prescanResult && (
           <>
             <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 18, maxHeight: "60vh", overflowY: "auto" }}>
+              {allInternalSuggestion && (
+                <div
+                  style={{
+                    borderRadius: 12,
+                    border: "1px solid var(--warn)",
+                    background: "var(--warn-bg)",
+                    color: "var(--warn)",
+                    padding: "12px 14px",
+                    fontSize: 13,
+                    lineHeight: 1.55,
+                  }}
+                >
+                  <div style={{ fontWeight: 650, color: "var(--ink)", marginBottom: 4 }}>
+                    This looks like an interview.
+                  </div>
+                  <div>
+                    Every speaker was marked internal, so I pre-selected{" "}
+                    <strong>{allInternalSuggestion.speaker_name}</strong> as the participant
+                    to avoid missing evidence.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={confirmSuggestedExternalSpeaker}
+                    disabled={speakerSuggestionConfirmed}
+                    style={{
+                      marginTop: 10,
+                      padding: "7px 11px",
+                      borderRadius: "var(--r-sm)",
+                      border: "1px solid var(--accent)",
+                      background: "var(--accent-soft)",
+                      color: "var(--accent)",
+                      fontSize: 12.5,
+                      fontWeight: 620,
+                      cursor: speakerSuggestionConfirmed ? "default" : "pointer",
+                      fontFamily: "inherit",
+                      opacity: speakerSuggestionConfirmed ? 0.85 : 1,
+                    }}
+                  >
+                    {speakerSuggestionConfirmed ? "Confirmed as customer" : "Yes, keep as customer"}
+                  </button>
+                </div>
+              )}
 
               {/* Speaker cards */}
               {speakerDrafts.length > 0 && (

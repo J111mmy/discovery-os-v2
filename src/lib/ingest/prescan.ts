@@ -7,6 +7,11 @@ import {
   type TranscriptTurn,
 } from "@/lib/ingest/transcript-turns";
 import { inferSourceType, type SourceInference } from "@/lib/ingest/source-inference";
+import {
+  normalizeAllInternalTranscriptSpeakers,
+  shouldDefaultUncertainSpeakersExternal,
+  type SpeakerRoleSuggestion,
+} from "@/lib/ingest/speaker-roles";
 import { callLLM } from "@/lib/llm/client";
 import { normalizeSpeakerName } from "@/lib/speakers/resolve";
 import type { SourceType } from "@/types/database";
@@ -62,6 +67,7 @@ export type PrescanResult = {
   source_inference: SourceInference;
   speakers: PrescanSpeaker[];
   detected_orgs: PrescanDetectedOrg[];
+  all_internal_speaker_suggestion?: SpeakerRoleSuggestion | null;
 };
 
 type IdentityNote = {
@@ -437,6 +443,8 @@ async function identifySpeakersWithLLM(input: {
         "Classify interviewer, researcher, moderator, or facilitator as role \"interviewer\".",
         "Classify the person being interviewed, respondent, participant, customer, buyer, or user as role \"customer\".",
         "Use role \"internal\" only when the sample clearly says the speaker belongs to the product team or internal company.",
+        "When uncertain in an interview-style source, choose role \"customer\" rather than \"internal\" or \"interviewer\". Over-including can be reviewed later; over-excluding loses evidence.",
+        "A normal two-person interview should usually have one interviewer and one customer. Do not mark both as interviewer unless the sample clearly says both are facilitators.",
         "If a label is a shorthand such as I, P, Q, or A, keep it as label and put the expanded identity in display_name when clear.",
         "Output shape: {\"speakers\":[{\"label\":\"raw label\",\"display_name\":\"name or role label\",\"role\":\"customer|internal|interviewer\",\"org\":\"org or null\"}]}",
       ].join("\n"),
@@ -595,7 +603,10 @@ export async function prescanSourceEntities(input: {
         ? "interviewer"
         : legendEntry?.role === "customer"
           ? "customer"
-          : dynamic?.suggested_role ?? roleFromType(effectiveType));
+          : dynamic?.suggested_role ??
+            (shouldDefaultUncertainSpeakersExternal(effectiveType)
+              ? "customer"
+              : roleFromType(effectiveType)));
 
     return {
       id: `speaker-${index + 1}`,
@@ -607,6 +618,8 @@ export async function prescanSourceEntities(input: {
       org_match_candidates: orgCandidates(suggestedOrg, companies),
     };
   });
+
+  const normalizedSpeakers = normalizeAllInternalTranscriptSpeakers(speakers, effectiveType);
 
   const detectedOrgNames = new Map<string, string>();
   for (const orgName of detectMentionedOrgs(input.raw_text, Array.from(identityNotes.values()))) {
@@ -625,5 +638,10 @@ export async function prescanSourceEntities(input: {
       org_match_candidates: orgCandidates(orgName, companies),
     }));
 
-  return { source_inference: sourceInference, speakers, detected_orgs: detectedOrgs };
+  return {
+    source_inference: sourceInference,
+    speakers: normalizedSpeakers.speakers,
+    detected_orgs: detectedOrgs,
+    all_internal_speaker_suggestion: normalizedSpeakers.suggestion,
+  };
 }

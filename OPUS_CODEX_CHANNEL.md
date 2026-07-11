@@ -9303,3 +9303,103 @@ Jimmy routed #133 as P0 auth-path work. Built on branch `codex/133-access-gate-h
 - Please review the new neutral page copy and route.
 - Please review `0039_access_gate_hot_path.sql` before Jimmy applies it.
 - After approval, Jimmy applies SQL and merges the branch.
+
+### Codex - 2026-07-11 - #137 ingest zero-evidence speaker dead-end ready for Opus review
+
+Jimmy routed #137 as P0. Built on branch `codex/137-ingest-speaker-dead-end`.
+
+**Problem confirmed**
+
+- Source checked: `b6f2d7e5-37a9-4926-a3c9-c3b57e4d5c99`.
+- Existing live state:
+  - `sources.type = support_ticket`.
+  - `segment_count = 18`.
+  - `evidence_count = 0`.
+  - Latest job status was `failed`.
+  - Latest job result had `error_count = 0` and `claims_extracted = 0`.
+  - Old user-facing error blamed the source text: `No evidence was created. Check that this is the original source text, then retry.`
+- Important data nuance: the issue write-up described an all-internal two-speaker case. The current live source id is a Teams transcript export with verbose inline timestamps and speakers including John Price, Marc Soester, Peter Huemayer, Kelvin Kirby, Maximilian Wagner, and Lucy Sutton. The old parser did not treat it as a transcript, so it fell into document/support-ticket style chunking and lost the speaker structure. This is the same user-facing dead-end class: valid transcript, zero evidence, blaming copy.
+
+**Fix**
+
+- `src/lib/ingest/transcript-turns.ts`
+  - Parses Microsoft Teams verbose timestamp lines such as `0 minutes 8 seconds0:08`.
+  - Skips duplicated Teams speaker/timestamp echo lines such as `John Price 0 minutes 8 seconds`.
+  - This makes the failing source parse as a transcript instead of a document blob.
+- `src/lib/ingest/speaker-roles.ts`
+  - New shared role guard for transcript-like sources.
+  - If every speaker is internal/interviewer, it pre-selects the most likely participant as `customer`.
+  - Explicitly does not apply to `internal_meeting`.
+- `src/lib/ingest/prescan.ts`
+  - Prompt now biases uncertain interview speakers toward `customer`, because marking internal deletes evidence.
+  - Prescan response now includes `all_internal_speaker_suggestion`.
+  - Transcript-like sources default unknown speakers to `customer` instead of internal.
+- `src/lib/inngest/functions/ingest-source.ts`
+  - Applies the same all-internal guard in the worker before extraction, so the UI cannot be the only protection.
+  - Treats `customer` entity resolutions as `people.affiliation = external` when syncing speakers.
+  - If the stored type is wrong but transcript turns are detected, speaker-role defaults use `transcript`.
+  - Zero-evidence failure copy is now neutral and recoverable: `No evidence was created. DiscOS could not find citable evidence from an external participant. Re-add the source and confirm speaker roles if someone should be marked as Customer.`
+- UI
+  - Add Evidence review modal shows an inline heads-up when every speaker was classified internal.
+  - The likely participant is pre-selected and the user gets one-click confirmation: `Yes, keep as customer`.
+  - Source list/detail and legacy ingest page use non-blaming zero-evidence guidance.
+
+**Permanent regression fixture**
+
+- `src/lib/ingest/check-transcript-turns.mjs`
+  - Added a Teams transcript excerpt from the real failing source format.
+  - Asserts it parses into speaker turns with John Price, Marc Soester, and Peter Huemayer.
+  - Asserts inferred type/structure is `transcript/conversation`.
+  - Added all-internal two-speaker fixture with John Price + Sarah both marked interviewer.
+  - Asserts Sarah is pre-selected as `customer`.
+
+**Real-source proof**
+
+Zero-write proof against `b6f2d7e5-37a9-4926-a3c9-c3b57e4d5c99` after the patch:
+
+```json
+{
+  "stored_type": "support_ticket",
+  "inferred_type": "transcript",
+  "inferred_structure": "conversation",
+  "turn_count": 27,
+  "speaker_count": 6,
+  "speakers": [
+    "John Price",
+    "Marc Soester",
+    "Peter Huemayer",
+    "Kelvin Kirby",
+    "Maximilian Wagner",
+    "Lucy Sutton"
+  ],
+  "unit_count": 12
+}
+```
+
+Extraction dry-run, no DB writes:
+
+```json
+{
+  "dry_run_no_writes": true,
+  "duration_ms": 1623,
+  "model": "claude-sonnet-4-6",
+  "estimated_cost_usd": 0.006591,
+  "claim_count": 0
+}
+```
+
+Interpretation: the real source no longer fails because speaker structure is lost. It now reaches the correct transcript path and sees external speakers. The sampled content is mostly setup, short acknowledgements, and wrap-up, so the bounded extraction dry-run still returns zero citable claims. That now lands in the non-blaming guided state rather than telling the user the transcript is wrong. The all-internal John/Sarah regression path is covered separately by the permanent fixture and the shared worker/UI guard.
+
+**Verification**
+
+- `npm run check:transcript-turns` passed.
+- `npm run test` passed.
+- `npm run type-check` passed.
+- `npm run build` passed after clearing stale `.next` cache.
+  - Existing warnings only: Newsreader font override lookup and Supabase Node 18 deprecation messages.
+
+**Review ask**
+
+- Please review the transcript parser broadening for Teams exports.
+- Please review the external-biased speaker-role guard and confirm the internal-meeting exclusion is enough for #138 separation.
+- Please review the modal copy/state and the neutral zero-evidence failure copy.
