@@ -35,7 +35,11 @@ function normalizeLabel(value: string) {
 }
 
 function isTimestamp(value: string) {
-  return /^\[?\d{1,2}:\d{2}(?::\d{2})?\]?$/.test(value.trim());
+  const trimmed = value.trim();
+  return (
+    /^\[?\d{1,2}:\d{2}(?::\d{2})?\]?$/.test(trimmed) ||
+    /^\d+\s+minutes?\s+\d+\s+seconds?(?:\d{1,2}:\d{2}(?::\d{2})?)?$/i.test(trimmed)
+  );
 }
 
 function isInitialLine(value: string) {
@@ -89,6 +93,18 @@ function isSpeakerLabel(value: string, legendLabels: Set<string>) {
   if (legendLabels.has(normalized)) return true;
   if (COMMON_INITIAL_SPEAKERS.has(normalized)) return true;
   return isSpeakerNameLine(value);
+}
+
+function extractTimestamp(value: string) {
+  const trimmed = value.trim().replace(/^\[|\]$/g, "");
+  const clock = trimmed.match(/(\d{1,2}:\d{2}(?::\d{2})?)$/);
+  if (clock?.[1]) return clock[1];
+
+  const verbose = trimmed.match(/^(\d+)\s+minutes?\s+(\d+)\s+seconds?/i);
+  if (!verbose) return trimmed;
+  const minutes = Number(verbose[1] ?? 0);
+  const seconds = Number(verbose[2] ?? 0);
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 export function parseTranscriptSpeakerLegend(text: string): TranscriptSpeakerLegendEntry[] {
@@ -228,6 +244,8 @@ export function parseTranscriptTurns(text: string): TranscriptTurn[] {
     /^\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s+([A-Za-z][A-Za-z0-9 .'-]{1,80})(?::)?\s*(.*)$/;
   const speakerTimestampLine =
     /^([A-Za-z][A-Za-z0-9 .'-]{1,80})\s+\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s*(.*)$/;
+  const speakerVerboseTimestampLine =
+    /^([A-Za-z][A-Za-z0-9 .'-]{1,80})\s+\d+\s+minutes?\s+\d+\s+seconds?(?:\d{1,2}:\d{2}(?::\d{2})?)?\s*$/i;
 
   const turns: TranscriptTurn[] = [];
   let curSpeaker: string | null = null;
@@ -278,6 +296,15 @@ export function parseTranscriptTurns(text: string): TranscriptTurn[] {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line.trimmed) continue;
+
+    const speakerVerboseTimestampMatch = line.trimmed.match(speakerVerboseTimestampLine);
+    if (
+      speakerVerboseTimestampMatch?.[1] &&
+      curSpeaker &&
+      normalizeLabel(speakerVerboseTimestampMatch[1]) === normalizeLabel(curSpeaker)
+    ) {
+      continue;
+    }
 
     const speakerColonMatch = line.trimmed.match(speakerColonLine);
     if (speakerColonMatch?.[2]) {
@@ -337,13 +364,13 @@ export function parseTranscriptTurns(text: string): TranscriptTurn[] {
       isSpeakerNameLine(next.trimmed) &&
       isTimestamp(afterNext.trimmed)
     ) {
-      startTurn(next.trimmed, afterNext.trimmed.replace(/^\[|\]$/g, ""), "", afterNext);
+      startTurn(next.trimmed, extractTimestamp(afterNext.trimmed), "", afterNext);
       i += 2;
       continue;
     }
 
     if (isSpeakerNameLine(line.trimmed) && next && isTimestamp(next.trimmed)) {
-      startTurn(line.trimmed, next.trimmed.replace(/^\[|\]$/g, ""), "", next);
+      startTurn(line.trimmed, extractTimestamp(next.trimmed), "", next);
       i += 1;
       continue;
     }

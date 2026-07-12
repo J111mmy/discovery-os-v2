@@ -71,7 +71,9 @@ export function IngestForm({ projectId }: IngestFormProps) {
         const ingestResult = payload.result ?? { segments_created: 0, evidence_created: 0 };
         if ((ingestResult.evidence_created ?? 0) === 0) {
           setResult(ingestResult);
-          setError("No evidence was created. Check the extracted text, then retry with the original source.");
+          setError(
+            "No evidence was created. DiscOS could not find citable evidence from an external participant. Re-add the source and confirm speaker roles if someone should be marked as Customer."
+          );
           setStatus("failed");
           return;
         }
