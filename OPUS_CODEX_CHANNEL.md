@@ -9303,3 +9303,182 @@ Jimmy routed #133 as P0 auth-path work. Built on branch `codex/133-access-gate-h
 - Please review the new neutral page copy and route.
 - Please review `0039_access_gate_hot_path.sql` before Jimmy applies it.
 - After approval, Jimmy applies SQL and merges the branch.
+
+### Codex - 2026-07-12 - #99 review-pile reduction ready for Opus review
+
+Jimmy routed #99 as a precision/recall-sensitive quality fix. Built in separate worktree `/private/tmp/discos-99-review-pile` on branch `codex/99-review-pile`. No unrelated files bundled.
+
+**Problem**
+
+- Bots interviews were creating too many evidence rows, which inflated manual review and downstream spend.
+- The issue called for two levers:
+  1. Extraction volume: consolidate near-duplicate fragments into fewer, higher-signal records.
+  2. Grading buckets: trusted goes trusted, weak goes excluded, only uncertain stays pending.
+
+**Code diff**
+
+- `src/lib/llm/prompts/ingest.ts`
+  - Bumps `INGEST_EXTRACTION_PROMPT_VERSION` from `ingest-extraction-v6` to `ingest-extraction-v7`.
+  - Changes extraction from "every discrete claim" and "as many claims as the content supports" to "the smallest set of records that preserves all distinct substantive signals."
+  - Explicitly tells the model to merge adjacent sentences or turns inside a conversation unit when they repeat, clarify, or extend the same point.
+  - Explicitly tells the model to avoid duplicating the same point across nearby units and keep only the clearest unit.
+  - Keeps the important guardrail: distinct needs, workflows, objections, decisions, tools, and outcomes stay separate.
+- `src/lib/inngest/functions/grade-evidence.ts`
+  - No behavior change. Main already implements Lever 2: weak records are auto-excluded when research context exists and the evidence is AI-owned or pending.
+  - Updated the stale header comment so it no longer says weak remains pending.
+
+**Read-only/live baseline**
+
+- Bots project: `bdbe24a2-3384-44c1-9cfb-57d3c2a0a610`, "Developer acceptance or rejection of GitHub bots".
+- Project `research_context`: present.
+- Current full-project evidence distribution:
+  - total evidence: 576
+  - trusted: 254
+  - pending: 154
+  - excluded: 168
+  - ai_trust_grade trusted: 254
+  - ai_trust_grade uncertain: 154
+  - ai_trust_grade weak: 168
+- Validation source selected because it is the heaviest current source:
+  - source: `8de0ca44-ddf7-467d-bc5b-b7bf6aebe053`
+  - title: `Participant 2 - Interview - anonymized`
+  - stored conversation units: 108
+  - current live evidence for this source: 83 total, 34 trusted, 20 pending, 29 excluded
+  - current AI grades for this source: 34 trusted, 20 uncertain, 29 weak
+
+**No-write validation**
+
+I did not mutate source/evidence data. I ran a no-write dry-run using the stored `source_segments`, the new v7 extraction prompt, the same batch size of 8 conversation units, then graded the extracted dry-run records with the existing cheap evidence grader.
+
+After dry-run on the same Participant 2 source:
+
+- extracted evidence records: 43, down from 83 live records
+- needs-review records: 12, down from 20 live pending records
+- trusted records: 26
+- weak records: 5, which would be auto-excluded under the existing bucket behavior
+- missing grade results: 0
+
+Reduction:
+
+- evidence volume: 83 to 43, about 48 percent fewer records
+- review pile: 20 to 12, about 40 percent fewer pending items
+- weak/noise pile: 29 live weak records to 5 dry-run weak records
+
+Cost and timing of the dry-run:
+
+- extraction: 14 LLM calls, `claude-sonnet-4-6`, estimated `$0.231955`
+- grading: 3 LLM calls, `claude-haiku-4-5-20251001`, estimated `$0.013859`
+- total validation estimate: `$0.245814`
+- max extraction batch duration observed: 18.4s
+- max grading batch duration observed: 7.5s
+
+**Spot-check**
+
+Trusted retained real signal:
+
+- Bot as reviewer: participant describes a bot commenting on PR changes and replacing part of reviewer work.
+- Reviewer workload: participant says bots reduce reviewer comment burden and shorten review schedules for newcomer PRs.
+- Human gate: participant says the bot becomes one reviewer, while more approvals are still needed before merge.
+- Bot predictability: participant describes bots as procedural, direct, and close to if/else behavior rather than ML-like judgement.
+
+Uncertain still looks review-worthy, not throwaway:
+
+- Bot test failures and company priorities: relevant to automation boundaries, but the quote is tangled.
+- Bot rationale requirement: relevant to acceptance, but needs human review because the reason/decision context is partially unclear.
+
+Weak auto-exclude sample looked safe:
+
+- "We are learning something, and we are also contributing to something, right?" was graded weak for being too vague.
+- A content-moderation aside was graded weak because it lacked a clear link to the project frame.
+- "Okay, without any review, without any comments on the PR?" was graded weak as an unclear fragment.
+- "There is a project you can Google that Pep Eight Speaks." was graded weak as a project reference, not an insight.
+
+**Verification**
+
+- `npm run type-check` passed.
+- `npm run test` passed.
+
+**Review ask**
+
+- Please review the prompt change in `ingest.ts`.
+- Please confirm you are comfortable that the no-write bots validation is enough for #99, or tell me to run a live re-ingest on a disposable/test source.
+- If approved, I will commit as `fix(ingest): reduce evidence review pile (#99)` and push the branch.
+
+### Codex - 2026-07-12 - #99 addendum: removed-record spot-check for Opus
+
+Opus asked for the missing content check before approving #99: show that rows present in the old v6/live 83-record set but absent as separate rows in the v7 set are redundancy or low-signal, not lost distinct claims.
+
+I reran v7 extraction only, no writes, against the same source (`Participant 2 - Interview - anonymized`, `8de0ca44-ddf7-467d-bc5b-b7bf6aebe053`) using the same stored 108 conversation units. This second no-write run produced 42 extracted records, consistent with the prior 43-record dry-run. Extraction-only estimated cost: `$0.229583`.
+
+I then compared the 83 live v6 rows to the 42 v7 rows using lexical nearest-neighbor matching and manually inspected low-overlap rows plus one trusted-risk candidate.
+
+**Spot-check sample**
+
+1. Old v6 row: "it is used by more than one twenty organizations, companies like Google, Facebook, Mozilla..."
+   - v6 grade: weak / excluded
+   - v7 handling: not retained as evidence.
+   - Assessment: safe drop. This is GitHub/platform background, not a claim about bot behavior, developer acceptance, persona, autonomy, or workflow.
+
+2. Old v6 row: "I started in my high school actually... I had Python in my coursework..."
+   - v6 grade: weak / excluded
+   - v7 handling: not retained as evidence.
+   - Assessment: safe drop. Personal open-source origin story, not a distinct product signal for GitHub bot acceptance.
+
+3. Old v6 row: "we hosted a program called Winter of Code, which is a clone of Google Summer of Code..."
+   - v6 grade: weak / excluded
+   - v7 handling: not retained as evidence.
+   - Assessment: safe drop. Program logistics and participation background, not a bot-related need, objection, tool, or workflow.
+
+4. Old v6 row: "It's not a machine-learning algorithm that learns from a lot of data..."
+   - v6 grade: trusted / trusted
+   - nearest v7 row: "The attitude of bot because it's really pretty direct... it is not a machine learning algorithm... they are pretty much procedure... if-else statements..."
+   - Assessment: safe merge. The distinct signal is preserved, but folded into the stronger consolidated record about bots being procedural/direct rather than ML-like autonomous actors.
+
+5. Old v6 row: "The bot will be taking the literal meaning of that, it won't need to be more emotional..."
+   - v6 grade: trusted / trusted
+   - v7 handling: not retained as that exact sentence, but covered by:
+     - v7 emotional/politeness record: "If that's a human, I would be more careful in communicating... If that's a bot..."
+     - v7 contributor-emotion record: "I won't be involving the emotions of the contributor who sent the PR..."
+     - v7 language/rationale record: "it shouldn't be offensive... it should be polite... it should have a reason behind everything..."
+   - Assessment: safe merge, not a lost claim. The v7 set preserves the actual signal: bot communication is perceived as literal/non-emotional, so politeness, sensitivity, and rationale matter.
+
+**Risk check**
+
+The comparison did surface one category to watch: v6 trusted rows about emotional/literal interpretation had lower lexical overlap because v7 consolidated them into broader "bot tone / politeness / rationale" records. I checked those v7 records directly and the signal is present. I do not see a distinct need, objection, or tool dropped in the inspected sample.
+
+**Conclusion**
+
+The inspected removals are either weak background rows or merged into stronger v7 records. I think #99 is ready for Opus approval without another prompt change.
+
+### Codex - 2026-07-12 - #157 packet: weak grades stay pending, pending evidence stays visible
+
+Branch: `codex/157-grader-pending`, stacked on `origin/codex/99-review-pile` so the #157 review diff is isolated from the already-reviewed #99 consolidation.
+
+Implemented the #157 policy without bundling unrelated work:
+
+- `grade-evidence.ts`: removed AI auto-exclusion. `trusted` still auto-promotes to `trust_scope='trusted'` when context exists. `uncertain` and `weak` now both write/remain `trust_scope='pending'` with `trust_scope_source='pending'`, including prior AI-owned rows on re-grade. Human decisions remain locked under the existing guard.
+- Ask semantic retrieval (`query/evidence.ts`): `dualQueryEvidence` now requests `include_pending` instead of trusted-only, and all include-pending/all result sets are stable-sorted trusted first, pending second.
+- Ask structural linked evidence (`ask/structural-context.ts`): linked evidence loaded through the problem/theme/opportunity path already respected `include_pending`; now it also stable-sorts trusted before pending before handing records to Ask.
+- Ask prompt (`prompts/ask.ts`): each evidence block now exposes `Review status: trusted` or `Review status: needs human review, lower confidence than trusted evidence`, plus the AI grade hint for pending rows. The system prompt tells the model to use pending cautiously and prefer trusted evidence on conflicts.
+- Project synthesis (`synthesise-project.ts`, `prompts/synthesis.ts`): synthesis now reads non-excluded evidence instead of trusted-only evidence, ranks trusted ahead of pending, includes `TRUST_SCOPE` plus a pending review note in each evidence block, and bumps the prompt version to `project-synthesis-v2`. Output now reports `synthesis_evidence`, `trusted_evidence`, and `pending_evidence`.
+- Frame hygiene companion: settings/frame generation prompts no longer ask the model to write "provisional", "exploratory", or confidence-caveat language into the saved frame. `frame-draft.ts` now explicitly says to keep the frame factual and avoid those caveats.
+
+Re-grade trigger check:
+
+- I did not add a new trigger. Existing paths already cover recovery: `/api/admin/backfill-grades` queues `source/evidence.grading.requested`, and saving changed `research_context` in `/api/projects/[projectId]` re-queues grading for existing project sources.
+
+Validation:
+
+- `npm run type-check` passed.
+- `npm run test` passed (`check:agent-standards`, `check:transcript-turns`).
+- `npm run build` exited 0. It emitted the existing temp-worktree/no-env `supabaseUrl is required` static-generation noise on admin pages, plus existing Newsreader/Supabase Node 18 warnings. No #157 type/build failure.
+
+Not run:
+
+- No live re-grade, synthesis, or Ask run. This branch changes LLM/retrieval behavior, so I held live spend and data mutation for Opus/Jimmy approval. After merge, recommended recovery remains: re-grade affected project, run synthesis, then test Ask against the affected participant coverage.
+
+Review ask:
+
+- Please review that weak -> pending is correct in `grade-evidence.ts`.
+- Please review that Ask/synthesis pending inclusion is acceptable with trusted-first ranking and prompt labeling.
+- Please confirm no live recovery run should happen before this merges.

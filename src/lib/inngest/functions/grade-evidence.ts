@@ -357,10 +357,8 @@ export const gradeEvidence = inngest.createFunction(
             };
 
             // Auto-trust: promote pending or prior AI-owned records when we have
-            // real context. Human decisions stay locked.
-            // Auto-exclude: weak records are noise, dismiss them automatically so the
-            // review queue only shows uncertain items that genuinely need a human look.
-            // Never override evidence a user has already trusted, excluded, or disputed.
+            // real context. Human decisions stay locked. Weak and uncertain records
+            // remain pending so the system never silently hides evidence.
             const canApplyAiTrust =
               hasContext &&
               (record.trust_scope === "pending" || record.trust_scope_source === "ai");
@@ -368,10 +366,7 @@ export const gradeEvidence = inngest.createFunction(
               if (grade.grade === "trusted") {
                 updates.trust_scope = "trusted";
                 updates.trust_scope_source = "ai";
-              } else if (grade.grade === "weak") {
-                updates.trust_scope = "excluded";
-                updates.trust_scope_source = "ai";
-              } else if (record.trust_scope_source === "ai") {
+              } else {
                 updates.trust_scope = "pending";
                 updates.trust_scope_source = "pending";
               }
@@ -383,7 +378,6 @@ export const gradeEvidence = inngest.createFunction(
             else if (grade.grade === "uncertain") uncertain++;
             else {
               weak++;
-              if (canApplyAiTrust) autoExcluded++;
             }
           }
 

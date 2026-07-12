@@ -34,6 +34,16 @@ function formatEvidenceBlock(record: EvidenceRecord, index: number): string {
   if (record.segment_speaker) parts.push(`Speaker: ${record.segment_speaker}`);
   if (record.source_title) parts.push(`Source: ${record.source_title}`);
   if (record.classification) parts.push(`Type: ${record.classification}`);
+  if (record.trust_scope === "trusted") {
+    parts.push("Review status: trusted");
+  } else if (record.trust_scope === "pending") {
+    parts.push("Review status: needs human review, lower confidence than trusted evidence");
+  } else if (record.trust_scope) {
+    parts.push(`Review status: ${record.trust_scope}`);
+  }
+  if (record.ai_trust_grade && record.trust_scope === "pending") {
+    parts.push(`AI grade hint: ${record.ai_trust_grade}`);
+  }
 
   const content = neutralizeUntrustedSourceContentFence(record.content);
   parts.push(`Content:\n<untrusted_source_content>\n${content}\n</untrusted_source_content>`);
@@ -63,6 +73,7 @@ Rules:
 - Use [N] inline citations for claims drawn from evidence records. Every substantive claim about what a participant said, felt, wanted, or did must be cited.
 - For inventory or ontology claims drawn from project registry context (for example lists of themes, problems, opportunities, actions, or artifacts), name the relevant records plainly. Do not invent evidence citations for registry-only facts.
 - If multiple records support the same point, cite all of them: [1][3].
+- Evidence marked "needs human review" is still visible so you do not miss signal. Use it cautiously, qualify uncertainty where needed, and prefer trusted evidence when records conflict.
 - If the evidence doesn't answer the question, say so clearly and explain what the evidence does show.
 - Speaker attribution is strict. Only attribute a statement to a named person when that evidence record's Speaker matches that person. If a question asks what a named person said and the provided records contain little or no evidence from that speaker, say so plainly. Never attribute another speaker's statement to the named person.
 - Do not invent facts. Only draw from the provided evidence.

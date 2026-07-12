@@ -27,6 +27,7 @@ Guidelines:
 - hypothesis starts with "If we…" or "We believe that…"
 - Be concrete and specific. Reference what was actually said, not boilerplate PM phrases
 - Do not invent details not supported by the evidence
+- Keep the frame factual. Do not add confidence caveats such as "provisional" or "validate before confirmed"
 - Return only the JSON object. No markdown fences, no preamble
 
 PROJECT NAME:

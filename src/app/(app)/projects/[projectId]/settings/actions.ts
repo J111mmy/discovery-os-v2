@@ -223,7 +223,7 @@ function buildSettingsSuggestionPrompt(input: {
   return `
 Draft editable project settings for the "${input.projectName}" discovery project.
 
-Use the evidence and synthesis below. Trusted evidence is stronger than pending evidence. Pending evidence can be used for provisional suggestions, but do not overstate confidence. Do not invent customer facts, buyers, market claims, or outcomes. If the evidence is thin, write the settings as exploratory.
+Use the evidence and synthesis below. Trusted evidence is stronger than pending evidence. Pending evidence can inform suggestions, but do not overstate certainty. Do not invent customer facts, buyers, market claims, or outcomes. If the evidence is thin, keep the settings concise and factual rather than adding confidence caveats.
 
 Return only valid JSON with this exact shape:
 {
@@ -266,7 +266,7 @@ function buildFramePrompt(input: {
   return `
 Draft a concise project frame for the "${input.projectName}" discovery project.
 
-Use the trusted evidence, themes, and known problems below. Do not invent customer facts. If the evidence is thin, write a frame that is explicitly exploratory.
+Use the trusted evidence, themes, and known problems below. Do not invent customer facts. If the evidence is thin, write a concise factual frame from what is known rather than adding confidence caveats.
 
 Return plain text only with these exact section headings:
 

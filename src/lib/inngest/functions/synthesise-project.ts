@@ -1,4 +1,4 @@
-// Project synthesis — clusters trusted evidence into reusable themes.
+// Project synthesis — clusters visible evidence into reusable themes.
 
 import { z } from "zod";
 import { NonRetriableError } from "inngest";
@@ -15,7 +15,7 @@ import {
   loadInternalEvidenceGuardContext,
 } from "@/lib/evidence/internal";
 
-type TrustedEvidence = {
+type SynthesisEvidence = {
   id: string;
   source_id: string | null;
   segment_id: string | null;
@@ -23,6 +23,8 @@ type TrustedEvidence = {
   summary: string | null;
   classification: string | null;
   sentiment: string | null;
+  trust_scope: string | null;
+  ai_trust_grade?: string | null;
   source_type?: string | null;
   segment_speaker?: string | null;
 };
@@ -116,11 +118,30 @@ function formatExistingThemes(themes: ThemeContext[]) {
     .join("\n");
 }
 
-function formatEvidenceBatch(evidence: TrustedEvidence[]) {
+function synthesisTrustRank(record: SynthesisEvidence) {
+  if (record.trust_scope === "trusted") return 0;
+  if (record.trust_scope === "pending") return 1;
+  if (record.trust_scope === "disputed") return 2;
+  return 3;
+}
+
+function rankSynthesisEvidence(records: SynthesisEvidence[]) {
+  return records
+    .map((record, index) => ({ record, index }))
+    .sort((a, b) => synthesisTrustRank(a.record) - synthesisTrustRank(b.record) || a.index - b.index)
+    .map(({ record }) => record);
+}
+
+function formatEvidenceBatch(evidence: SynthesisEvidence[]) {
   return evidence
     .map((record) =>
       [
         `ID: ${record.id}`,
+        `TRUST_SCOPE: ${record.trust_scope ?? "unknown"}`,
+        record.trust_scope === "pending"
+          ? "REVIEW_NOTE: needs human review, lower-confidence than trusted evidence"
+          : null,
+        record.ai_trust_grade ? `AI_GRADE_HINT: ${record.ai_trust_grade}` : null,
         record.classification ? `CLASSIFICATION: ${record.classification}` : null,
         record.sentiment ? `SENTIMENT: ${record.sentiment}` : null,
         record.summary ? `SUMMARY: ${record.summary}` : null,
@@ -202,18 +223,20 @@ export const synthesiseProject = inngest.createFunction(
       });
 
       const {
-        trustedEvidence,
+        synthesisEvidence,
         allProjectEvidenceIds,
         existingThemes,
         internalEvidenceExcluded,
       } = await step.run("fetch-context", async () => {
-        const [trustedResult, allEvidenceResult, themesResult] = await Promise.all([
+        const [evidenceResult, allEvidenceResult, themesResult] = await Promise.all([
           supabase
             .from("evidence")
-            .select("id, source_id, segment_id, content, summary, classification, sentiment")
+            .select(
+              "id, source_id, segment_id, content, summary, classification, sentiment, trust_scope, ai_trust_grade"
+            )
             .eq("org_id", org_id)
             .eq("project_id", project_id)
-            .eq("trust_scope", "trusted")
+            .neq("trust_scope", "excluded")
             .order("created_at", { ascending: true }),
           supabase
             .from("evidence")
@@ -228,8 +251,8 @@ export const synthesiseProject = inngest.createFunction(
             .limit(200),
         ]);
 
-        if (trustedResult.error) {
-          throw new Error(`Failed to fetch trusted evidence: ${trustedResult.error.message}`);
+        if (evidenceResult.error) {
+          throw new Error(`Failed to fetch synthesis evidence: ${evidenceResult.error.message}`);
         }
         if (allEvidenceResult.error) {
           throw new Error(`Failed to fetch project evidence IDs: ${allEvidenceResult.error.message}`);
@@ -238,20 +261,22 @@ export const synthesiseProject = inngest.createFunction(
           throw new Error(`Failed to fetch themes: ${themesResult.error.message}`);
         }
 
-        const allTrustedEvidence = (trustedResult.data ?? []) as TrustedEvidence[];
+        const allSynthesisEvidence = rankSynthesisEvidence(
+          (evidenceResult.data ?? []) as SynthesisEvidence[]
+        );
 
         // Exclude internal-speaker evidence (interviewer/team turns) from synthesis
         // inputs, mirroring discover-problems.ts. Themes are the root of the
         // ontology chain (themes -> problems -> opportunities/Ask), so filtering
         // downstream agents but not synthesis left internal speech quoted as
         // customer evidence baked into every theme (issue #36).
-        let filteredTrustedEvidence = allTrustedEvidence;
-        if (allTrustedEvidence.length > 0) {
+        let filteredSynthesisEvidence = allSynthesisEvidence;
+        if (allSynthesisEvidence.length > 0) {
           const sourceIds = Array.from(
-            new Set(allTrustedEvidence.map((row) => row.source_id).filter((id): id is string => Boolean(id)))
+            new Set(allSynthesisEvidence.map((row) => row.source_id).filter((id): id is string => Boolean(id)))
           );
           const segmentIds = Array.from(
-            new Set(allTrustedEvidence.map((row) => row.segment_id).filter((id): id is string => Boolean(id)))
+            new Set(allSynthesisEvidence.map((row) => row.segment_id).filter((id): id is string => Boolean(id)))
           );
           const [sourcesResult, segmentsResult, internalGuardContext] = await Promise.all([
             sourceIds.length > 0
@@ -292,32 +317,43 @@ export const synthesiseProject = inngest.createFunction(
             ])
           );
 
-          for (const row of allTrustedEvidence) {
+          for (const row of allSynthesisEvidence) {
             row.source_type = row.source_id ? sourceTypeById.get(row.source_id) ?? null : null;
             row.segment_speaker = row.segment_id ? segmentSpeakerById.get(row.segment_id) ?? null : null;
           }
 
-          filteredTrustedEvidence = filterInternalEvidence(allTrustedEvidence, internalGuardContext);
+          filteredSynthesisEvidence = rankSynthesisEvidence(
+            filterInternalEvidence(allSynthesisEvidence, internalGuardContext)
+          );
         }
 
         return {
-          trustedEvidence: filteredTrustedEvidence,
+          synthesisEvidence: filteredSynthesisEvidence,
           allProjectEvidenceIds: ((allEvidenceResult.data ?? []) as Array<{ id: string }>).map(
             (record) => record.id
           ),
           existingThemes: (themesResult.data ?? []) as ThemeContext[],
-          internalEvidenceExcluded: allTrustedEvidence.length - filteredTrustedEvidence.length,
+          internalEvidenceExcluded: allSynthesisEvidence.length - filteredSynthesisEvidence.length,
         };
       });
 
-      if (trustedEvidence.length === 0) {
+      const trustedEvidenceCount = synthesisEvidence.filter(
+        (record) => record.trust_scope === "trusted"
+      ).length;
+      const pendingEvidenceCount = synthesisEvidence.filter(
+        (record) => record.trust_scope === "pending"
+      ).length;
+
+      if (synthesisEvidence.length === 0) {
         await step.run("complete-empty", async () => {
           await completeRun({
             agentRunId,
             org_id,
             project_id,
             output: {
+              synthesis_evidence: 0,
               trusted_evidence: 0,
+              pending_evidence: 0,
               themes_created: 0,
               links_created: 0,
               internal_evidence_excluded: internalEvidenceExcluded,
@@ -325,14 +361,16 @@ export const synthesiseProject = inngest.createFunction(
           });
         });
         return {
+          synthesis_evidence: 0,
           trusted_evidence: 0,
+          pending_evidence: 0,
           themes_created: 0,
           links_created: 0,
           internal_evidence_excluded: internalEvidenceExcluded,
         };
       }
 
-      const batches = chunk(trustedEvidence, PROJECT_SYNTHESIS_EVIDENCE_PER_BATCH);
+      const batches = chunk(synthesisEvidence, PROJECT_SYNTHESIS_EVIDENCE_PER_BATCH);
       const themes: z.infer<typeof SynthesisedThemeSchema>[] = [];
       const models = new Set<string>();
       let droppedThemes = 0;
@@ -356,7 +394,7 @@ export const synthesiseProject = inngest.createFunction(
                 tier: "premium",
                 maxTokens: PROJECT_SYNTHESIS_BATCH_MAX_TOKENS,
                 system:
-                  "You cluster trusted research evidence into concise themes. Return strict JSON only.",
+                  "You cluster visible research evidence into concise themes. Return strict JSON only.",
                 messages: [
                   {
                     role: "user",
@@ -418,7 +456,7 @@ export const synthesiseProject = inngest.createFunction(
       };
 
       const output = await step.run("write-themes", async () => {
-        const allowedEvidenceIds = new Set(trustedEvidence.map((record) => record.id));
+        const allowedEvidenceIds = new Set(synthesisEvidence.map((record) => record.id));
         const touchedThemeIds = new Set<string>();
         let linksCreated = 0;
 
@@ -443,9 +481,9 @@ export const synthesiseProject = inngest.createFunction(
           }))
           .filter((theme) => theme.label && theme.evidenceIds.length > 0);
 
-        if (writeableThemes.length === 0 && trustedEvidence.length > 0) {
+        if (writeableThemes.length === 0 && synthesisEvidence.length > 0) {
           throw new Error(
-            `Synthesis produced no writeable themes from ${trustedEvidence.length} trusted ` +
+            `Synthesis produced no writeable themes from ${synthesisEvidence.length} visible ` +
               `evidence records (parsed ${synthesis.themes.length}, dropped ${synthesis.dropped_themes}). ` +
               `Failing closed to preserve existing theme links rather than clearing them.`
           );
@@ -501,7 +539,7 @@ export const synthesiseProject = inngest.createFunction(
             source: "ai",
             review_state: "suggested",
             confidence: null,
-            rationale: "Linked by project synthesis from trusted evidence.",
+            rationale: "Linked by project synthesis from visible evidence.",
             agent_run_id: agentRunId,
           }));
 
@@ -556,7 +594,9 @@ export const synthesiseProject = inngest.createFunction(
         }
 
         return {
-          trusted_evidence: trustedEvidence.length,
+          synthesis_evidence: synthesisEvidence.length,
+          trusted_evidence: trustedEvidenceCount,
+          pending_evidence: pendingEvidenceCount,
           internal_evidence_excluded: internalEvidenceExcluded,
           themes_created: touchedThemeIds.size,
           themes_parsed: synthesis.themes.length,
