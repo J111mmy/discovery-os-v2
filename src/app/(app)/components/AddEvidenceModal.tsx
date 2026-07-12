@@ -353,6 +353,14 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
       setJobId(data.job_id);
       setSourceId(data.source_id ?? null);
       setJobStatus("processing");
+      // Job is dispatched — hand off to the page-level progress indicator
+      // and close immediately. Rail renders a separate modal instance per
+      // collapsed/expanded layout, so lingering open risks that a later
+      // collapse toggle mounts a fresh instance and resets to the blank
+      // form mid-ingest (#154). Polling above keeps running in the
+      // background regardless of visibility, so router.refresh() on
+      // completion still fires.
+      onClose();
     } catch {
       setSubmitError("Network error. Please try again.");
       ingestInFlightRef.current = false;
