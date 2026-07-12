@@ -9403,3 +9403,49 @@ Weak auto-exclude sample looked safe:
 - Please review the prompt change in `ingest.ts`.
 - Please confirm you are comfortable that the no-write bots validation is enough for #99, or tell me to run a live re-ingest on a disposable/test source.
 - If approved, I will commit as `fix(ingest): reduce evidence review pile (#99)` and push the branch.
+
+### Codex - 2026-07-12 - #99 addendum: removed-record spot-check for Opus
+
+Opus asked for the missing content check before approving #99: show that rows present in the old v6/live 83-record set but absent as separate rows in the v7 set are redundancy or low-signal, not lost distinct claims.
+
+I reran v7 extraction only, no writes, against the same source (`Participant 2 - Interview - anonymized`, `8de0ca44-ddf7-467d-bc5b-b7bf6aebe053`) using the same stored 108 conversation units. This second no-write run produced 42 extracted records, consistent with the prior 43-record dry-run. Extraction-only estimated cost: `$0.229583`.
+
+I then compared the 83 live v6 rows to the 42 v7 rows using lexical nearest-neighbor matching and manually inspected low-overlap rows plus one trusted-risk candidate.
+
+**Spot-check sample**
+
+1. Old v6 row: "it is used by more than one twenty organizations, companies like Google, Facebook, Mozilla..."
+   - v6 grade: weak / excluded
+   - v7 handling: not retained as evidence.
+   - Assessment: safe drop. This is GitHub/platform background, not a claim about bot behavior, developer acceptance, persona, autonomy, or workflow.
+
+2. Old v6 row: "I started in my high school actually... I had Python in my coursework..."
+   - v6 grade: weak / excluded
+   - v7 handling: not retained as evidence.
+   - Assessment: safe drop. Personal open-source origin story, not a distinct product signal for GitHub bot acceptance.
+
+3. Old v6 row: "we hosted a program called Winter of Code, which is a clone of Google Summer of Code..."
+   - v6 grade: weak / excluded
+   - v7 handling: not retained as evidence.
+   - Assessment: safe drop. Program logistics and participation background, not a bot-related need, objection, tool, or workflow.
+
+4. Old v6 row: "It's not a machine-learning algorithm that learns from a lot of data..."
+   - v6 grade: trusted / trusted
+   - nearest v7 row: "The attitude of bot because it's really pretty direct... it is not a machine learning algorithm... they are pretty much procedure... if-else statements..."
+   - Assessment: safe merge. The distinct signal is preserved, but folded into the stronger consolidated record about bots being procedural/direct rather than ML-like autonomous actors.
+
+5. Old v6 row: "The bot will be taking the literal meaning of that, it won't need to be more emotional..."
+   - v6 grade: trusted / trusted
+   - v7 handling: not retained as that exact sentence, but covered by:
+     - v7 emotional/politeness record: "If that's a human, I would be more careful in communicating... If that's a bot..."
+     - v7 contributor-emotion record: "I won't be involving the emotions of the contributor who sent the PR..."
+     - v7 language/rationale record: "it shouldn't be offensive... it should be polite... it should have a reason behind everything..."
+   - Assessment: safe merge, not a lost claim. The v7 set preserves the actual signal: bot communication is perceived as literal/non-emotional, so politeness, sensitivity, and rationale matter.
+
+**Risk check**
+
+The comparison did surface one category to watch: v6 trusted rows about emotional/literal interpretation had lower lexical overlap because v7 consolidated them into broader "bot tone / politeness / rationale" records. I checked those v7 records directly and the signal is present. I do not see a distinct need, objection, or tool dropped in the inspected sample.
+
+**Conclusion**
+
+The inspected removals are either weak background rows or merged into stronger v7 records. I think #99 is ready for Opus approval without another prompt change.
