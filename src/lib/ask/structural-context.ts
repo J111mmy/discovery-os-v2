@@ -89,6 +89,20 @@ function trustScopesFor(filter: TrustScope | "include_pending" | "all") {
   return [filter];
 }
 
+function trustScopeRank(record: EvidenceRecord) {
+  if (record.trust_scope === "trusted") return 0;
+  if (record.trust_scope === "pending") return 1;
+  if (record.trust_scope === "disputed") return 2;
+  return 3;
+}
+
+function downWeightPendingEvidence(records: EvidenceRecord[]) {
+  return records
+    .map((record, index) => ({ record, index }))
+    .sort((a, b) => trustScopeRank(a.record) - trustScopeRank(b.record) || a.index - b.index)
+    .map(({ record }) => record);
+}
+
 function addUniqueId(target: string[], seen: Set<string>, value: string | null | undefined) {
   if (!value || seen.has(value)) return;
   seen.add(value);
@@ -241,10 +255,13 @@ async function loadEvidenceRecordsByIds(input: {
     }
   }
 
-  return filterInternalEvidence(
+  const visibleRecords = filterInternalEvidence(
     filterAdjacentProjectHintedEvidence(records),
     internalGuardContext
   );
+  return trust_scope === "include_pending" || trust_scope === "all"
+    ? downWeightPendingEvidence(visibleRecords)
+    : visibleRecords;
 }
 
 async function collectThemeEvidenceIds(input: {

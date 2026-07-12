@@ -9,8 +9,7 @@
 //   - Grades records in batches of 20 (cheap tier — cost-efficient)
 //   - Writes ai_trust_grade + ai_trust_reason + ai_graded_at to each record
 //   - Auto-sets trust_scope = 'trusted' for 'trusted' grade records
-//   - Auto-sets trust_scope = 'excluded' for 'weak' grade records
-//   - Leaves only 'uncertain' records as 'pending' for user review
+//   - Leaves 'uncertain' and 'weak' records as 'pending' for user review
 //   - If no research_context is set, grades all records as 'uncertain' (conservative)
 //   - Idempotent: safe to re-run — overwrites previous grades for this source
 
@@ -358,10 +357,8 @@ export const gradeEvidence = inngest.createFunction(
             };
 
             // Auto-trust: promote pending or prior AI-owned records when we have
-            // real context. Human decisions stay locked.
-            // Auto-exclude: weak records are noise, dismiss them automatically so the
-            // review queue only shows uncertain items that genuinely need a human look.
-            // Never override evidence a user has already trusted, excluded, or disputed.
+            // real context. Human decisions stay locked. Weak and uncertain records
+            // remain pending so the system never silently hides evidence.
             const canApplyAiTrust =
               hasContext &&
               (record.trust_scope === "pending" || record.trust_scope_source === "ai");
@@ -369,10 +366,7 @@ export const gradeEvidence = inngest.createFunction(
               if (grade.grade === "trusted") {
                 updates.trust_scope = "trusted";
                 updates.trust_scope_source = "ai";
-              } else if (grade.grade === "weak") {
-                updates.trust_scope = "excluded";
-                updates.trust_scope_source = "ai";
-              } else if (record.trust_scope_source === "ai") {
+              } else {
                 updates.trust_scope = "pending";
                 updates.trust_scope_source = "pending";
               }
@@ -384,7 +378,6 @@ export const gradeEvidence = inngest.createFunction(
             else if (grade.grade === "uncertain") uncertain++;
             else {
               weak++;
-              if (canApplyAiTrust) autoExcluded++;
             }
           }
 

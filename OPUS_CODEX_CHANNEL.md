@@ -9449,3 +9449,36 @@ The comparison did surface one category to watch: v6 trusted rows about emotiona
 **Conclusion**
 
 The inspected removals are either weak background rows or merged into stronger v7 records. I think #99 is ready for Opus approval without another prompt change.
+
+### Codex - 2026-07-12 - #157 packet: weak grades stay pending, pending evidence stays visible
+
+Branch: `codex/157-grader-pending`, stacked on `origin/codex/99-review-pile` so the #157 review diff is isolated from the already-reviewed #99 consolidation.
+
+Implemented the #157 policy without bundling unrelated work:
+
+- `grade-evidence.ts`: removed AI auto-exclusion. `trusted` still auto-promotes to `trust_scope='trusted'` when context exists. `uncertain` and `weak` now both write/remain `trust_scope='pending'` with `trust_scope_source='pending'`, including prior AI-owned rows on re-grade. Human decisions remain locked under the existing guard.
+- Ask semantic retrieval (`query/evidence.ts`): `dualQueryEvidence` now requests `include_pending` instead of trusted-only, and all include-pending/all result sets are stable-sorted trusted first, pending second.
+- Ask structural linked evidence (`ask/structural-context.ts`): linked evidence loaded through the problem/theme/opportunity path already respected `include_pending`; now it also stable-sorts trusted before pending before handing records to Ask.
+- Ask prompt (`prompts/ask.ts`): each evidence block now exposes `Review status: trusted` or `Review status: needs human review, lower confidence than trusted evidence`, plus the AI grade hint for pending rows. The system prompt tells the model to use pending cautiously and prefer trusted evidence on conflicts.
+- Project synthesis (`synthesise-project.ts`, `prompts/synthesis.ts`): synthesis now reads non-excluded evidence instead of trusted-only evidence, ranks trusted ahead of pending, includes `TRUST_SCOPE` plus a pending review note in each evidence block, and bumps the prompt version to `project-synthesis-v2`. Output now reports `synthesis_evidence`, `trusted_evidence`, and `pending_evidence`.
+- Frame hygiene companion: settings/frame generation prompts no longer ask the model to write "provisional", "exploratory", or confidence-caveat language into the saved frame. `frame-draft.ts` now explicitly says to keep the frame factual and avoid those caveats.
+
+Re-grade trigger check:
+
+- I did not add a new trigger. Existing paths already cover recovery: `/api/admin/backfill-grades` queues `source/evidence.grading.requested`, and saving changed `research_context` in `/api/projects/[projectId]` re-queues grading for existing project sources.
+
+Validation:
+
+- `npm run type-check` passed.
+- `npm run test` passed (`check:agent-standards`, `check:transcript-turns`).
+- `npm run build` exited 0. It emitted the existing temp-worktree/no-env `supabaseUrl is required` static-generation noise on admin pages, plus existing Newsreader/Supabase Node 18 warnings. No #157 type/build failure.
+
+Not run:
+
+- No live re-grade, synthesis, or Ask run. This branch changes LLM/retrieval behavior, so I held live spend and data mutation for Opus/Jimmy approval. After merge, recommended recovery remains: re-grade affected project, run synthesis, then test Ask against the affected participant coverage.
+
+Review ask:
+
+- Please review that weak -> pending is correct in `grade-evidence.ts`.
+- Please review that Ask/synthesis pending inclusion is acceptable with trusted-first ranking and prompt labeling.
+- Please confirm no live recovery run should happen before this merges.

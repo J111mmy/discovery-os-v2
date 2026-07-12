@@ -29,6 +29,20 @@ export interface EvidenceQueryResult {
   query: string;
 }
 
+function trustScopeRank(record: EvidenceRecord) {
+  if (record.trust_scope === "trusted") return 0;
+  if (record.trust_scope === "pending") return 1;
+  if (record.trust_scope === "disputed") return 2;
+  return 3;
+}
+
+function downWeightPendingEvidence(records: EvidenceRecord[]) {
+  return records
+    .map((record, index) => ({ record, index }))
+    .sort((a, b) => trustScopeRank(a.record) - trustScopeRank(b.record) || a.index - b.index)
+    .map(({ record }) => record);
+}
+
 export async function queryEvidence(
   opts: EvidenceQueryOptions
 ): Promise<EvidenceQueryResult> {
@@ -93,7 +107,7 @@ export async function queryEvidence(
         : [];
 
     const seen = new Set<string>();
-    records = [...semanticSpeakerRecords, ...directSpeakerRecords]
+    records = downWeightPendingEvidence([...semanticSpeakerRecords, ...directSpeakerRecords])
       .filter((record) => {
         if (!record.id || seen.has(record.id)) return false;
         seen.add(record.id);
@@ -101,6 +115,9 @@ export async function queryEvidence(
       })
       .slice(0, limit);
   } else {
+    if (trust_scope === "include_pending" || trust_scope === "all") {
+      records = downWeightPendingEvidence(records);
+    }
     records = records.slice(0, limit);
   }
 
@@ -283,8 +300,8 @@ export async function dualQueryEvidence(opts: {
   const { org_id, project_id, project_name, prompt, limit = 18 } = opts;
 
   const [semantic, broad] = await Promise.all([
-    queryEvidence({ org_id, project_id, q: prompt, limit, trust_scope: "trusted" }),
-    queryEvidence({ org_id, project_id, q: project_name, limit: 10, trust_scope: "trusted" }),
+    queryEvidence({ org_id, project_id, q: prompt, limit, trust_scope: "include_pending" }),
+    queryEvidence({ org_id, project_id, q: project_name, limit: 10, trust_scope: "include_pending" }),
   ]);
 
   const seen = new Set<string>();
@@ -298,5 +315,5 @@ export async function dualQueryEvidence(opts: {
     }
   }
 
-  return merged;
+  return downWeightPendingEvidence(merged);
 }
