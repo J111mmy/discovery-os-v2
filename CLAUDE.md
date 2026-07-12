@@ -12,13 +12,20 @@ The full specification is in `Discovery-OS-v2-PRD-final.docx` (in the parent Dis
 
 **North star:** *Traceability is the product.* Every useful output is beautiful, specific, and traceable back to the exact evidence: a claim in any artifact links to the exact sentence a person said, in the exact source, with the exact anchor. We are the trust layer between an organisation's raw signal and everything it produces from it.
 
-**Current focus (updated 2026-06-26):** **Quality before billing** still holds (billing PARKED). The active arc is the **workspace + document experience** becoming the product:
-- **Workspace = outcome engine (#90):** the Overview assesses whether the project's outcome (from the frame) is met and what is left to close it. Phase 1 (`assess-outcome` agent + `projects.outcome_assessment`) and Phase 2 (Overview UI) shipped. Next: UX polish (it is dense — wants expand/collapse showing only the verdict by default) and purge em-dashes from its output.
-- **Document showpiece (#78/#84):** live citation/trust layer on artifacts shipped; artifact-library crisp-up + standard-kit (have-vs-missing, evidence-gated) next.
-- **Opportunity generation (#83):** now WORKS — was always dying on the Hobby 60s cap; now chunked into sub-60s Inngest steps. Reachable via the new workspace tabs (#87, project name links to the workspace; chain lives as tabs).
-- **Open queue:** #85 compose citation quality (theme-id leak), #86 H3 styling, evidence Group-by trim, cost-telemetry view (#52 shipped), per-org spend caps (#72), #107 (two unreconciled Settings surfaces, duplicate Team/Billing), #108 (extend prompt caching past ingest-extraction), #109 (context-window grading, not urgent).
-- **P0 in flight (2026-06-28, with Codex):** `synthesise-project.ts` writes evidence-theme links to the deprecated `evidence_themes` table instead of `theme_evidence` — every theme since migration 0030 shows 0 evidence/0 problems. See §7 Schema rules. Fix scoped to one file; no backfill needed (current projects are all test candidates).
-- **Parked:** Stripe billing epic + self-serve onboarding (revisit only by conscious decision once quality holds).
+**Current focus (updated 2026-07-10):** **Quality before billing** still holds (billing PARKED). Two arcs are live:
+
+**Arc 1 — intake correctness + cost-safety (largely DONE):** the cost/timeout war is won (`AGENT_STANDARDS.md` + the CI guard; six-surface bounding). The intake-*correctness* cluster shipped and is verified: #128 dynamic LLM-assisted speaker detection, #36 internal-speaker evidence filter, #50 auto-detect source type, #133 access-gate fail-mode, #137 ingest zero-evidence dead-end. Remaining intake-*quality*: #99 (over-extraction / review-pile), #39/#40 (junk entities). Design piece: #138 (source-type-aware intake — internal meetings produce their own signal, cost-bounded via routing).
+
+**Arc 2 — PRODUCTION-READINESS GATES (new, 2026-07-10, from two independent assessments — Fable perf, Sol security). Tracked in epic #153 + milestone "Production Readiness — Launch Gates".** ⚠️ **Honest status: DiscOS is a strong, well-architected PILOT foundation, NOT production-ready for unrestricted external onboarding with sensitive customer data.** Supervised pilots are fine; opening the doors to real business customers is GATED on the #153 checklist:
+- **Security (launch-blocking):** Next.js patch to **14.2.34+** (critical middleware-bypass CVE; MINOR non-breaking, NOT v15) #143; `org_members` admin→owner privesc #144; prompt-injection durable-data poisoning (fence all untrusted+derived fields) #145; raw-content-to-provider in prescan (§6) #146; web hardening (headers/SSRF/open-redirect) #147; resource-exhaustion + per-org quotas #151 (absorbs #72).
+- **Data integrity (launch-blocking):** transactional artifact-versioning / ingest-retry / synthesis / source-deletion #148 (extends #103). Silent provenance loss is a blocker for a trust product, not a nit.
+- **Tenant isolation proof:** composite integrity constraints + permanent two-tenant CI suite across all 52 tables #149.
+- **Testing/CI backbone:** real test suite + CI + ESLint config #150.
+- **Perf/ops:** authenticated performance is UNMEASURED. Order: instrumentation first (#139), then access-decision cache (#140), then list-aggregate/pagination (Sol: per-TENANT size drives this — one 5k-evidence tenant breaches now). Staging #33, recovery readiness #152, scaling triggers #141. Standard: `docs/architecture/PERFORMANCE_STANDARDS.md`.
+
+**Cheapest high-value first:** #143 (Next patch) → #144 (privesc) → #148 (data-loss) → #139 (instrument). All security/RLS/migration items are §0-gated (Codex implements, Opus reviews, Jimmy runs SQL).
+
+**Parked:** Stripe billing epic + self-serve onboarding (revisit only once quality holds AND the #153 gates clear). North star (traceability) unchanged; Arc 2 makes it *trustworthy at the door*.
 
 **Structure law:** the research ontology is DECIDED and canonical: `Source → Segment → Evidence → Topics → Themes → Problems → {Opportunities, Actions, Artifacts}`. Read `docs/architecture/ONTOLOGY.md` before touching anything that creates, labels, groups, or renders evidence, topics, themes, problems, opportunities, actions, or artifacts. The three hard rules: (1) Topic ≠ Theme ≠ Tag, never merge them; (2) Problems are evidence-backed and earned, never inherited or invented; (3) Opportunities/Actions/Artifacts are siblings, not a chain. If a layer looks redundant, you are missing context, re-read ONTOLOGY.md before acting.
 
@@ -344,8 +351,8 @@ The seven agents and their Inngest event triggers:
 
 This product ingests highly confidential data: sales call recordings, internal strategy sessions, customer interviews.
 
-- **PII redaction runs before any LLM call.** `raw_content` is never sent to any external API. Only `redacted_content` is passed to Claude or embedding models.
-- **Always `WHERE org_id = ?`** — never trust `project_id` alone. RLS enforces this at the DB layer. Application code enforces it too.
+- **PII redaction is the GOAL, not the current guarantee.** ⚠️ **KNOWN VIOLATION (independent security review, 2026-07-10, launch gate #146) — do NOT rely on "raw content never reaches a provider" as true today:** the ingest **prescan** sends up to **12,000 raw characters** to the LLM provider for speaker/type detection (`src/lib/ingest/prescan.ts`), and the redactor (`pii.ts`) only covers email/phone/NI/card-like/token-URLs — it does **not** remove names, addresses, employers, account identifiers, or ordinary confidential business content. This breaks the §22 prohibition below. Before sensitive customer use: redact (or get explicit customer disclosure) before EVERY provider call, document Anthropic/OpenAI ZDR / no-train / DPA / residency terms (#73), tests proving raw content cannot reach a provider unintentionally.
+- **Always `WHERE org_id = ?`** — never trust `project_id` alone. RLS enforces this at the DB layer. Application code enforces it too. ⚠️ **Tenant isolation is architecturally sound but NOT proven safe to sign off (2026-07-10, gates #144/#149):** the `org_members` RLS (`0012`) lets an admin directly promote themselves/others to `owner` (privilege escalation); relationships lack composite `org_id`/`project_id` integrity constraints; service-role jobs bypass RLS; no permanent two-tenant CI suite. See the launch-gates epic #153.
 - **Entity names (people, companies) are NOT redacted** — they are the primary entity extraction signal. Redact high-risk PII tokens only (phone numbers, emails, ID numbers).
 
 ---
