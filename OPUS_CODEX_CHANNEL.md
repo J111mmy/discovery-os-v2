@@ -9303,3 +9303,103 @@ Jimmy routed #133 as P0 auth-path work. Built on branch `codex/133-access-gate-h
 - Please review the new neutral page copy and route.
 - Please review `0039_access_gate_hot_path.sql` before Jimmy applies it.
 - After approval, Jimmy applies SQL and merges the branch.
+
+### Codex - 2026-07-12 - #99 review-pile reduction ready for Opus review
+
+Jimmy routed #99 as a precision/recall-sensitive quality fix. Built in separate worktree `/private/tmp/discos-99-review-pile` on branch `codex/99-review-pile`. No unrelated files bundled.
+
+**Problem**
+
+- Bots interviews were creating too many evidence rows, which inflated manual review and downstream spend.
+- The issue called for two levers:
+  1. Extraction volume: consolidate near-duplicate fragments into fewer, higher-signal records.
+  2. Grading buckets: trusted goes trusted, weak goes excluded, only uncertain stays pending.
+
+**Code diff**
+
+- `src/lib/llm/prompts/ingest.ts`
+  - Bumps `INGEST_EXTRACTION_PROMPT_VERSION` from `ingest-extraction-v6` to `ingest-extraction-v7`.
+  - Changes extraction from "every discrete claim" and "as many claims as the content supports" to "the smallest set of records that preserves all distinct substantive signals."
+  - Explicitly tells the model to merge adjacent sentences or turns inside a conversation unit when they repeat, clarify, or extend the same point.
+  - Explicitly tells the model to avoid duplicating the same point across nearby units and keep only the clearest unit.
+  - Keeps the important guardrail: distinct needs, workflows, objections, decisions, tools, and outcomes stay separate.
+- `src/lib/inngest/functions/grade-evidence.ts`
+  - No behavior change. Main already implements Lever 2: weak records are auto-excluded when research context exists and the evidence is AI-owned or pending.
+  - Updated the stale header comment so it no longer says weak remains pending.
+
+**Read-only/live baseline**
+
+- Bots project: `bdbe24a2-3384-44c1-9cfb-57d3c2a0a610`, "Developer acceptance or rejection of GitHub bots".
+- Project `research_context`: present.
+- Current full-project evidence distribution:
+  - total evidence: 576
+  - trusted: 254
+  - pending: 154
+  - excluded: 168
+  - ai_trust_grade trusted: 254
+  - ai_trust_grade uncertain: 154
+  - ai_trust_grade weak: 168
+- Validation source selected because it is the heaviest current source:
+  - source: `8de0ca44-ddf7-467d-bc5b-b7bf6aebe053`
+  - title: `Participant 2 - Interview - anonymized`
+  - stored conversation units: 108
+  - current live evidence for this source: 83 total, 34 trusted, 20 pending, 29 excluded
+  - current AI grades for this source: 34 trusted, 20 uncertain, 29 weak
+
+**No-write validation**
+
+I did not mutate source/evidence data. I ran a no-write dry-run using the stored `source_segments`, the new v7 extraction prompt, the same batch size of 8 conversation units, then graded the extracted dry-run records with the existing cheap evidence grader.
+
+After dry-run on the same Participant 2 source:
+
+- extracted evidence records: 43, down from 83 live records
+- needs-review records: 12, down from 20 live pending records
+- trusted records: 26
+- weak records: 5, which would be auto-excluded under the existing bucket behavior
+- missing grade results: 0
+
+Reduction:
+
+- evidence volume: 83 to 43, about 48 percent fewer records
+- review pile: 20 to 12, about 40 percent fewer pending items
+- weak/noise pile: 29 live weak records to 5 dry-run weak records
+
+Cost and timing of the dry-run:
+
+- extraction: 14 LLM calls, `claude-sonnet-4-6`, estimated `$0.231955`
+- grading: 3 LLM calls, `claude-haiku-4-5-20251001`, estimated `$0.013859`
+- total validation estimate: `$0.245814`
+- max extraction batch duration observed: 18.4s
+- max grading batch duration observed: 7.5s
+
+**Spot-check**
+
+Trusted retained real signal:
+
+- Bot as reviewer: participant describes a bot commenting on PR changes and replacing part of reviewer work.
+- Reviewer workload: participant says bots reduce reviewer comment burden and shorten review schedules for newcomer PRs.
+- Human gate: participant says the bot becomes one reviewer, while more approvals are still needed before merge.
+- Bot predictability: participant describes bots as procedural, direct, and close to if/else behavior rather than ML-like judgement.
+
+Uncertain still looks review-worthy, not throwaway:
+
+- Bot test failures and company priorities: relevant to automation boundaries, but the quote is tangled.
+- Bot rationale requirement: relevant to acceptance, but needs human review because the reason/decision context is partially unclear.
+
+Weak auto-exclude sample looked safe:
+
+- "We are learning something, and we are also contributing to something, right?" was graded weak for being too vague.
+- A content-moderation aside was graded weak because it lacked a clear link to the project frame.
+- "Okay, without any review, without any comments on the PR?" was graded weak as an unclear fragment.
+- "There is a project you can Google that Pep Eight Speaks." was graded weak as a project reference, not an insight.
+
+**Verification**
+
+- `npm run type-check` passed.
+- `npm run test` passed.
+
+**Review ask**
+
+- Please review the prompt change in `ingest.ts`.
+- Please confirm you are comfortable that the no-write bots validation is enough for #99, or tell me to run a live re-ingest on a disposable/test source.
+- If approved, I will commit as `fix(ingest): reduce evidence review pile (#99)` and push the branch.
