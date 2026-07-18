@@ -39,3 +39,8 @@ scripts/
 !.claude/
 !.claude/launch.json
 *.pptx
+
+# Local research fixtures and decks - real customer transcripts, never commit
+# 172MB of untracked PII sat here and any `git add -A` would have published it
+Test Projects/
+docs/Presentations/
