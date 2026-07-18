@@ -25,13 +25,13 @@
     "@anthropic-ai/sdk": "^0.104.2",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.45.4",
-    "ai": "^4.0.0",
+    "ai": "^4.3.19",
     "clsx": "^2.1.1",
     "geist": "^1.7.2",
     "htmlparser2": "10.1.0",
-    "inngest": "^3.27.0",
+    "inngest": "^3.54.2",
     "mammoth": "^1.12.0",
-    "next": "14.2.16",
+    "next": "14.2.35",
     "openai": "^4.72.0",
     "posthog-js": "^1.396.3",
     "react": "^18.3.1",
@@ -48,9 +48,13 @@
     "@types/sanitize-html": "2.16.1",
     "autoprefixer": "^10.5.0",
     "eslint": "^8.57.1",
-    "eslint-config-next": "14.2.16",
-    "postcss": "^8.5.15",
+    "eslint-config-next": "14.2.35",
+    "postcss": "8.5.15",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.6.3"
+  },
+  "overrides": {
+    "glob": "10.5.0",
+    "postcss": "8.5.15"
   }
 }
