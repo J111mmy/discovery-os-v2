@@ -111,6 +111,7 @@ export async function middleware(request: NextRequest) {
     path.startsWith("/access-unavailable") ||
     path.startsWith("/callback") ||
     path.startsWith("/api/access-requests") ||
+    path.startsWith("/api/csp-report") ||
     path.startsWith("/api/auth/sign-out") ||
     path.startsWith("/api/auth/signout") ||
     path.startsWith("/api/inngest"); // Inngest sync requires no auth cookies

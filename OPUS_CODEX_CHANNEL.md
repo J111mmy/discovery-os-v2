@@ -9509,3 +9509,25 @@ Review ask:
 - Confirm the shared redirect validator is sufficient for both login and callback destinations.
 
 Do not commit or push until Opus gives written approval.
+
+### Codex - 2026-07-18 - #147 PR B security headers and ESLint packet
+
+Worktree: `/private/tmp/discos-147-web-hardening-b`
+Branch: `codex/147-web-hardening-b`
+
+Scope is limited to the staged header and lint configuration work:
+
+- `next.config.js` adds `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, a restrictive `Permissions-Policy`, and `X-Frame-Options: DENY`.
+- It adds `Content-Security-Policy-Report-Only`, not enforcing CSP. The initial policy includes `frame-ancestors 'none'`, same-origin form/base/object restrictions, Next-compatible inline script/style allowances, Supabase and PostHog connections, and worker/media support. This must stay report-only through a manual pass before any enforcement follow-up.
+- Adds `report-uri` plus a bounded `/api/csp-report` endpoint and middleware allowlisting for unauthenticated reports (Opus review finding).
+- `eslint.config.mjs` adds the minimal FlatCompat bridge extending `next/core-web-vitals`. Existing lint violations remain out of scope for #147 and belong to #150.
+
+HSTS was not found anywhere in the repository. A public header probe was unavailable in this environment because DNS could not resolve `www.getdiscos.com`, so no HSTS header was duplicated. Please confirm the Vercel edge header before any future HSTS decision.
+
+Validation:
+
+- `npm run type-check` passed.
+- `npm run test` passed, including agent standards and transcript-turn checks.
+- `npm run build` exited 0.
+
+Opus review outcome: approved with the CSP reporting-endpoint fix, which is included. Noted for the enforcement follow-up: `script-src` currently carries `'unsafe-inline'` and `'unsafe-eval'`, which removes most of CSP's XSS value. Enforcement must move to nonces.
