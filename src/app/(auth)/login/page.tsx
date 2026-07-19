@@ -2,12 +2,13 @@
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { safeInternalPath } from "@/lib/auth/safe-internal-path";
 import { useRouter, useSearchParams } from "next/navigation";
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") || "/projects";
+  const next = safeInternalPath(searchParams.get("next"));
   const isInviteFlow = next === "/accept-invite";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -43,7 +44,7 @@ function LoginForm() {
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) setError(error.message);
-      else router.push(next.startsWith("/") ? next : "/projects");
+      else router.push(next);
     }
 
     setLoading(false);

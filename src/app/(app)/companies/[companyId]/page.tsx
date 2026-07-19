@@ -1,5 +1,11 @@
 import type { EvidenceClassification, EvidenceSentiment, PersonStatus, TrustScope } from "@/types/database";
-import { headers } from "next/headers";
+import { createClient } from "@/lib/supabase/server";
+import { getOrgScopedReadForUser } from "@/lib/auth/support-read";
+import {
+  CompanyNotFoundError,
+  getCompanyDetail,
+  type CompanyEvidence,
+} from "@/lib/companies/detail";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { CompanyProfileEditor } from "./company-profile-editor";
@@ -9,72 +15,23 @@ interface Props {
   params: { companyId: string };
 }
 
-type CompanyDetail = {
-  id: string;
-  name: string;
-  domain: string | null;
-  industry: string | null;
-  size: string | null;
-  notes: string | null;
-  digest: string | null;
-  digest_updated_at: string | null;
-};
-
-type CompanyPerson = {
-  id: string;
-  name: string;
-  role: string | null;
-  status: PersonStatus | null;
-  email: string | null;
-};
-
-type CompanyProject = {
-  id: string;
-  name: string;
-};
-
-type CompanyEvidence = {
-  id: string;
-  content: string;
-  summary: string | null;
-  classification: EvidenceClassification | null;
-  sentiment: EvidenceSentiment | null;
-  trust_scope: TrustScope;
-  metadata: Record<string, unknown>;
-  project_id: string;
-  project_name: string | null;
-  source_id: string;
-  source_title: string | null;
-  created_at: string;
-};
-
-type CompanyDetailPayload = {
-  company: CompanyDetail;
-  people: CompanyPerson[];
-  projects: CompanyProject[];
-  evidence: CompanyEvidence[];
-};
-
 async function fetchCompanyDetail(companyId: string) {
-  const requestHeaders = headers();
-  const host = requestHeaders.get("host");
-  if (!host) notFound();
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  const protocol = requestHeaders.get("x-forwarded-proto") ?? "http";
-  const response = await fetch(`${protocol}://${host}/api/companies/${companyId}`, {
-    cache: "no-store",
-    headers: {
-      cookie: requestHeaders.get("cookie") ?? "",
-    },
-  });
+  if (!user) redirect("/login");
 
-  if (response.status === 401) redirect("/login");
-  if (response.status === 404) notFound();
-  if (!response.ok) {
-    throw new Error("Could not load company detail.");
+  const read = await getOrgScopedReadForUser(user.id, supabase);
+  if (!read) notFound();
+
+  try {
+    return await getCompanyDetail(read, companyId);
+  } catch (error) {
+    if (error instanceof CompanyNotFoundError) notFound();
+    throw error;
   }
-
-  return (await response.json()) as CompanyDetailPayload;
 }
 
 function dateLabel(value: string) {

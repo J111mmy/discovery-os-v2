@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { clearPendingInviteCookie, PENDING_INVITE_COOKIE } from "@/lib/auth/pending-invite";
-
-function safeInternalPath(path: string | null) {
-  return path?.startsWith("/") && !path.startsWith("//") ? path : "/projects";
-}
+import { safeInternalPath } from "@/lib/auth/safe-internal-path";
 
 type AuthCallbackOptions = {
   inviteToken?: string;
