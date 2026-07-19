@@ -9531,3 +9531,76 @@ Validation:
 - `npm run build` exited 0.
 
 Opus review outcome: approved with the CSP reporting-endpoint fix, which is included. Noted for the enforcement follow-up: `script-src` currently carries `'unsafe-inline'` and `'unsafe-eval'`, which removes most of CSP's XSS value. Enforcement must move to nonces.
+
+### Codex - 2026-07-18 - #144 review packet: org_members privilege escalation guard
+
+Branch/worktree: `codex/144-org-members-rls` at `/private/tmp/discos-144-org-members-rls`
+
+Status: §0-gated packet prepared for review only. I have not committed, pushed, or applied SQL.
+
+Changed:
+
+- Added `supabase/migrations/0040_org_members_role_escalation_guard.sql`.
+- No route/page diff: the app does not currently expose a normal member role-change UI/API. Existing invite acceptance and customer-org provisioning already use controlled RPC/service-role paths.
+
+Threat model addressed:
+
+- Current `org_members` direct INSERT/UPDATE policy asks only whether the caller is owner/admin in the org, and does not constrain the target `role`. A malicious admin using the public Supabase key can update their own row to `owner`.
+- There is an adjacent invite path: direct `org_invites` writes could let an admin create an owner invite, and the old invitee UPDATE policy could let an invitee alter their invite row before acceptance. Both would eventually flow through `accept_invite()`.
+
+Migration behavior:
+
+1. Adds pure transition helpers:
+   - `can_change_org_member_role(actor_role, old_role, new_role, actor_is_self, target_is_last_owner)`
+   - `can_remove_org_member(actor_role, target_role, actor_is_self, target_is_last_owner)`
+   - `can_create_org_invite_role(actor_role, invite_role)`
+2. Adds migration-time assertions for the full actor/old/new role matrix:
+   - owner can manage roles, except demoting/removing the last owner.
+   - admin can manage only non-owner roles and cannot self-change.
+   - member/viewer cannot manage membership.
+   - admin owner-invite creation is blocked; owner owner-invite creation is allowed.
+3. Adds controlled SECURITY DEFINER RPCs:
+   - `update_org_member_role(member_id, new_role)`
+   - `remove_org_member(member_id)`
+   Both pin `search_path = ''`, use `auth.uid()`, load the target org membership under the definer, validate the actor role in that org, preserve at least one owner, and raise `42501` on forbidden transitions.
+4. Removes direct authenticated writes to `org_members`:
+   - drops `"owners and admins can add members"`
+   - drops `"owners and admins can update members"`
+   - drops `"owners can remove members"`
+   - drops `"invited users can join orgs"`
+   - revokes INSERT/UPDATE/DELETE on `org_members` from `anon, authenticated`
+   - leaves SELECT policies intact
+   - includes a `pg_policies` assertion that no direct `org_members` INSERT/UPDATE/DELETE policy remains.
+5. Tightens `org_invites`:
+   - replaces `"owners and admins can manage invites"` with a role-aware policy.
+   - admin can manage only `admin/member/viewer` invites.
+   - owner can manage `owner/admin/member/viewer` invites.
+   - drops `"invited users can accept their invite"` because invite acceptance now happens through `accept_invite()`, not direct invite-row UPDATE.
+
+Expected preserved flows:
+
+- Normal teammate invite route still inserts `admin/member` invites with the user-scoped client after owner/admin membership check.
+- `accept_invite(token)` still creates membership through its SECURITY DEFINER path.
+- New customer org provisioning still creates the owner invite through service role RPC `provision_customer_org`.
+- `ensureUserOrg()` still creates first owner membership with service role.
+
+Review ask:
+
+- Please review the role transition matrix, especially whether admins should be allowed to promote non-owner members to admin. I allowed it because the existing invite route already lets admins invite admin/member teammates, but owner creation/promotion is owner-only.
+- Please review the decision to drop direct invitee UPDATE on `org_invites`. I believe it is safe because `/invite/[token]/continue` and `/accept-invite` both use the service/`accept_invite()` path.
+- If approved, Jimmy applies `0040`; I then commit/push the migration packet.
+
+### Codex - 2026-07-18 - #144 review conditions incorporated
+
+Opus conditions incorporated before apply:
+
+- `0040_org_members_role_escalation_guard.sql` now reasserts `public.auth_user_org_role(uuid)` as `SECURITY DEFINER` with `set search_path = ''`, using schema-qualified references.
+- Confirmed directly in `0027_accept_invite_rpc.sql`: `public.accept_invite(text)` is declared `security definer`, pins `search_path`, and grants execution only to `authenticated` after revoking it from `public` and `anon`. This is the path that must remain available after direct `org_members` INSERT is revoked.
+- Anonymous-key runtime testing is explicitly deferred to #150/#149. The migration assertions only test the pure helper logic and are drift checks, not runtime authorization proof.
+
+Jimmy decisions still required, not decided by Codex:
+
+1. `remove_org_member` currently blocks all self-removal. This prevents a sole owner from stranding an organization, but also removes the former ability for an owner to remove themselves. Jimmy must choose whether that broader behavior change is acceptable.
+2. The invite policy condition is role-dependent. Because the policy was already `FOR ALL` since 0005, the change narrows reads as well as writes: admins will no longer see owner invites. Jimmy must sign off that behavior.
+
+No SQL has been applied, and the migration remains uncommitted and gated pending the final decision and written approval.
