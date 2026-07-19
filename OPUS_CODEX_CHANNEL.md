@@ -9482,3 +9482,30 @@ Review ask:
 - Please review that weak -> pending is correct in `grade-evidence.ts`.
 - Please review that Ask/synthesis pending inclusion is acceptable with trusted-first ranking and prompt labeling.
 - Please confirm no live recovery run should happen before this merges.
+
+### Codex - 2026-07-18 - #147 PR A web hardening packet
+
+Worktree: `/private/tmp/discos-147-web-hardening-a`
+Branch: `codex/147-web-hardening-a`
+Status: §0 review-gated, uncommitted and unpushed. No production action taken.
+
+Scope is limited to the two concrete vulnerabilities in PR A:
+
+- `src/app/(app)/companies/[companyId]/page.tsx` no longer constructs an API URL from `host` or `x-forwarded-proto`, and no longer forwards the session cookie. The company-detail query logic now lives in `src/lib/companies/detail.ts` and is called directly by both the server page and `src/app/api/companies/[companyId]/route.ts`. Both paths retain `getOrgScopedReadForUser`, so support-mode reads remain constrained to the validated active org.
+- `src/lib/auth/safe-internal-path.ts` is the shared redirect validator. It resolves candidate paths against a fixed internal origin and rejects `//evil.com`, `/\\evil.com`, `https://evil.com`, and `////evil.com`; `/projects` and `/projects/abc?x=1` remain valid. Login and the auth callback now share this helper.
+
+Blast-radius search found one host-derived self-fetch, the company page above. There are no remaining `headers().get("host")`, `x-forwarded-proto`, or self-fetches to `/api/companies` in `src/`.
+
+Validation:
+
+- `npm run type-check` passed.
+- `npm run test` passed, including agent standards, transcript-turn checks, and the new six-case safe-internal-path check.
+- `npm run build` exited 0. It emitted the existing no-env `supabaseUrl is required` messages during static generation for admin pages, plus existing Newsreader and Supabase Node 18 warnings; compilation and route generation completed.
+- Redirect cases were executed directly against the shared helper and all six expected results passed.
+
+Review ask:
+
+- Confirm the direct shared-loader extraction preserves the support-read threat model and all company-detail response behavior.
+- Confirm the shared redirect validator is sufficient for both login and callback destinations.
+
+Do not commit or push until Opus gives written approval.
