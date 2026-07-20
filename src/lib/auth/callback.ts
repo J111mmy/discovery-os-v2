@@ -40,6 +40,7 @@ export async function handleAuthCallback(req: NextRequest, options: AuthCallback
   }
 
   const failedUrl = new URL("/login", url.origin);
-  failedUrl.searchParams.set("error", "auth_failed");
+  failedUrl.searchParams.set("error", next === "/reset-password" ? "recovery_failed" : "auth_failed");
+  failedUrl.searchParams.set("next", next);
   return NextResponse.redirect(failedUrl);
 }

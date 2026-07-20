@@ -9,15 +9,23 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = safeInternalPath(searchParams.get("next"));
+  const authError = searchParams.get("error");
+  const initialMode = authError === "recovery_failed" ? "reset" : "magic";
+  const initialError =
+    authError === "recovery_failed"
+      ? "This password reset link could not be completed. It may have expired or already been used. Request a new reset link below."
+      : authError === "auth_failed"
+      ? "This sign-in link could not be completed. Request a new link and open it in the same browser."
+      : "";
   const isInviteFlow = next === "/accept-invite";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   // Passwordless-first: magic link is the default for everyone. Password is a
   // fallback behind "Use password instead". (Invite flow was already magic.)
-  const [mode, setMode] = useState<"magic" | "password" | "reset">("magic");
+  const [mode, setMode] = useState<"magic" | "password" | "reset">(initialMode);
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(initialError);
   const supabase = createClient();
 
   async function handleSubmit(e: React.FormEvent) {
@@ -27,7 +35,7 @@ function LoginForm() {
 
     if (mode === "reset") {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
+        redirectTo: `${window.location.origin}/auth/confirm`,
       });
       if (error) setError(error.message);
       else setSent(true);
@@ -109,7 +117,14 @@ function LoginForm() {
                 />
               )}
 
-              {error && <p className="text-xs text-[var(--tone-error)]">{error}</p>}
+              {error && (
+                <div
+                  role="alert"
+                  className="rounded-lg border border-[var(--tone-error)]/30 bg-[var(--tone-error)]/10 px-3 py-2.5 text-xs text-[var(--tone-error)]"
+                >
+                  {error}
+                </div>
+              )}
 
               <button
                 type="submit"
