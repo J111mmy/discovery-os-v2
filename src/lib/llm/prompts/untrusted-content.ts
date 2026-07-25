@@ -1,5 +1,9 @@
+export function neutralizePromptFence(value: string, fenceName: string) {
+  const escapedFenceName = fenceName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`<\\s*\\/?\\s*${escapedFenceName}\\b`, "gi");
+  return value.replace(pattern, (match) => match.replace("<", "["));
+}
+
 export function neutralizeUntrustedSourceContentFence(value: string) {
-  return value.replace(/<\s*\/?\s*untrusted_source_content\b/gi, (match) =>
-    match.replace("<", "[")
-  );
+  return neutralizePromptFence(value, "untrusted_source_content");
 }
