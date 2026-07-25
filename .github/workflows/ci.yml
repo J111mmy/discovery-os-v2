@@ -9,7 +9,7 @@ on:
 jobs:
   checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -24,11 +24,41 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.100.1
+
+      - name: Start local Supabase
+        run: supabase start
+
+      - name: Export local Supabase environment
+        run: |
+          eval "$(supabase status --output env)"
+          {
+            echo "NEXT_PUBLIC_SUPABASE_URL=${API_URL}"
+            echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${ANON_KEY}"
+            echo "SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}"
+            echo "NEXT_PUBLIC_APP_URL=http://localhost:3000"
+          } >> "$GITHUB_ENV"
+
+      - name: Replay migrations on a clean database
+        run: supabase db reset --local --no-seed
+
+      - name: Lint database
+        run: supabase db lint --local --schema public --fail-on error
+
       - name: Type check
         run: npm run type-check
 
-      - name: Agent and transcript standards
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests
         run: npm run test
 
       - name: Artifact HTML sanitizer check
         run: npm run check:artifact-html-sanitizer
+
+      - name: Production build
+        run: npm run build

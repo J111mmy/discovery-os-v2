@@ -108,7 +108,9 @@ function CitationPopover({
         </button>
       </div>
 
-      <p className="text-sm leading-6 text-[var(--ink)]">"{clippedQuote(citation.content)}"</p>
+      <p className="text-sm leading-6 text-[var(--ink)]">
+        &ldquo;{clippedQuote(citation.content)}&rdquo;
+      </p>
 
       {citation.source_id && (
         <a

@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "next dev -p 4321",
     "build": "npm run check:agent-standards && next build",
-    "test": "npm run check:agent-standards && npm run check:transcript-turns && npm run check:safe-internal-path && npm run check:ask-corpus && npm run check:llm-json-object && npm run check:ingest-user-message",
+    "test": "npm run lint && npm run check:agent-standards && npm run check:transcript-turns && npm run check:safe-internal-path && npm run check:ask-corpus && npm run check:llm-json-object && npm run check:ingest-user-message",
     "check:agent-standards": "node src/lib/inngest/check-agent-standards.mjs",
     "check:safe-internal-path": "node src/lib/auth/check-safe-internal-path.mjs",
     "check:transcript-turns": "node src/lib/ingest/check-transcript-turns.mjs",
@@ -19,7 +19,7 @@
     "backfill:artifact-html": "node src/lib/sanitize/backfill-artifact-html.mjs",
     "backfill:problem-typed-links": "node src/lib/research-ontology/backfill-problem-typed-links.mjs",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint . --max-warnings=0",
     "type-check": "tsc --noEmit",
     "backfill:evidence-anchors": "node src/lib/evidence/backfill-evidence-anchors.mjs",
     "dry-run:research-ontology-p3": "node src/lib/research-ontology/p3-dry-run.mjs",

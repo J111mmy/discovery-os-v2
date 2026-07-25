@@ -437,7 +437,7 @@ export default async function CompetitorDetailPage({ params }: Props) {
 
           {evidence.length === 0 ? (
             <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-12 text-center text-sm text-[var(--ink-2)]">
-              No evidence collected yet. This competitor will appear here after they're mentioned in an interview.
+              No evidence collected yet. This competitor will appear here after they&apos;re mentioned in an interview.
             </div>
           ) : (
             <div className="grid gap-3">

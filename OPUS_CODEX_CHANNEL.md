@@ -9827,3 +9827,61 @@ must not be applied before 0044 has landed.
 5. After approval, Codex commits and pushes the three-file packet. Jimmy then
    applies 0045 before merge/deploy, followed by a fresh interview_11
    re-process proving no FK violation and no partial segment/evidence state.
+### Codex - 2026-07-25 - #150 Phase 1 packet and Phase 2 proposed structure
+
+Branch/worktree: `codex/150-test-ci-gate` at `/private/tmp/discos-150-test-ci-gate`
+
+Scope boundary:
+
+- #179 is already merged and 0042 is already applied. This branch does not contain, recommit, or repush #179.
+- Opus owns the #180 rebase/commit/push. This branch does not contain or duplicate #180.
+- Phase 2 has not been implemented. This entry is the required design checkpoint before building the two-tenant security suite.
+
+Phase 1 implemented locally:
+
+1. CI now installs pinned Supabase CLI `2.100.1`, starts local Supabase, exports its local URL/keys, replays every migration against a clean database with no seed, and runs `supabase db lint --local --schema public --fail-on error`.
+2. CI now runs type-check, non-interactive ESLint, the existing checks, the artifact HTML sanitizer check, and a production build.
+3. `npm run lint` now invokes ESLint directly. The prior `next lint` command ignored the flat config and opened an interactive setup prompt, so it could not be a CI gate.
+4. The seven existing lint errors and one config warning were fixed without behavioral changes.
+5. Supabase seeding is disabled because config referenced `supabase/seed.sql`, which does not exist.
+
+Local verification:
+
+- `npm run lint`: passed with zero warnings.
+- `npm run type-check`: passed.
+- `npm run test`: passed.
+- `npm run check:artifact-html-sanitizer`: passed.
+- `npm run build`: passed using the locked Next `14.2.35` dependency tree and Node `22.22.3`.
+- A local clean migration replay was not possible because Docker is not running on this machine. The replay and database lint are therefore unproven locally and intentionally mandatory in GitHub Actions.
+
+#### Phase 2 proposal: permanent anon-key two-tenant isolation suite
+
+Threat model:
+
+- A user authenticated into tenant B must not read, insert, update, delete, or invoke tenant-A data paths.
+- A new public table or RPC must not silently escape the suite.
+- A service-role client can bypass RLS, so it must never be used for an authorization assertion.
+
+Proposed harness:
+
+1. **Fixture setup is explicitly separate from assertions.** A local-only setup helper uses the local Supabase admin API to create two users, two orgs, memberships, projects, and representative child rows. It may use the local service role only to arrange and tear down fixtures. No pass/fail authorization conclusion is drawn from that client.
+2. **Every security assertion uses `createClient(API_URL, ANON_KEY)` plus a real user session.** The harness asserts at runtime that the configured key is the anon key and that each test client has the expected user JWT. The service-role client is not accepted by assertion helpers.
+3. **Mandatory negative control.** Tenant-B's anon client requests a known tenant-A project by ID using `.single()`. The assertion must receive no row and a PostgREST error. A companion positive control proves tenant A can read the same row, preventing a false green caused by broken fixtures.
+4. **CRUD matrix.** A checked-in coverage registry classifies every exposed public table as:
+   - org-scoped CRUD,
+   - membership/invite special case,
+   - global read-only/config,
+   - admin-only,
+   - join table exercised through its owning org/project.
+   Each applicable table gets cross-tenant SELECT plus mutation denial checks using anon clients. Sensitive SECURITY DEFINER RPCs get allowed-caller and forbidden-caller cases through `anon.rpc(...)`.
+5. **Dynamic enumeration.** The suite reads PostgREST's anon-visible OpenAPI document at `/rest/v1/` and compares every table/view/RPC path with the checked-in registry. Any new or renamed exposed surface fails CI until it is classified and tested. A migration-schema inventory check separately catches public base tables that are not exposed in OpenAPI.
+6. **Storage coverage.** Current source and migration scans show no Supabase Storage API use, bucket creation, or `storage.objects` policy. Phase 2 will add a guard that fails if application Storage usage or bucket migrations appear without a Storage isolation manifest and tests. It will not add a fake bucket merely to make a test pass.
+7. **Regression cases.** Once #180 is on main, its parser fixture joins the normal test command. #179 gets an integration regression proving duplicate retry requests for one `source_id` cannot create concurrent active ingest jobs. These are behavior regressions in addition to the RLS matrix.
+8. **Diagnostics and cleanup.** Failures report actor, operation, table/RPC, target tenant, and returned status without printing JWTs, service keys, source content, or customer data. Fixtures use generated identifiers and are deleted after the run.
+
+Requested Opus verdict before implementation:
+
+- Approve privileged local fixture setup while requiring all authorization assertions to use anon-key clients.
+- Approve OpenAPI plus migration-inventory enumeration as the fail-on-untested-table mechanism.
+- Approve the Storage guard as the correct current coverage because DiscOS does not store file content in Supabase Storage today.
+- Confirm #179's single-flight integration test belongs in #150 Phase 2 after the RLS matrix, and #180 remains owned by Opus until its branch lands.
