@@ -5,7 +5,13 @@ import Link from "next/link";
 import { AddSourceButton } from "./add-source-button";
 import { SourceActions } from "./source-actions";
 
-export type DisplayStatus = "done" | "failed" | "processing" | "pending" | "not_started";
+export type DisplayStatus =
+  | "done"
+  | "done_with_issues"
+  | "failed"
+  | "processing"
+  | "pending"
+  | "not_started";
 
 export interface SourceItem {
   id: string;
@@ -33,6 +39,8 @@ function statusStyle(status: DisplayStatus): React.CSSProperties {
     return { borderColor: "var(--pos)", background: "var(--pos-bg)", color: "var(--pos)" };
   if (status === "failed")
     return { borderColor: "var(--neg)", background: "var(--neg-bg)", color: "var(--neg)" };
+  if (status === "done_with_issues")
+    return { borderColor: "var(--warn)", background: "var(--warn-bg)", color: "var(--warn)" };
   if (status === "processing")
     return { borderColor: "var(--warn)", background: "var(--warn-bg)", color: "var(--warn)" };
   return { borderColor: "var(--line)", background: "var(--surface-2)", color: "var(--ink-2)" };
@@ -41,6 +49,7 @@ function statusStyle(status: DisplayStatus): React.CSSProperties {
 function statusLabel(status: DisplayStatus) {
   if (status === "done") return "ready";
   if (status === "failed") return "check needed";
+  if (status === "done_with_issues") return "needs attention";
   if (status === "processing") return "analyzing";
   if (status === "pending") return "queued";
   return "not started";

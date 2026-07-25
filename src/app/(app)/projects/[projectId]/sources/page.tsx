@@ -131,14 +131,21 @@ export default async function SourcesPage({ params }: Props) {
     const isQueued = !isStale && jobStatus === "pending";
     const isAnalyzing = !isStale && jobStatus === "processing";
     const hasInFlightJob = jobStatus === "pending" || jobStatus === "processing";
-    const hasFailed = jobStatus === "failed" || needsCheck || isStale;
+    const hasFailed =
+      jobStatus === "failed" ||
+      jobStatus === "done_with_issues" ||
+      needsCheck ||
+      isStale;
 
     const message = isAnalyzing
       ? "Analyzing — extracting citable evidence from the source."
       : isQueued
       ? "Queued — sources run one at a time for better quality and lower cost."
       : hasFailed
-      ? needsCheck
+      ? jobStatus === "done_with_issues"
+        ? job?.error ??
+          "Evidence was created, but speaker and organisation identification needs attention."
+        : needsCheck
         ? "Processing completed without citable external evidence. Re-add the source and confirm speaker roles if someone should be Customer."
         : isStale
         ? "Processing is taking longer than expected. Retry stays unavailable while the current run is active."

@@ -25,7 +25,12 @@ export type Affiliation = "internal" | "external" | "unknown";
 export type ArtifactType = "prd" | "brief" | "persona" | "opportunity" | "gtm" | "interview_guide" | "report" | "other";
 export type VerificationStatus = "unverified" | "supported" | "disputed" | "retracted";
 export type ArtifactVerificationStatus = "verified" | "partial" | "unverified";
-export type JobStatus = "pending" | "processing" | "done" | "failed";
+export type JobStatus =
+  | "pending"
+  | "processing"
+  | "done"
+  | "done_with_issues"
+  | "failed";
 export type TaskTier = "cheap" | "standard" | "premium" | "eval";
 export type EvidenceClassification = "insight" | "verbatim" | "data_point" | "signal";
 export type EvidenceSentiment = "positive" | "negative" | "neutral" | "mixed";

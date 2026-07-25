@@ -1779,7 +1779,7 @@ export const ingestSource = inngest.createFunction(
         }
       });
 
-      await step.run("mark-complete", async () => {
+      await step.run("mark-evidence-ready", async () => {
         if (evidenceRecords.length === 0) {
           await supabase
             .from("ingest_jobs")
@@ -1802,8 +1802,11 @@ export const ingestSource = inngest.createFunction(
         await supabase
           .from("ingest_jobs")
           .update({
-            status: "done",
-            completed_at: new Date().toISOString(),
+            // Entity extraction is a required ingest sub-step. Keep the parent
+            // processing until that child records either done or
+            // done_with_issues, so the UI cannot declare success too early.
+            status: "processing",
+            completed_at: null,
             result: {
               segments_created: segments.length,
               evidence_created: evidenceRecords.length,
@@ -1833,7 +1836,7 @@ export const ingestSource = inngest.createFunction(
       await step.run("queue-entity-extraction", async () => {
         await inngest.send({
           name: "source/entities.requested",
-          data: { org_id, project_id, source_id },
+          data: { org_id, project_id, source_id, job_id },
         });
       });
 

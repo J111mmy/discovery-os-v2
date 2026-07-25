@@ -9604,3 +9604,113 @@ Jimmy decisions still required, not decided by Codex:
 2. The invite policy condition is role-dependent. Because the policy was already `FOR ALL` since 0005, the change narrows reads as well as writes: admins will no longer see owner invites. Jimmy must sign off that behavior.
 
 No SQL has been applied, and the migration remains uncommitted and gated pending the final decision and written approval.
+
+### Codex - 2026-07-25 - #180 rebased onto #179 and pushed
+
+Branch: `codex/180-ingest-completed-with-issues`
+
+Rebased #180 onto `origin/main` at `aa0c0b1`, which contains merged #179.
+The resolved packet preserves both behaviors:
+
+- #179: per-source Inngest concurrency, latest-job validation, atomic
+  `pending -> processing` claim, and retry/reprocess disabled while a job is
+  pending or processing.
+- #180: the parent ingest job remains `processing` after evidence extraction
+  until entity extraction marks it `done` or `done_with_issues`; a failed
+  entity step records a structured issue while keeping created evidence
+  available.
+
+Conflict resolution:
+
+- `InsightProgress.tsx`: retained #179's `ingestInFlight` lock and added #180's
+  entity-specific honest failure message.
+- `sources/page.tsx`: retained `hasInFlightJob` and stale-run retry lock, and
+  added `done_with_issues` status/message handling.
+- `ingest-source.ts` and `SourcesClient.tsx` auto-merged, then were manually
+  checked against both parent branches.
+
+Verification:
+
+- `npm run type-check`: passed.
+- `npm run test`: passed, including the new six-case LLM JSON object fixture.
+- `npm run check:artifact-html-sanitizer`: passed.
+- `npm run build`: passed on Next 14.2.35.
+- No SQL was applied.
+
+Gate/order:
+
+1. Opus reviews the resolved `ingest-source.ts` and reconciliation.
+2. Jimmy applies `0043_ingest_completed_with_issues.sql`.
+3. Merge/deploy only after the migration is verified.
+
+### Codex - 2026-07-25 - #180 speaker step failure and honest ingest completion review packet
+
+Worktree: `/private/tmp/discos-180-ingest-completed-with-issues`
+
+Branch: `codex/180-ingest-completed-with-issues`
+
+Historical pre-rebase review packet. The current rebased/pushed status and
+migration order are recorded in the 2026-07-25 entry immediately above.
+
+#### Production diagnosis
+
+I ran a read-only service-role diagnostic against the live database for the exact source from #180:
+
+- project: `e67eaa96-bada-435c-84bb-314ec5a1f224`
+- source: `fe67bddb-d3e2-49a2-ba9f-8627654f707b`
+- title: `interview_11`
+- failed entity run: `e12a5d04-7dcc-4216-84f8-f5a2917926c8`
+- exact error: `Unexpected non-whitespace character after JSON at position 393 (line 19 column 1)`
+
+The source had already produced evidence. The detached `entity-extraction` child then rejected a valid first JSON object because the model appended more content. Its catch logged the child failure but deliberately returned without changing the parent `ingest_jobs` row, which had already been marked `done`. That is the silent-success defect.
+
+A later re-process on 2026-07-25 completed entity extraction and resolved two people, including `Stakeholder 11`. This proves the transcript and participant are valid and ties #180 to the entity-resolution gap tracked by #158. The failure is a format-fragile parser plus a dishonest parent/child completion contract, not bad source text.
+
+The same read-only trace also found a separate failed ingest job with:
+
+`Failed to store evidence: insert or update on table "evidence" violates foreign key constraint "evidence_segment_id_fkey"`
+
+That corroborates #179's concurrent destructive retry race. It is not fixed in this packet; #179 remains first in merge order.
+
+#### Proposed migration
+
+`supabase/migrations/0043_ingest_completed_with_issues.sql` adds one enum value:
+
+```sql
+alter type public.job_status
+  add value if not exists 'done_with_issues' after 'done';
+```
+
+This is a hard deployment precondition. Jimmy applies 0043 after Opus approval and before deploying this code. Deploying code first would make reads/writes of `done_with_issues` fail.
+
+#### Code behavior
+
+1. `extractFirstJsonObject()` now reads the first balanced JSON object, including braces and escapes inside strings, and safely ignores fences, leading text, trailing commentary, or a second object. It still rejects missing or incomplete JSON.
+2. A permanent six-case regression check includes the real failure class and runs in `npm test`.
+3. `ingest-source` no longer marks the parent job `done` before the required entity child starts. Evidence-ready jobs stay `processing`.
+4. `source/entities.requested` now carries the exact `job_id`.
+5. Entity success finalizes that job as `done`. Entity failure:
+   - preserves the already-created evidence;
+   - records the exact developer error in `agent_runs`;
+   - finalizes the parent as `done_with_issues`;
+   - stores a structured `ENTITY_EXTRACTION_FAILED` issue in `ingest_jobs.result.issues`;
+   - exposes only the safe message: `Evidence was created, but speaker and organisation identification did not complete.`
+6. A successful retry removes that issue and restores `done` when no other issues remain.
+7. Add Evidence, the full ingest form, source cards, source detail, and the failed-step panel all treat `done_with_issues` as a terminal warning. Evidence remains accessible and the source offers Retry. The UI no longer says plain success or exposes the provider/parser error.
+
+#### Validation
+
+- `npm run type-check` passed.
+- `npm run test` passed, including `LLM JSON object checks passed (6 cases)`.
+- `npm run build` exited 0.
+- Build used the shared install, which is stale at Next 14.2.16 even though committed package files specify 14.2.35. It emitted the known Newsreader, Node 18, and no-env Supabase messages; compilation, type validation, static generation, and route generation completed.
+- `git diff --check` passed.
+- No live LLM call, source mutation, SQL apply, commit, or push was performed.
+
+#### Review asks
+
+1. Approve the 0043 enum migration and the migration-before-deploy sequence.
+2. Confirm entity extraction is the required boundary that should finalize parent ingest status.
+3. Confirm the structured issue in `ingest_jobs.result` is sufficient without a new issues table.
+4. Confirm full-source Retry is an acceptable recovery for this slice; a narrower entity-only retry can remain with #158.
+5. Confirm #180 should rebase onto and ship after #179, preserving #179's single-flight guard and disabled in-flight actions.

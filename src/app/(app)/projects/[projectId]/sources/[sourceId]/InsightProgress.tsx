@@ -57,6 +57,13 @@ function isProcurementProject(projectName: string) {
   return /proc|tender|supplier|vendor|buy|buyer|purchase/i.test(projectName);
 }
 
+function failedStepMessage(agentType: string) {
+  if (agentType === "entity-extraction") {
+    return "Speaker and organisation identification did not complete. Your evidence is still available.";
+  }
+  return "Something did not go as planned here.";
+}
+
 export function InsightProgress({ projectId, sourceId, projectName, ingestInFlight }: Props) {
   const [runs, setRuns] = useState<AgentRunSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -183,7 +190,7 @@ export function InsightProgress({ projectId, sourceId, projectName, ingestInFlig
                   </div>
                   {failed && (
                     <div className="mt-0.5 text-xs text-neg">
-                      Something did not go as planned here.
+                      {failedStepMessage(run.agent_type)}
                     </div>
                   )}
                 </div>

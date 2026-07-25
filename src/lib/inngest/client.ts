@@ -20,6 +20,7 @@ export type Events = {
       org_id: string;
       project_id: string;
       source_id: string;
+      job_id?: string;
     };
   };
   "project/synthesis.requested": {
