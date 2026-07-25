@@ -21,7 +21,13 @@ import { inferSourceType } from "@/lib/ingest/source-inference";
 const TEXT_EXTENSIONS = new Set(["txt", "md", "markdown"]);
 const ALLOWED_EXTENSIONS = new Set(["pdf", "doc", "docx", "txt", "md", "markdown"]);
 
-type JobStatus = "idle" | "queued" | "processing" | "done" | "failed";
+type JobStatus =
+  | "idle"
+  | "queued"
+  | "processing"
+  | "done"
+  | "done_with_issues"
+  | "failed";
 type InputMode = "paste" | "file";
 // prescanPhase drives the pre-ingest review step
 type PrescanPhase = "idle" | "scanning" | "review";
@@ -172,6 +178,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
   const [jobStatus, setJobStatus] = useState<JobStatus>("idle");
   const [claimsCreated, setClaimsCreated] = useState<number | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [completionWarning, setCompletionWarning] = useState<string | null>(null);
   // Ref so the poll count never causes the polling effect to tear down and
   // recreate the interval (which caused the form/Analyzing flicker — #49).
   const pollCountRef = useRef(0);
@@ -199,6 +206,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
     setJobStatus("idle");
     setClaimsCreated(null);
     setSubmitError(null);
+    setCompletionWarning(null);
     pollCountRef.current = 0;
     ingestInFlightRef.current = false;
     const id = setTimeout(() => titleRef.current?.focus(), 50);
@@ -207,7 +215,12 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
   }, [open]);
 
   useEffect(() => {
-    if (jobStatus === "idle" || jobStatus === "failed" || jobStatus === "done") {
+    if (
+      jobStatus === "idle" ||
+      jobStatus === "failed" ||
+      jobStatus === "done" ||
+      jobStatus === "done_with_issues"
+    ) {
       ingestInFlightRef.current = false;
     }
   }, [jobStatus]);
@@ -224,7 +237,14 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
 
   // Poll ingest status
   useEffect(() => {
-    if (!jobId || jobStatus === "done" || jobStatus === "failed") return;
+    if (
+      !jobId ||
+      jobStatus === "done" ||
+      jobStatus === "done_with_issues" ||
+      jobStatus === "failed"
+    ) {
+      return;
+    }
     pollCountRef.current = 0;
 
     const interval = window.setInterval(async () => {
@@ -243,7 +263,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
           return;
         }
         setJobStatus(data.status);
-        if (data.status === "done") {
+        if (data.status === "done" || data.status === "done_with_issues") {
           const result = data.result ?? { evidence_created: 0 };
           if ((result.evidence_created ?? 0) === 0) {
             setSubmitError(
@@ -253,6 +273,12 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
             return;
           }
           setClaimsCreated(result.evidence_created ?? 0);
+          setCompletionWarning(
+            data.status === "done_with_issues"
+              ? data.error ??
+                  "Evidence was created, but speaker and organisation identification needs attention."
+              : null
+          );
           const completedId = typeof data.source_id === "string" ? data.source_id : sourceId;
           if (completedId) setSourceId(completedId);
           router.refresh();
@@ -449,7 +475,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
   // ── Derived state ──────────────────────────────────────────────
 
   const isWorking = jobStatus === "queued" || jobStatus === "processing";
-  const isDone = jobStatus === "done";
+  const isDone = jobStatus === "done" || jobStatus === "done_with_issues";
   const isFailed = jobStatus === "failed";
   const sourceInference = useMemo(() => inferSourceType(rawText), [rawText]);
   const sourceTypeLabel = SOURCE_TYPE_LABELS[sourceInference.type];
@@ -1056,6 +1082,24 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
                   ? <><strong style={{ color: "var(--ink-2)" }}>{claimsCreated}</strong> evidence records created and queued for review.</>
                   : "Source processed successfully."}
               </div>
+              {completionWarning && (
+                <div
+                  style={{
+                    margin: "16px auto 0",
+                    maxWidth: 420,
+                    borderRadius: 10,
+                    border: "1px solid var(--warn)",
+                    background: "var(--warn-bg)",
+                    color: "var(--warn)",
+                    padding: "10px 12px",
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                    textAlign: "left",
+                  }}
+                >
+                  {completionWarning} Open the source to review the failed step and try it again.
+                </div>
+              )}
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", padding: "14px 22px", borderTop: "1px solid var(--line)", background: "var(--surface-2)" }}>
               <button

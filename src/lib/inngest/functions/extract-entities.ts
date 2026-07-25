@@ -9,6 +9,7 @@ import {
   type EntityResolution,
 } from "@/lib/ingest/entity-resolutions";
 import { callLLM } from "@/lib/llm/client";
+import { extractFirstJsonObject } from "@/lib/llm/extract-json-object";
 import {
   buildEntityExtractionPrompt,
   ENTITY_EXTRACTION_PROMPT_VERSION,
@@ -217,18 +218,141 @@ function hasProductCompetitionContext(project: ProjectEntityContext) {
   return hasProductObject && hasResearchOrMarketContext;
 }
 
-function extractJsonObject(content: string) {
-  const trimmed = content.trim();
-  const unfenced = trimmed
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/i, "")
-    .trim();
-  const start = unfenced.indexOf("{");
-  const end = unfenced.lastIndexOf("}");
-  if (start === -1 || end === -1 || end < start) {
-    throw new Error("Entity extraction returned no JSON object");
+type IngestIssue = {
+  code: string;
+  step: string;
+  message: string;
+  agent_run_id: string | null;
+  occurred_at: string;
+};
+
+type IngestJobForIssue = {
+  id: string;
+  status: "processing" | "done" | "done_with_issues";
+  result: Record<string, unknown> | null;
+};
+
+const ENTITY_EXTRACTION_ISSUE = {
+  code: "ENTITY_EXTRACTION_FAILED",
+  step: "entity-extraction",
+  message:
+    "Evidence was created, but speaker and organisation identification did not complete.",
+} as const;
+
+function parseIngestIssues(result: Record<string, unknown> | null): IngestIssue[] {
+  if (!result || !Array.isArray(result.issues)) return [];
+
+  return result.issues.filter((issue): issue is IngestIssue => {
+    if (!issue || typeof issue !== "object") return false;
+    const candidate = issue as Partial<IngestIssue>;
+    return (
+      typeof candidate.code === "string" &&
+      typeof candidate.step === "string" &&
+      typeof candidate.message === "string" &&
+      typeof candidate.occurred_at === "string"
+    );
+  });
+}
+
+async function loadIngestJobForIssue(input: {
+  supabase: ReturnType<typeof createServiceClient>;
+  orgId: string;
+  sourceId: string;
+  jobId?: string;
+}) {
+  let query = input.supabase
+    .from("ingest_jobs")
+    .select("id, status, result")
+    .eq("org_id", input.orgId)
+    .eq("source_id", input.sourceId)
+    .in("status", ["processing", "done", "done_with_issues"]);
+
+  if (input.jobId) {
+    query = query.eq("id", input.jobId);
   }
-  return JSON.parse(unfenced.slice(start, end + 1)) as unknown;
+
+  const { data, error } = await query
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load parent ingest job: ${error.message}`);
+  }
+
+  return (data as IngestJobForIssue | null) ?? null;
+}
+
+async function recordEntityExtractionIssue(input: {
+  supabase: ReturnType<typeof createServiceClient>;
+  orgId: string;
+  sourceId: string;
+  jobId?: string;
+  agentRunId: string | null;
+}) {
+  const job = await loadIngestJobForIssue(input);
+  if (!job) return;
+
+  const result = job.result ?? {};
+  const issue: IngestIssue = {
+    ...ENTITY_EXTRACTION_ISSUE,
+    agent_run_id: input.agentRunId,
+    occurred_at: new Date().toISOString(),
+  };
+  const issues = [
+    ...parseIngestIssues(result).filter((item) => item.code !== issue.code),
+    issue,
+  ];
+
+  const { error } = await input.supabase
+    .from("ingest_jobs")
+    .update({
+      status: "done_with_issues",
+      error: issue.message,
+      completed_at: new Date().toISOString(),
+      result: { ...result, issues },
+    })
+    .eq("org_id", input.orgId)
+    .eq("source_id", input.sourceId)
+    .eq("id", job.id)
+    .in("status", ["processing", "done", "done_with_issues"]);
+
+  if (error) {
+    throw new Error(`Failed to record entity extraction issue: ${error.message}`);
+  }
+}
+
+async function clearEntityExtractionIssue(input: {
+  supabase: ReturnType<typeof createServiceClient>;
+  orgId: string;
+  sourceId: string;
+  jobId?: string;
+}) {
+  const job = await loadIngestJobForIssue(input);
+  if (!job) return;
+
+  const result = job.result ?? {};
+  const issues = parseIngestIssues(result).filter(
+    (issue) => issue.code !== ENTITY_EXTRACTION_ISSUE.code
+  );
+  if (job.status === "done" && issues.length === 0) return;
+
+  const { error } = await input.supabase
+    .from("ingest_jobs")
+    .update({
+      status: issues.length > 0 ? "done_with_issues" : "done",
+      error: issues[0]?.message ?? null,
+      completed_at: new Date().toISOString(),
+      result: { ...result, issues },
+    })
+    .eq("org_id", input.orgId)
+    .eq("source_id", input.sourceId)
+    .eq("id", job.id)
+    .in("status", ["processing", "done", "done_with_issues"]);
+
+  if (error) {
+    throw new Error(`Failed to clear entity extraction issue: ${error.message}`);
+  }
 }
 
 function formatEvidence(records: EvidenceForEntityExtraction[]) {
@@ -458,7 +582,7 @@ export const extractEntities = inngest.createFunction(
   { id: "extract-entities", name: "Extract Entities", retries: 2 },
   { event: "source/entities.requested" },
   async ({ event, step }) => {
-    const { org_id, project_id, source_id } = event.data;
+    const { org_id, project_id, source_id, job_id } = event.data;
     const supabase = createServiceClient();
     let agentRunId: string | null = null;
 
@@ -578,7 +702,7 @@ export const extractEntities = inngest.createFunction(
         // Resilient parse: a truncated/malformed people/companies/competitors
         // entry must not fail the whole extraction — see parseEntityExtraction.
         const { extraction: parsedExtraction, dropped } = parseEntityExtraction(
-          extractJsonObject(result.content)
+          extractFirstJsonObject(result.content)
         );
         const filtered = filterExtractionForProject({
           extraction: parsedExtraction,
@@ -879,6 +1003,15 @@ export const extractEntities = inngest.createFunction(
           .eq("id", agentRunId);
       });
 
+      await step.run("clear-parent-ingest-issue", async () => {
+        await clearEntityExtractionIssue({
+          supabase,
+          orgId: org_id,
+          sourceId: source_id,
+          jobId: job_id,
+        });
+      });
+
       // Queue digest synthesis for any external people who have accumulated evidence.
       // Only external people produce customer evidence — internal people are skipped.
       // The synthesise-person function will check the evidence threshold itself (≥3 records).
@@ -984,6 +1117,20 @@ export const extractEntities = inngest.createFunction(
           })
           .eq("org_id", org_id)
           .eq("id", agentRunId);
+      }
+      try {
+        await recordEntityExtractionIssue({
+          supabase,
+          orgId: org_id,
+          sourceId: source_id,
+          jobId: job_id,
+          agentRunId,
+        });
+      } catch (issueError) {
+        console.error(
+          "[extract-entities] failed to mark parent ingest with issues:",
+          issueError instanceof Error ? issueError.message : String(issueError)
+        );
       }
       return { people: 0, companies: 0, competitors: 0, links: 0, skipped: true };
     }

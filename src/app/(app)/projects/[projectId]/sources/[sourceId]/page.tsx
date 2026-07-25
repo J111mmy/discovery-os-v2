@@ -84,6 +84,8 @@ function StatusBadge({ status }: { status: JobStatus | "not_started" }) {
   const label =
     status === "failed"
       ? "check needed"
+      : status === "done_with_issues"
+      ? "needs attention"
       : status === "pending"
       ? "queued"
       : status === "processing"
@@ -94,6 +96,8 @@ function StatusBadge({ status }: { status: JobStatus | "not_started" }) {
       ? "border-pos/20 bg-pos-bg text-pos"
       : status === "failed"
       ? "border-neg/20 bg-neg-bg text-neg"
+      : status === "done_with_issues"
+      ? "border-warn/20 bg-warn-bg text-warn"
       : status === "processing"
       ? "border-warn/20 bg-warn-bg text-warn"
       : status === "pending"
@@ -171,7 +175,7 @@ export default async function SourceDetailPage({ params }: Props) {
     | {
         status: JobStatus;
         error: string | null;
-        result: Record<string, number> | null;
+        result: Record<string, unknown> | null;
         created_at: string;
       }
     | undefined;
@@ -218,7 +222,11 @@ export default async function SourceDetailPage({ params }: Props) {
             projectId={project.id}
             sourceId={typedSource.id}
             variant="detail"
-            showRetry={displayStatus === "failed" || displayStatus === "done"}
+            showRetry={
+              displayStatus === "failed" ||
+              displayStatus === "done" ||
+              displayStatus === "done_with_issues"
+            }
             retryMode={displayStatus === "done" ? "reprocess" : "retry"}
             isProcessing={hasInFlightJob}
           />
@@ -226,8 +234,19 @@ export default async function SourceDetailPage({ params }: Props) {
       </div>
 
       {latestJob?.error && (
-        <div className="mb-6 rounded-xl border border-neg/20 bg-neg-bg p-4 text-sm text-neg">
+        <div
+          className={`mb-6 rounded-xl border p-4 text-sm ${
+            latestJob.status === "done_with_issues"
+              ? "border-warn/20 bg-warn-bg text-warn"
+              : "border-neg/20 bg-neg-bg text-neg"
+          }`}
+        >
           {latestJob.error}
+          {latestJob.status === "done_with_issues" && (
+            <p className="mt-1">
+              Your evidence is available. Use Retry to run speaker and organisation identification again.
+            </p>
+          )}
         </div>
       )}
 
@@ -279,7 +298,8 @@ export default async function SourceDetailPage({ params }: Props) {
         ingestInFlight={hasInFlightJob}
       />
 
-      {latestJob?.status === "done" && !zeroEvidenceDone && (
+      {(latestJob?.status === "done" || latestJob?.status === "done_with_issues") &&
+        !zeroEvidenceDone && (
         <div className="mb-6">
           {sessionBrief ? (
             <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">

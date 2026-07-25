@@ -5,7 +5,14 @@ import { useRouter } from "next/navigation";
 import { SOURCE_TYPE_LABELS } from "@/lib/labels";
 import { inferSourceType } from "@/lib/ingest/source-inference";
 
-type JobStatus = "idle" | "queued" | "pending" | "processing" | "done" | "failed";
+type JobStatus =
+  | "idle"
+  | "queued"
+  | "pending"
+  | "processing"
+  | "done"
+  | "done_with_issues"
+  | "failed";
 
 interface IngestResult {
   segments_created: number;
@@ -38,10 +45,18 @@ export function IngestForm({ projectId }: IngestFormProps) {
   const [status, setStatus] = useState<JobStatus>("idle");
   const [result, setResult] = useState<IngestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [pollCount, setPollCount] = useState(0);
 
   useEffect(() => {
-    if (!jobId || status === "done" || status === "failed") return;
+    if (
+      !jobId ||
+      status === "done" ||
+      status === "done_with_issues" ||
+      status === "failed"
+    ) {
+      return;
+    }
 
     // Give up after ~25 minutes (850 polls × 1800ms). Long transcripts can
     // legitimately queue behind another source, so this is intentionally generous.
@@ -67,7 +82,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
 
       setPollCount((c) => c + 1);
       setStatus(payload.status);
-      if (payload.status === "done") {
+      if (payload.status === "done" || payload.status === "done_with_issues") {
         const ingestResult = payload.result ?? { segments_created: 0, evidence_created: 0 };
         if ((ingestResult.evidence_created ?? 0) === 0) {
           setResult(ingestResult);
@@ -80,6 +95,12 @@ export function IngestForm({ projectId }: IngestFormProps) {
 
         const completedSourceId = typeof payload.source_id === "string" ? payload.source_id : sourceId;
         setResult(ingestResult);
+        setWarning(
+          payload.status === "done_with_issues"
+            ? payload.error ??
+                "Evidence was created, but speaker and organisation identification needs attention."
+            : null
+        );
         router.refresh();
         if (completedSourceId) {
           router.push(`/projects/${projectId}/sources/${completedSourceId}`);
@@ -96,6 +117,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    setWarning(null);
     setResult(null);
     setSourceId(null);
     setStatus("queued");
@@ -302,12 +324,18 @@ export function IngestForm({ projectId }: IngestFormProps) {
           </div>
         )}
 
-        {status === "done" && (
+        {(status === "done" || status === "done_with_issues") && (
           <div className="mt-4 rounded-lg border border-pos/20 bg-pos-bg px-3 py-2 text-sm text-pos">
             <div>✓ Processed — {result?.evidence_created ?? 0} evidence records created</div>
             <a href={`/projects/${projectId}/evidence`} className="mt-2 inline-flex text-[var(--ink)] hover:text-[var(--accent)]">
               View evidence
             </a>
+          </div>
+        )}
+
+        {warning && (
+          <div className="mt-4 rounded-lg border border-warn/20 bg-warn-bg px-3 py-2 text-sm text-warn">
+            {warning} Open the source to review the failed step and try it again.
           </div>
         )}
 
