@@ -9,6 +9,7 @@ interface SourceActionsProps {
   variant?: "list" | "detail";
   showRetry?: boolean;
   retryMode?: "retry" | "reprocess";
+  isProcessing?: boolean;
 }
 
 export function SourceActions({
@@ -17,6 +18,7 @@ export function SourceActions({
   variant = "list",
   showRetry = true,
   retryMode = "retry",
+  isProcessing = false,
 }: SourceActionsProps) {
   const router = useRouter();
   const [isRetrying, setIsRetrying] = useState(false);
@@ -86,16 +88,16 @@ export function SourceActions({
           <button
             type="button"
             onClick={retrySource}
-            disabled={isRetrying || isDeleting}
+            disabled={isProcessing || isRetrying || isDeleting}
             className="rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-medium text-[var(--ink)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {isRetrying ? busyLabel : actionLabel}
+            {isProcessing ? "Processing..." : isRetrying ? busyLabel : actionLabel}
           </button>
         )}
         <button
           type="button"
           onClick={deleteSource}
-          disabled={isRetrying || isDeleting}
+          disabled={isProcessing || isRetrying || isDeleting}
           className="rounded-lg border border-neg/20 px-3 py-1.5 text-xs font-medium text-neg transition-colors hover:border-neg disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isDeleting ? "Deleting..." : "Delete"}

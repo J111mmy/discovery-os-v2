@@ -19,6 +19,7 @@ export interface SourceItem {
   hasFailed: boolean;
   isAnalyzing: boolean;
   isQueued: boolean;
+  hasInFlightJob: boolean;
   message: string;
 }
 
@@ -269,6 +270,7 @@ function SourceDrawer({
             sourceId={source.id}
             showRetry={source.hasFailed || source.displayStatus === "done"}
             retryMode={source.displayStatus === "done" ? "reprocess" : "retry"}
+            isProcessing={source.hasInFlightJob}
           />
         </div>
 
