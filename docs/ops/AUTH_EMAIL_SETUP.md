@@ -64,8 +64,10 @@ from `supabase/templates/auth/` and set the subject:
 | Reset Password | `supabase/templates/auth/recovery.html` | `Reset your DiscOS password` |
 
 These are DiscOS-branded (indigo `#6366F1`, "DiscOS · Evidence workspace" lockup), light-background for
-deliverability across Gmail/Outlook/Apple Mail, with a button + copy-paste URL fallback. They use the
-standard Supabase `{{ .ConfirmationURL }}` variable, so links keep working unchanged.
+deliverability across Gmail/Outlook/Apple Mail, with a button + copy-paste URL fallback. The recovery
+template uses `{{ .TokenHash }}` and the public `/auth/confirm` route so a reset link can establish a
+session in a different browser from the one that requested it. The other auth templates continue to use
+`{{ .ConfirmationURL }}`.
 
 > **Note on the Supabase "Invite user" template:** DiscOS sends team invites through the app's own
 > Resend path (`invite.ts`), **not** Supabase's `inviteUserByEmail`. So the dashboard "Invite user"
