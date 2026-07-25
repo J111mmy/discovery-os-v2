@@ -20,6 +20,7 @@ type Props = {
   projectId: string;
   sourceId: string;
   projectName: string;
+  ingestInFlight: boolean;
 };
 
 const STEP_LABELS: Record<string, string> = {
@@ -56,7 +57,7 @@ function isProcurementProject(projectName: string) {
   return /proc|tender|supplier|vendor|buy|buyer|purchase/i.test(projectName);
 }
 
-export function InsightProgress({ projectId, sourceId, projectName }: Props) {
+export function InsightProgress({ projectId, sourceId, projectName, ingestInFlight }: Props) {
   const [runs, setRuns] = useState<AgentRunSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
@@ -192,10 +193,14 @@ export function InsightProgress({ projectId, sourceId, projectName }: Props) {
                 <button
                   type="button"
                   onClick={retrySource}
-                  disabled={retrying}
+                  disabled={retrying || ingestInFlight || hasRunning}
                   className="shrink-0 text-xs font-medium text-neg transition-colors hover:text-[var(--ink)] disabled:cursor-wait disabled:opacity-60"
                 >
-                  {retrying ? "Trying..." : "Try again"}
+                  {ingestInFlight || hasRunning
+                    ? "In progress"
+                    : retrying
+                    ? "Trying..."
+                    : "Try again"}
                 </button>
               )}
             </div>

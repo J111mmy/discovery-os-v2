@@ -130,6 +130,7 @@ export default async function SourcesPage({ params }: Props) {
     const displayStatus = (needsCheck || isStale ? "failed" : jobStatus) as SourceItem["displayStatus"];
     const isQueued = !isStale && jobStatus === "pending";
     const isAnalyzing = !isStale && jobStatus === "processing";
+    const hasInFlightJob = jobStatus === "pending" || jobStatus === "processing";
     const hasFailed = jobStatus === "failed" || needsCheck || isStale;
 
     const message = isAnalyzing
@@ -140,7 +141,7 @@ export default async function SourcesPage({ params }: Props) {
       ? needsCheck
         ? "Processing completed without citable external evidence. Re-add the source and confirm speaker roles if someone should be Customer."
         : isStale
-        ? "Processing took too long. Use Retry to run it again."
+        ? "Processing is taking longer than expected. Retry stays unavailable while the current run is active."
         : "Processing did not complete. Use Retry to try again."
       : `${evidenceCount} evidence record${evidenceCount === 1 ? "" : "s"}`;
 
@@ -156,6 +157,7 @@ export default async function SourcesPage({ params }: Props) {
       hasFailed,
       isAnalyzing,
       isQueued,
+      hasInFlightJob,
       message,
     };
   });

@@ -1181,7 +1181,7 @@ export const ingestSource = inngest.createFunction(
     id: "ingest-source",
     name: "Ingest Source",
     retries: 3,
-    concurrency: { limit: 1, key: "event.data.org_id", scope: "env" },
+    concurrency: { limit: 1, key: "event.data.source_id", scope: "env" },
   },
   { event: "source/ingest.requested" },
   async ({ event, step }) => {
@@ -1192,13 +1192,65 @@ export const ingestSource = inngest.createFunction(
     let extractionSummary: ExtractionSummary | null = null;
 
     try {
-      await step.run("mark-processing", async () => {
-        await supabase
+      const claimed = await step.run("claim-ingest-job", async () => {
+        const { data: latestJob, error: latestJobError } = await supabase
           .from("ingest_jobs")
-          .update({ status: "processing", started_at: new Date().toISOString() })
+          .select("id")
           .eq("org_id", org_id)
-          .eq("id", job_id);
+          .eq("source_id", source_id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (latestJobError) {
+          throw new Error(`Could not inspect ingest job: ${latestJobError.message}`);
+        }
+
+        if (!latestJob || latestJob.id !== job_id) {
+          await supabase
+            .from("ingest_jobs")
+            .update({
+              status: "failed",
+              error: "Superseded by a newer ingest request.",
+              completed_at: new Date().toISOString(),
+            })
+            .eq("org_id", org_id)
+            .eq("source_id", source_id)
+            .eq("id", job_id)
+            .eq("status", "pending");
+
+          return false;
+        }
+
+        const { data: claimedJob, error: claimError } = await supabase
+          .from("ingest_jobs")
+          .update({
+            status: "processing",
+            error: null,
+            started_at: new Date().toISOString(),
+            completed_at: null,
+          })
+          .eq("org_id", org_id)
+          .eq("source_id", source_id)
+          .eq("id", job_id)
+          .eq("status", "pending")
+          .select("id")
+          .maybeSingle();
+
+        if (claimError) {
+          throw new Error(`Could not claim ingest job: ${claimError.message}`);
+        }
+
+        return Boolean(claimedJob);
       });
+
+      if (!claimed) {
+        return {
+          source_id,
+          skipped: true,
+          reason: "Ingest job was already claimed, completed, or superseded.",
+        };
+      }
 
       const source = await step.run("fetch-source", async () => {
         const { data, error } = await supabase

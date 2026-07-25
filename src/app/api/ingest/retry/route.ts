@@ -71,6 +71,83 @@ export async function POST(req: NextRequest) {
 
     sourceIds = [source.id];
 
+    const [{ data: activeJobs, error: activeJobsError }, { data: activeRuns, error: activeRunsError }] =
+      await Promise.all([
+        service
+          .from("ingest_jobs")
+          .select("id, status")
+          .eq("org_id", org_id)
+          .eq("source_id", source.id)
+          .in("status", ["pending", "processing"])
+          .limit(1),
+        service
+          .from("agent_runs")
+          .select("id, agent_type")
+          .eq("org_id", org_id)
+          .eq("project_id", project.id)
+          .eq("status", "running")
+          .contains("input", { source_id: source.id })
+          .limit(1),
+      ]);
+
+    if (activeJobsError || activeRunsError) {
+      console.error("Failed to inspect source processing state", {
+        activeJobsError,
+        activeRunsError,
+      });
+      return NextResponse.json(
+        { error: "Could not confirm whether this source is already processing." },
+        { status: 503 }
+      );
+    }
+
+    if ((activeJobs?.length ?? 0) > 0 || (activeRuns?.length ?? 0) > 0) {
+      return NextResponse.json(
+        {
+          error: "This source is already being processed.",
+          code: "INGEST_ALREADY_RUNNING",
+        },
+        { status: 409 }
+      );
+    }
+
+    const { data: job, error: jobError } = await service
+      .from("ingest_jobs")
+      .insert({ org_id, source_id: source.id, status: "pending" })
+      .select("id, source_id")
+      .single();
+
+    if (jobError || !job) {
+      if (jobError?.code === "23505") {
+        return NextResponse.json(
+          {
+            error: "This source is already being processed.",
+            code: "INGEST_ALREADY_RUNNING",
+          },
+          { status: 409 }
+        );
+      }
+
+      console.error("Failed to create retry job", jobError);
+      return NextResponse.json(
+        { error: "Failed to create retry job." },
+        { status: 500 }
+      );
+    }
+
+    const failRetryJob = async (message: string) => {
+      await service
+        .from("ingest_jobs")
+        .update({
+          status: "failed",
+          error: message,
+          completed_at: new Date().toISOString(),
+        })
+        .eq("org_id", org_id)
+        .eq("source_id", source.id)
+        .eq("id", job.id);
+    };
+
     const { error: evidenceDeleteError } = await service
       .from("evidence")
       .delete()
@@ -80,8 +157,9 @@ export async function POST(req: NextRequest) {
 
     if (evidenceDeleteError) {
       console.error("Failed to clear evidence before retry", evidenceDeleteError);
+      await failRetryJob("Could not prepare the source for re-processing.");
       return NextResponse.json(
-        { error: evidenceDeleteError.message },
+        { error: "Could not prepare the source for re-processing." },
         { status: 500 }
       );
     }
@@ -94,11 +172,34 @@ export async function POST(req: NextRequest) {
 
     if (segmentDeleteError) {
       console.error("Failed to clear source segments before retry", segmentDeleteError);
+      await failRetryJob("Could not prepare the source for re-processing.");
       return NextResponse.json(
-        { error: segmentDeleteError.message },
+        { error: "Could not prepare the source for re-processing." },
         { status: 500 }
       );
     }
+
+    try {
+      await inngest.send({
+        name: "source/ingest.requested",
+        data: {
+          org_id,
+          project_id: project.id,
+          source_id: job.source_id,
+          job_id: job.id,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("Failed to queue retry job", message);
+      await failRetryJob("Could not queue the source for re-processing.");
+      return NextResponse.json(
+        { error: "Could not queue the source for re-processing." },
+        { status: 503 }
+      );
+    }
+
+    return NextResponse.json({ retried: 1, job_ids: [job.id] });
   } else {
     const { data: sources, error: sourceError } = await service
       .from("sources")
@@ -117,41 +218,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ retried: 0, message: "No sources found" });
   }
 
-  if (source_id) {
-    const { data: job, error: jobError } = await service
-      .from("ingest_jobs")
-      .insert({ org_id, source_id: sourceIds[0], status: "pending" })
-      .select("id, source_id")
-      .single();
-
-    if (jobError || !job) {
-      console.error("Failed to create retry job", jobError);
-      return NextResponse.json(
-        { error: jobError?.message ?? "Failed to create retry job" },
-        { status: 500 }
-      );
-    }
-
-    await inngest.send({
-      name: "source/ingest.requested",
-      data: {
-        org_id,
-        project_id: project.id,
-        source_id: job.source_id,
-        job_id: job.id,
-      },
-    });
-
-    return NextResponse.json({ retried: 1, job_ids: [job.id] });
-  }
-
   // Find all pending jobs for this project
   const { data: stuckJobs, error } = await service
     .from("ingest_jobs")
     .select("id, source_id")
     .eq("org_id", org_id)
     .in("source_id", sourceIds)
-    .eq("status", "pending");
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
 
   if (error) {
     return NextResponse.json({ error: "Failed to fetch stuck jobs" }, { status: 500 });
@@ -162,7 +236,13 @@ export async function POST(req: NextRequest) {
   }
 
   // Re-fire ingest event for each stuck job
-  const jobs = (stuckJobs ?? []) as RetryJob[];
+  const latestJobBySource = new Map<string, RetryJob>();
+  for (const job of (stuckJobs ?? []) as RetryJob[]) {
+    if (!latestJobBySource.has(job.source_id)) {
+      latestJobBySource.set(job.source_id, job);
+    }
+  }
+  const jobs = Array.from(latestJobBySource.values());
 
   const events = jobs.map((job) => ({
     name: "source/ingest.requested" as const,

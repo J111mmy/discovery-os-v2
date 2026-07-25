@@ -187,6 +187,8 @@ export default async function SourceDetailPage({ params }: Props) {
   const displayStatus = zeroEvidenceDone || staleJob ? "failed" : latestJob?.status ?? "not_started";
   const isQueued = displayStatus === "pending";
   const isAnalyzing = displayStatus === "processing";
+  const hasInFlightJob =
+    latestJob?.status === "pending" || latestJob?.status === "processing";
   const sourceLooksLikeMarker = looksLikeProcessedMarker(
     segments.map((segment) => segment.raw_content).join("\n\n")
   );
@@ -218,6 +220,7 @@ export default async function SourceDetailPage({ params }: Props) {
             variant="detail"
             showRetry={displayStatus === "failed" || displayStatus === "done"}
             retryMode={displayStatus === "done" ? "reprocess" : "retry"}
+            isProcessing={hasInFlightJob}
           />
         </div>
       </div>
@@ -250,9 +253,10 @@ export default async function SourceDetailPage({ params }: Props) {
 
       {staleJob && !latestJob?.error && (
         <div className="mb-6 rounded-xl border border-neg/20 bg-neg-bg p-4 text-sm leading-6 text-neg">
-          <div className="font-semibold">Processing took too long.</div>
+          <div className="font-semibold">Processing is taking longer than expected.</div>
           <p className="mt-1">
-            This source appears to be stuck. Use Retry to clear the partial segments and run ingest again.
+            Retry stays unavailable while the current run is active. Refresh this page to check its latest
+            status.
           </p>
         </div>
       )}
@@ -268,7 +272,12 @@ export default async function SourceDetailPage({ params }: Props) {
         </div>
       )}
 
-      <InsightProgress projectId={project.id} sourceId={typedSource.id} projectName={project.name} />
+      <InsightProgress
+        projectId={project.id}
+        sourceId={typedSource.id}
+        projectName={project.name}
+        ingestInFlight={hasInFlightJob}
+      />
 
       {latestJob?.status === "done" && !zeroEvidenceDone && (
         <div className="mb-6">
