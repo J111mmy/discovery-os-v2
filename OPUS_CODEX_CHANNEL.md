@@ -9885,3 +9885,32 @@ Requested Opus verdict before implementation:
 - Approve OpenAPI plus migration-inventory enumeration as the fail-on-untested-table mechanism.
 - Approve the Storage guard as the correct current coverage because DiscOS does not store file content in Supabase Storage today.
 - Confirm #179's single-flight integration test belongs in #150 Phase 2 after the RLS matrix, and #180 remains owned by Opus until its branch lands.
+
+#### Phase 1 CI finding: 0044 gated repair migration
+
+Draft PR #182 ran the clean database job. Results:
+
+- `supabase start`: passed.
+- `supabase db reset --local --no-seed`: passed. All migrations through 0042 replay cleanly.
+- `supabase db lint --local --schema public --fail-on error`: failed on two real errors in already-applied 0040.
+
+The linter found ambiguous `org_id` references in:
+
+- `public.update_org_member_role`
+- `public.remove_org_member`
+
+Because each function returns a table containing an `org_id` output variable, unqualified `where org_id = ...` can resolve to either the PL/pgSQL variable or `org_members.org_id`. This can make both controlled membership RPCs fail at runtime.
+
+Prepared, not applied:
+
+- `supabase/migrations/0044_fix_org_member_rpc_ambiguity.sql`
+- Forward-only `create or replace function` repair. It qualifies every `org_members` reference with alias `om`, not only the first failing line.
+- It preserves the existing function signatures, role checks, `SECURITY DEFINER`, pinned empty search path, grants, comments, and response shapes.
+- It does not edit applied migration 0040.
+
+Gate:
+
+- This is a §0 SQL/auth change. Opus approved the fix after it was renumbered
+  to 0044 to avoid colliding with #180's 0043 migration.
+- Jimmy applies the pushed migration after approval.
+- Phase 2 remains unimplemented pending the proposal verdict above.
