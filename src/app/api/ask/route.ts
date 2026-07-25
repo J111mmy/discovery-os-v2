@@ -26,8 +26,15 @@ import {
   shouldLoadLinkedEvidenceForStructuralIntent,
   type AskStructuralContext,
 } from "@/lib/ask/structural-context";
+import {
+  buildAskCoverage,
+  formatAskCorpusFacts,
+  isCorpusQuestion,
+  loadAskCorpusFacts,
+} from "@/lib/ask/corpus-facts";
 import { z } from "zod";
 import type { EvidenceRecord } from "@/types/database";
+import type { AskCorpusFacts, AskCoverage, AskRetrievalMode } from "@/types/ask";
 
 const AskSchema = z.object({
   project_id: z.string().uuid(),
@@ -45,6 +52,7 @@ export interface AskResponse {
   all_retrieved: EvidenceRecord[]; // full retrieval set, for UI fallback
   prompt_version: string;
   record_count: number;
+  coverage: AskCoverage;
 }
 
 type AskStreamEvent =
@@ -55,6 +63,7 @@ type AskStreamEvent =
       all_retrieved: EvidenceRecord[];
       prompt_version: string;
       record_count: number;
+      coverage: AskCoverage;
     };
 
 const encoder = new TextEncoder();
@@ -220,6 +229,9 @@ export async function POST(req: NextRequest) {
   }
 
   const structuralIntent = detectAskStructuralIntent(question);
+  const retrievalMode: AskRetrievalMode = isCorpusQuestion(question)
+    ? "stratified"
+    : "semantic";
   const shouldRetrieveSemanticEvidence =
     !structuralIntent || structuralIntent.needsEvidence;
   const shouldRetrieveLinkedStructuralEvidence =
@@ -227,12 +239,18 @@ export async function POST(req: NextRequest) {
 
   let structuralContext: AskStructuralContext | null = null;
   let linkedStructuralEvidence: EvidenceRecord[] = [];
+  let corpusFacts: AskCorpusFacts;
   let speakerResolution: Awaited<
     ReturnType<typeof resolveSpeakerTargetsForQuestion>
   > | null = null;
 
   try {
-    const [resolvedSpeaker, resolvedStructuralContext, resolvedLinkedStructuralEvidence] =
+    const [
+      resolvedSpeaker,
+      resolvedStructuralContext,
+      resolvedLinkedStructuralEvidence,
+      resolvedCorpusFacts,
+    ] =
       await Promise.all([
         shouldRetrieveSemanticEvidence
           ? resolveSpeakerTargetsForQuestion({
@@ -260,11 +278,17 @@ export async function POST(req: NextRequest) {
               limit,
             })
           : Promise.resolve([]),
+        loadAskCorpusFacts({
+          supabase,
+          org_id: project.org_id,
+          project_id,
+        }),
       ]);
 
     speakerResolution = resolvedSpeaker;
     structuralContext = resolvedStructuralContext;
     linkedStructuralEvidence = resolvedLinkedStructuralEvidence;
+    corpusFacts = resolvedCorpusFacts;
   } catch (err) {
     console.error("[ask] Structural context retrieval failed:", err);
     return NextResponse.json(
@@ -286,6 +310,8 @@ export async function POST(req: NextRequest) {
         limit,
         trust_scope,
         speaker_resolution: speakerResolution,
+        retrieval_mode: retrievalMode,
+        supabase,
       });
       semanticEvidence = result.records;
     }
@@ -298,6 +324,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const coverage = buildAskCoverage({
+    facts: corpusFacts,
+    retrieved,
+    trust_scope,
+    retrieval_mode: retrievalMode,
+  });
+
   // If no evidence, return a graceful "nothing found" answer
   if (retrieved.length === 0 && !structuralContext?.hasData) {
     const speakerFocus = speakerResolutionLabel(speakerResolution);
@@ -308,6 +341,7 @@ export async function POST(req: NextRequest) {
         all_retrieved: [],
         prompt_version: ASK_PROMPT_VERSION,
         record_count: 0,
+        coverage,
       } satisfies AskResponse);
     }
 
@@ -318,6 +352,7 @@ export async function POST(req: NextRequest) {
       all_retrieved: [],
       prompt_version: ASK_PROMPT_VERSION,
       record_count: 0,
+      coverage,
     } satisfies AskResponse);
   }
 
@@ -359,6 +394,10 @@ export async function POST(req: NextRequest) {
                   evidenceRecords: retrieved,
                   speakerResolution,
                   structuralContext: structuralContext?.text ?? null,
+                  corpusFacts: formatAskCorpusFacts({
+                    facts: corpusFacts,
+                    coverage,
+                  }),
                 }),
               },
             ],
@@ -393,6 +432,12 @@ export async function POST(req: NextRequest) {
             answer_length: answer.length,
             cited_source_count: citedSources.length,
             retrieved_count: retrieved.length,
+            retrieval_mode: retrievalMode,
+            readable_record_count: coverage.readable_records,
+            retrieved_source_count: coverage.retrieved_sources,
+            readable_source_count: coverage.readable_sources,
+            evidence_bearing_source_count: coverage.evidence_bearing_sources,
+            total_source_count: coverage.total_sources,
           },
         });
 
@@ -403,6 +448,7 @@ export async function POST(req: NextRequest) {
             all_retrieved: retrieved,
             prompt_version: ASK_PROMPT_VERSION,
             record_count: retrieved.length,
+            coverage,
           })
         );
         controller.close();

@@ -1,7 +1,9 @@
 // Evidence query — semantic similarity search with org_id guard
 import { createServiceClient } from "@/lib/supabase/server";
+import type { createClient } from "@/lib/supabase/server";
 import { embed } from "@/lib/llm/client";
 import type { TrustScope, EvidenceRecord } from "@/types/database";
+import type { AskRetrievalMode } from "@/types/ask";
 import {
   recordMatchesSpeakerTargets,
   speakerMatchesTargets,
@@ -15,6 +17,10 @@ import {
 } from "@/lib/evidence/internal";
 import { hydrateEvidenceRecordsWithTypedTopics } from "@/lib/research-ontology/evidence-topics";
 
+type EvidenceQueryClient =
+  | Awaited<ReturnType<typeof createClient>>
+  | ReturnType<typeof createServiceClient>;
+
 export interface EvidenceQueryOptions {
   org_id: string;
   project_id: string;
@@ -22,6 +28,8 @@ export interface EvidenceQueryOptions {
   limit?: number;
   trust_scope?: TrustScope | "include_pending" | "all";
   speaker_resolution?: SpeakerResolution | null;
+  retrieval_mode?: AskRetrievalMode;
+  supabase?: EvidenceQueryClient;
 }
 
 export interface EvidenceQueryResult {
@@ -53,13 +61,21 @@ export async function queryEvidence(
     limit = 18,
     trust_scope = "trusted",
     speaker_resolution = null,
+    retrieval_mode = "semantic",
+    supabase: suppliedSupabase,
   } = opts;
 
-  const supabase = createServiceClient();
+  const supabase = suppliedSupabase ?? createServiceClient();
   const embedding = await embed(q);
   const embeddingStr = `[${embedding.join(",")}]`;
   const speakerTargeted = Boolean(speaker_resolution?.targeted);
-  const retrievalLimit = speakerTargeted ? Math.max(limit * 4, 60) : Math.max(limit * 3, 30);
+  const effectiveRetrievalMode = speakerTargeted ? "semantic" : retrieval_mode;
+  const retrievalLimit =
+    effectiveRetrievalMode === "stratified"
+      ? Math.max(limit * 3, 60)
+      : speakerTargeted
+      ? Math.max(limit * 4, 60)
+      : Math.max(limit * 3, 30);
 
   // Build trust filter
   const trustFilter =
@@ -70,13 +86,23 @@ export async function queryEvidence(
       : [trust_scope];
 
   // pgvector cosine similarity — ALWAYS filter by org_id first
-  const { data, error } = await supabase.rpc("match_evidence", {
-    p_org_id: org_id,
-    p_project_id: project_id,
-    p_embedding: embeddingStr,
-    p_trust_scopes: trustFilter,
-    p_limit: retrievalLimit,
-  });
+  const { data, error } =
+    effectiveRetrievalMode === "stratified"
+      ? await supabase.rpc("match_evidence_stratified", {
+          p_org_id: org_id,
+          p_project_id: project_id,
+          p_embedding: embeddingStr,
+          p_trust_scopes: trustFilter,
+          p_limit: retrievalLimit,
+          p_per_source_limit: 3,
+        })
+      : await supabase.rpc("match_evidence", {
+          p_org_id: org_id,
+          p_project_id: project_id,
+          p_embedding: embeddingStr,
+          p_trust_scopes: trustFilter,
+          p_limit: retrievalLimit,
+        });
 
   if (error) throw new Error(`Evidence query failed: ${error.message}`);
 
@@ -115,7 +141,10 @@ export async function queryEvidence(
       })
       .slice(0, limit);
   } else {
-    if (trust_scope === "include_pending" || trust_scope === "all") {
+    if (
+      effectiveRetrievalMode !== "stratified" &&
+      (trust_scope === "include_pending" || trust_scope === "all")
+    ) {
       records = downWeightPendingEvidence(records);
     }
     records = records.slice(0, limit);
@@ -125,7 +154,7 @@ export async function queryEvidence(
 }
 
 async function hydrateEvidenceRecords(input: {
-  supabase: ReturnType<typeof createServiceClient>;
+  supabase: EvidenceQueryClient;
   org_id: string;
   project_id: string;
   records: EvidenceRecord[];
@@ -216,7 +245,7 @@ async function hydrateEvidenceRecords(input: {
 }
 
 async function queryEvidenceBySpeaker(input: {
-  supabase: ReturnType<typeof createServiceClient>;
+  supabase: EvidenceQueryClient;
   org_id: string;
   project_id: string;
   trustFilter: string[];

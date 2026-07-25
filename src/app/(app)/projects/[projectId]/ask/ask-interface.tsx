@@ -3,6 +3,7 @@
 import { FormEvent, useState, useRef, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import type { EvidenceRecord } from "@/types/database";
+import type { AskCoverage } from "@/types/ask";
 import { AiDisclaimer } from "../../../components/AiDisclaimer";
 
 type TrustScopeFilter = "include_pending" | "trusted";
@@ -15,11 +16,18 @@ interface AskInterfaceProps {
 // NDJSON event shapes emitted by the streaming /api/ask route.
 // Wire format: one JSON object per line.
 //   delta: {"type":"delta","text":"..."}
-//   done:  {"type":"done","sources":[...],"all_retrieved":[...],"record_count":N,"prompt_version":"..."}
+//   done:  {"type":"done","sources":[...],"all_retrieved":[...],"record_count":N,"coverage":{...}}
 // Fallback: non-streamed application/json response uses the existing shape unchanged.
 type NdjsonEvent =
   | { type: "delta"; text: string }
-  | { type: "done"; sources: EvidenceRecord[]; all_retrieved: EvidenceRecord[]; record_count: number; prompt_version?: string };
+  | {
+      type: "done";
+      sources: EvidenceRecord[];
+      all_retrieved: EvidenceRecord[];
+      record_count: number;
+      prompt_version?: string;
+      coverage: AskCoverage;
+    };
 
 // ─── Answer rendering ───────────────────────────────────────────────────────
 
@@ -167,16 +175,27 @@ function askArtifactTitle(question: string): string {
   return `Ask: ${cleaned.length > 90 ? `${cleaned.slice(0, 87)}...` : cleaned}`;
 }
 
+function coverageSummary(coverage: AskCoverage) {
+  return (
+    `Reviewed ${coverage.retrieved_records} of ${coverage.readable_records} Ask-readable ` +
+    `evidence records, drawn from ${coverage.retrieved_sources} of ` +
+    `${coverage.readable_sources} readable sources ` +
+    `(${coverage.total_sources} sources total).`
+  );
+}
+
 function buildAskArtifactMarkdown({
   question,
   answer,
   sources,
   recordCount,
+  coverage,
 }: {
   question: string;
   answer: string;
   sources: EvidenceRecord[];
   recordCount: number;
+  coverage: AskCoverage | null;
 }) {
   const savedAnswer = remapAnswerCitations(answer, recordCount);
   const sourceBlocks = sources.map((source, index) => {
@@ -207,6 +226,7 @@ function buildAskArtifactMarkdown({
     "",
     "## Answer",
     savedAnswer.trim(),
+    ...(coverage ? ["", "## Coverage", coverageSummary(coverage)] : []),
     "",
     "## Sources",
     sourceBlocks.length > 0 ? sourceBlocks.join("\n\n") : "No specific records were cited.",
@@ -443,6 +463,7 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
   const [streaming, setStreaming] = useState(false);
   const [sources, setSources] = useState<EvidenceRecord[]>([]);
   const [recordCount, setRecordCount] = useState(0);
+  const [coverage, setCoverage] = useState<AskCoverage | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -477,6 +498,7 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
     setStreamBuffer("");
     setSources([]);
     setRecordCount(0);
+    setCoverage(null);
     setStreaming(false);
     setLastQuery(trimmedQuery);
     setSaveError(null);
@@ -507,10 +529,12 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
           answer: string;
           sources: EvidenceRecord[];
           record_count: number;
+          coverage: AskCoverage;
         };
         setStreamBuffer(payload.answer);
         setSources(payload.sources);
         setRecordCount(payload.record_count);
+        setCoverage(payload.coverage);
         return;
       }
 
@@ -550,6 +574,7 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
               setStreamBuffer(answerText);
               setSources(event.sources);
               setRecordCount(event.record_count);
+              setCoverage(event.coverage);
               setStreaming(false);
               break stream;
             }
@@ -568,6 +593,7 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
             setStreamBuffer(answerText);
             setSources(event.sources);
             setRecordCount(event.record_count);
+            setCoverage(event.coverage);
           }
         } catch {
           // partial or non-JSON tail — show whatever answer arrived
@@ -627,6 +653,7 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
             answer: streamBuffer,
             sources,
             recordCount,
+            coverage,
           }),
           type: "report",
           metadata: {
@@ -636,6 +663,7 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
             evidence_ids: sources.map((source) => source.id),
             trust_scope: trustScope,
             source_count: sources.length,
+            coverage,
           },
         }),
       });
@@ -757,8 +785,29 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
             <p className="mb-4 text-xs text-[var(--ink-faint)]">
               {streaming
                 ? `Answering "${lastQuery}"…`
-                : `Answer for "${lastQuery}" · drawn from ${recordCount} evidence records`}
+                : `Answer for "${lastQuery}"`}
             </p>
+
+            {!streaming && coverage && (
+              <div className="mb-5 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2">
+                <p className="text-xs leading-5 text-[var(--ink-2)]">
+                  {coverageSummary(coverage)}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-[var(--ink-faint)]">
+                  Corpus: {coverage.evidence_bearing_sources} of {coverage.total_sources} sources
+                  contain Ask-eligible evidence. Eligible trust:{" "}
+                  {coverage.trust_breakdown.trusted} trusted, {coverage.trust_breakdown.pending}{" "}
+                  pending, {coverage.trust_breakdown.excluded} excluded,{" "}
+                  {coverage.trust_breakdown.disputed} disputed.
+                </p>
+                {coverage.retrieval_mode === "stratified" && (
+                  <p className="mt-1 text-xs leading-5 text-[var(--ink-faint)]">
+                    Structured participants: {coverage.structured_participants}.{" "}
+                    {coverage.participant_count_caveat}
+                  </p>
+                )}
+              </div>
+            )}
 
             {!streaming && (
               <div className="mb-5 flex flex-wrap items-center gap-3">
@@ -824,7 +873,8 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
       {/* Fallback: answer returned but nothing was cited */}
       {hasAnswer && !hasSources && !loading && !streaming && (
         <p className="mt-4 text-center text-xs text-[var(--ink-faint)]">
-          No specific records were cited — the answer is based on general patterns across the evidence.
+          No specific evidence records were cited. Check the coverage summary before treating the
+          answer as corpus-wide.
         </p>
       )}
     </div>
