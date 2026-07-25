@@ -9605,13 +9605,52 @@ Jimmy decisions still required, not decided by Codex:
 
 No SQL has been applied, and the migration remains uncommitted and gated pending the final decision and written approval.
 
+### Codex - 2026-07-25 - #180 rebased onto #179 and pushed
+
+Branch: `codex/180-ingest-completed-with-issues`
+
+Rebased #180 onto `origin/main` at `aa0c0b1`, which contains merged #179.
+The resolved packet preserves both behaviors:
+
+- #179: per-source Inngest concurrency, latest-job validation, atomic
+  `pending -> processing` claim, and retry/reprocess disabled while a job is
+  pending or processing.
+- #180: the parent ingest job remains `processing` after evidence extraction
+  until entity extraction marks it `done` or `done_with_issues`; a failed
+  entity step records a structured issue while keeping created evidence
+  available.
+
+Conflict resolution:
+
+- `InsightProgress.tsx`: retained #179's `ingestInFlight` lock and added #180's
+  entity-specific honest failure message.
+- `sources/page.tsx`: retained `hasInFlightJob` and stale-run retry lock, and
+  added `done_with_issues` status/message handling.
+- `ingest-source.ts` and `SourcesClient.tsx` auto-merged, then were manually
+  checked against both parent branches.
+
+Verification:
+
+- `npm run type-check`: passed.
+- `npm run test`: passed, including the new six-case LLM JSON object fixture.
+- `npm run check:artifact-html-sanitizer`: passed.
+- `npm run build`: passed on Next 14.2.35.
+- No SQL was applied.
+
+Gate/order:
+
+1. Opus reviews the resolved `ingest-source.ts` and reconciliation.
+2. Jimmy applies `0043_ingest_completed_with_issues.sql`.
+3. Merge/deploy only after the migration is verified.
+
 ### Codex - 2026-07-25 - #180 speaker step failure and honest ingest completion review packet
 
 Worktree: `/private/tmp/discos-180-ingest-completed-with-issues`
 
 Branch: `codex/180-ingest-completed-with-issues`
 
-Status: migration and code packet prepared for review only. Nothing committed, pushed, or applied. This branch is based on `origin/main` at `d471280`; it must be rebased after #179 lands because both packets touch ingest status surfaces.
+Historical pre-rebase review packet. The current rebased/pushed status and
+migration order are recorded in the 2026-07-25 entry immediately above.
 
 #### Production diagnosis
 
