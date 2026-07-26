@@ -329,7 +329,7 @@ export function SettingsForms({
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-medium text-[var(--ink)]" htmlFor="research-scope-in">
-                    What's in scope?
+                    What&apos;s in scope?
                   </label>
                   <textarea
                     id="research-scope-in"
@@ -343,7 +343,7 @@ export function SettingsForms({
                 </div>
                 <div className="lg:col-span-2">
                   <label className="mb-2 block text-sm font-medium text-[var(--ink)]" htmlFor="research-scope-out">
-                    What's out of scope?
+                    What&apos;s out of scope?
                   </label>
                   <textarea
                     id="research-scope-out"

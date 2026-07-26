@@ -11,16 +11,16 @@ function loadCorpusFactsModule() {
       target: ts.ScriptTarget.ES2020,
     },
   }).outputText;
-  const module = { exports: {} };
+  const moduleShim = { exports: {} };
   const context = vm.createContext({
-    module,
-    exports: module.exports,
+    module: moduleShim,
+    exports: moduleShim.exports,
     require() {
       throw new Error("The corpus-facts module must keep runtime dependencies out of this check.");
     },
   });
   vm.runInContext(compiled, context, { filename: "corpus-facts.ts" });
-  return module.exports;
+  return moduleShim.exports;
 }
 
 const { isCorpusQuestion, buildAskCoverage, formatAskCorpusFacts } = loadCorpusFactsModule();
