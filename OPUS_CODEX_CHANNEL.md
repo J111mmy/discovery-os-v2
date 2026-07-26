@@ -9736,3 +9736,94 @@ Regression coverage:
 - A targeted grep found no remaining raw `job.error`, `latestJob.error`, or ingest creation database message in the member-facing source/status paths.
 
 No migration, live ingest, data mutation, or deployment was performed. Please review the translation boundary and copy before merge. The deeper FK cause remains isolated in #185.
+
+### Codex - 2026-07-26 08:03 - #185 atomic segment/evidence replacement review packet
+
+Worktree: `/private/tmp/discos-185-ingest-evidence-transaction`
+
+Branch: `codex/185-ingest-evidence-transaction`
+
+Status: implemented and verified locally, but intentionally **not committed,
+pushed, or applied**. This adds a SECURITY DEFINER service-role RPC, so the
+SQL and both call sites remain inside the section 0 review gate.
+
+#### Confirmed failure mode
+
+The re-process route currently deletes a source's evidence and segments before
+it queues the new ingest. `ingest-source` then stores replacement segments in
+one memoized Inngest step and inserts evidence referencing those UUIDs in a
+later step. A resumed or superseded run can therefore replay segment IDs that
+the retry path has already deleted, producing
+`evidence_segment_id_fkey`. The separate #179 one-active-job constraint
+prevents new duplicate jobs, but it cannot make an already memoized old run's
+segment IDs valid.
+
+#### Proposed fix
+
+`supabase/migrations/0045_commit_ingest_derived_data.sql` adds
+`public.commit_ingest_derived_data(...)`:
+
+1. The ingest function prepares segment UUIDs and content in memory. It does
+   not write partial replacement segments.
+2. Extraction and embedding complete against that in-memory set.
+3. One service-role-only RPC verifies the exact org/project/source scope,
+   locks the newest ingest job, and requires that its id equals `p_job_id` and
+   its status is `processing`.
+4. The RPC validates unique segment indexes and proves that every evidence
+   row resolves to a segment in the same submitted payload.
+5. Only then, in the same database transaction, it deletes the old evidence
+   and segments and inserts the complete replacement set.
+6. Any validation or insert failure rolls the entire function back, leaving
+   the previous source data untouched. A stale or superseded run is rejected
+   before deletion.
+
+The retry route no longer destroys current evidence/segments before queueing.
+Users keep the last known-good derived data while a re-process is running, and
+the swap occurs only after the new run succeeds.
+
+#### Security posture
+
+- Function is `SECURITY DEFINER` with `set search_path = ''`.
+- Scope identifiers are mandatory; the source must match all three of
+  `org_id`, `project_id`, and `source_id`.
+- The exact current `processing` job is the write authorization boundary.
+- EXECUTE is revoked from `public`, `anon`, and `authenticated`; only
+  `service_role` receives EXECUTE.
+- The service client remains server-only inside Inngest. No browser or
+  user-scoped caller receives the definer function.
+- This is replacement-only for the exact source. It does not expose a general
+  service-role write client.
+- Evidence carries `metadata.ingest_job_id`; replacement segments carry the
+  same run provenance.
+
+#### Files for review
+
+- `supabase/migrations/0045_commit_ingest_derived_data.sql`
+- `src/lib/inngest/functions/ingest-source.ts`
+- `src/app/api/ingest/retry/route.ts`
+
+Migration ordering: #180 owns 0043. #182 owns 0044. This packet is 0045 and
+must not be applied before 0044 has landed.
+
+#### Verification
+
+- `npm run test`: passed.
+- `npm run type-check`: passed.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+- No live ingest, data mutation, or SQL apply was run.
+- A clean local Supabase reset could not be run because Docker Desktop is not
+  running (`Cannot connect to the Docker daemon`). Jimmy still applies all SQL
+  after review.
+
+#### Review asks
+
+1. Approve the job-scoped SECURITY DEFINER contract and grants.
+2. Approve preserving old derived data until the transactional replacement
+   succeeds.
+3. Confirm source re-process may continue to replace downstream evidence IDs
+   as it did before; preserving/repointing higher-order links is outside #185.
+4. Approve the 0044 then 0045 migration order.
+5. After approval, Codex commits and pushes the three-file packet. Jimmy then
+   applies 0045 before merge/deploy, followed by a fresh interview_11
+   re-process proving no FK violation and no partial segment/evidence state.

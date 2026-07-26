@@ -51,6 +51,28 @@ type StoredSegment = {
   conversation_unit_id: string | null;
 };
 
+type SegmentCommitRecord = StoredSegment & {
+  conversation_unit_id: string;
+  char_start: number;
+  char_end: number;
+  start_time: string | null;
+  end_time: string | null;
+  raw_content: string;
+  word_count: number;
+  metadata: Record<string, unknown>;
+};
+
+type EvidenceCommitRecord = {
+  segment_index: number;
+  content: string;
+  summary: string | null;
+  classification: EvidenceClassification;
+  sentiment: EvidenceSentiment;
+  themes: string[];
+  metadata: Record<string, unknown>;
+  embedding: string;
+};
+
 type ConversationUnit = {
   id: string;
   segments: StoredSegment[];
@@ -1365,10 +1387,9 @@ export const ingestSource = inngest.createFunction(
           )
       );
 
-      const segments = await step.run("store-segments", async () => {
-        const records = rawSegments.map((segment) => ({
-          org_id,
-          source_id,
+      const segments = await step.run("prepare-segments", async () => {
+        const records: SegmentCommitRecord[] = rawSegments.map((segment) => ({
+          id: crypto.randomUUID(),
           segment_index: segment.segment_index,
           speaker: segment.speaker,
           conversation_unit_id: segment.conversation_unit_id,
@@ -1381,15 +1402,7 @@ export const ingestSource = inngest.createFunction(
           word_count: wordCount(segment.content),
           metadata: segment.metadata ?? {},
         }));
-
-        const { data, error } = await supabase
-          .from("source_segments")
-          .insert(records)
-          .select("id, segment_index, speaker, redacted_content, conversation_unit_id")
-          .order("segment_index", { ascending: true });
-
-        if (error) throw new Error(`Failed to store segments: ${error.message}`);
-        return (data ?? []) as StoredSegment[];
+        return records;
       });
 
       const sourceSpeakers = await step.run("sync-source-speakers", async () =>
@@ -1544,17 +1557,22 @@ export const ingestSource = inngest.createFunction(
       }
 
       const evidenceRecords = await step.run("embed-and-store", async () => {
-        if (claimsToStore.length === 0) return [];
-
         const batchSize = 20;
-        const stored: Array<{ id: string; metadata: Record<string, unknown> | null }> = [];
         const entityResolutionByLabel = buildResolutionLookup(entityResolutions);
+        const segmentIndexById = new Map(
+          segments.map((segment) => [segment.id, segment.segment_index])
+        );
+        const recordsToCommit: EvidenceCommitRecord[] = [];
 
         for (let i = 0; i < claimsToStore.length; i += batchSize) {
           const batch = claimsToStore.slice(i, i + batchSize);
           const embeddings = await embedBatch(batch.map((claim) => claim.content));
 
           const evidenceBatch = batch.map((claim, idx) => {
+            const segmentIndex = segmentIndexById.get(claim.segment_id);
+            if (segmentIndex == null) {
+              throw new Error("Extracted evidence referenced an unknown run segment.");
+            }
             const adjacentHint = titleFromHint(claim.adjacent_project_hint ?? "");
             const adjacentProject = resolveAdjacentProject(adjacentHint, otherProjects);
             const speakerResolution = claim.speaker
@@ -1562,10 +1580,7 @@ export const ingestSource = inngest.createFunction(
               : null;
 
             return {
-              org_id,
-              project_id,
-              source_id,
-              segment_id: claim.segment_id,
+              segment_index: segmentIndex,
               content: claim.content,
               summary: claim.summary ?? null,
               classification: claim.classification as EvidenceClassification,
@@ -1599,20 +1614,35 @@ export const ingestSource = inngest.createFunction(
                   : null,
               },
               embedding: `[${embeddings[idx].join(",")}]`,
-              trust_scope: "pending" as const,
-            };
+            } satisfies EvidenceCommitRecord;
           });
 
-          const { data, error } = await supabase
-            .from("evidence")
-            .insert(evidenceBatch)
-            .select("id, metadata");
-
-          if (error) throw new Error(`Failed to store evidence: ${error.message}`);
-          stored.push(...((data ?? []) as Array<{ id: string; metadata: Record<string, unknown> | null }>));
+          recordsToCommit.push(...evidenceBatch);
         }
 
-        return stored;
+        const { data, error } = await supabase.rpc("commit_ingest_derived_data", {
+          p_org_id: org_id,
+          p_project_id: project_id,
+          p_source_id: source_id,
+          p_job_id: job_id,
+          p_segments: segments,
+          p_evidence: recordsToCommit,
+        });
+
+        if (error) {
+          throw new Error(`Failed to commit evidence for this ingest run: ${error.message}`);
+        }
+
+        const committed = (data ?? []) as Array<{
+          evidence_id: string;
+          evidence_metadata: Record<string, unknown> | null;
+        }>;
+        return committed.map(
+          (record) => ({
+            id: record.evidence_id,
+            metadata: record.evidence_metadata,
+          })
+        );
       });
 
       await step.run("record-project-opportunities", async () => {

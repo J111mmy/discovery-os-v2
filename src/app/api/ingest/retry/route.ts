@@ -1,6 +1,7 @@
 // POST /api/ingest/retry
 // Re-fires ingest events for stuck jobs, or re-processes a specific source in place.
-// Source-level calls clear derived evidence/segments before queuing a fresh ingest.
+// Source-level calls preserve the current derived data while a fresh run is
+// queued. The ingest commit swaps segments/evidence atomically on success.
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { requireActiveAccess } from "@/lib/auth/access";
@@ -148,37 +149,6 @@ export async function POST(req: NextRequest) {
         .eq("source_id", source.id)
         .eq("id", job.id);
     };
-
-    const { error: evidenceDeleteError } = await service
-      .from("evidence")
-      .delete()
-      .eq("org_id", org_id)
-      .eq("project_id", project.id)
-      .eq("source_id", source.id);
-
-    if (evidenceDeleteError) {
-      console.error("Failed to clear evidence before retry", evidenceDeleteError);
-      await failRetryJob("Could not prepare the source for re-processing.");
-      return NextResponse.json(
-        { error: "Could not prepare the source for re-processing." },
-        { status: 500 }
-      );
-    }
-
-    const { error: segmentDeleteError } = await service
-      .from("source_segments")
-      .delete()
-      .eq("org_id", org_id)
-      .eq("source_id", source.id);
-
-    if (segmentDeleteError) {
-      console.error("Failed to clear source segments before retry", segmentDeleteError);
-      await failRetryJob("Could not prepare the source for re-processing.");
-      return NextResponse.json(
-        { error: "Could not prepare the source for re-processing." },
-        { status: 500 }
-      );
-    }
 
     try {
       await inngest.send({
