@@ -1,6 +1,7 @@
 import { getProjectForUser } from "@/lib/auth/org";
 import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
 import { isStaleIngestJob } from "@/lib/ingest/quality";
+import { ingestJobUserMessage } from "@/lib/ingest/user-message.mjs";
 import { sourceTypeLabel, trustScopeLabel } from "@/lib/labels";
 import { createClient } from "@/lib/supabase/server";
 import type { JobStatus, SourceType, TrustScope } from "@/types/database";
@@ -143,7 +144,7 @@ export default async function SourcesPage({ params }: Props) {
       ? "Queued — sources run one at a time for better quality and lower cost."
       : hasFailed
       ? jobStatus === "done_with_issues"
-        ? job?.error ??
+        ? ingestJobUserMessage(job) ??
           "Evidence was created, but speaker and organisation identification needs attention."
         : needsCheck
         ? "Processing completed without citable external evidence. Re-add the source and confirm speaker roles if someone should be Customer."

@@ -1,6 +1,7 @@
 import { getProjectForUser } from "@/lib/auth/org";
 import { getProjectOrgReadForUser } from "@/lib/auth/support-read";
 import { isStaleIngestJob, looksLikeProcessedMarker } from "@/lib/ingest/quality";
+import { ingestJobUserMessage } from "@/lib/ingest/user-message.mjs";
 import { createClient } from "@/lib/supabase/server";
 import type { JobStatus, SourceType, TrustScope } from "@/types/database";
 import Link from "next/link";
@@ -196,6 +197,7 @@ export default async function SourceDetailPage({ params }: Props) {
   const sourceLooksLikeMarker = looksLikeProcessedMarker(
     segments.map((segment) => segment.raw_content).join("\n\n")
   );
+  const jobErrorMessage = latestJob ? ingestJobUserMessage(latestJob) : null;
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -233,16 +235,16 @@ export default async function SourceDetailPage({ params }: Props) {
         </div>
       </div>
 
-      {latestJob?.error && (
+      {jobErrorMessage && (
         <div
           className={`mb-6 rounded-xl border p-4 text-sm ${
-            latestJob.status === "done_with_issues"
+            latestJob?.status === "done_with_issues"
               ? "border-warn/20 bg-warn-bg text-warn"
               : "border-neg/20 bg-neg-bg text-neg"
           }`}
         >
-          {latestJob.error}
-          {latestJob.status === "done_with_issues" && (
+          {jobErrorMessage}
+          {latestJob?.status === "done_with_issues" && (
             <p className="mt-1">
               Your evidence is available. Use Retry to run speaker and organisation identification again.
             </p>

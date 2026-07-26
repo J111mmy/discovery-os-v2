@@ -6,6 +6,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { requireActiveAccess } from "@/lib/auth/access";
 import { getProjectForUser } from "@/lib/auth/org";
 import { inngest } from "@/lib/inngest/client";
+import { INGEST_ALREADY_RUNNING_MESSAGE } from "@/lib/ingest/user-message.mjs";
 import { z } from "zod";
 
 const RetrySchema = z.object({
@@ -104,7 +105,7 @@ export async function POST(req: NextRequest) {
     if ((activeJobs?.length ?? 0) > 0 || (activeRuns?.length ?? 0) > 0) {
       return NextResponse.json(
         {
-          error: "This source is already being processed.",
+          error: INGEST_ALREADY_RUNNING_MESSAGE,
           code: "INGEST_ALREADY_RUNNING",
         },
         { status: 409 }
@@ -121,7 +122,7 @@ export async function POST(req: NextRequest) {
       if (jobError?.code === "23505") {
         return NextResponse.json(
           {
-            error: "This source is already being processed.",
+            error: INGEST_ALREADY_RUNNING_MESSAGE,
             code: "INGEST_ALREADY_RUNNING",
           },
           { status: 409 }

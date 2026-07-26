@@ -8,6 +8,10 @@ import { inngest } from "@/lib/inngest/client";
 import { PROCESSED_MARKER_ERROR, looksLikeProcessedMarker } from "@/lib/ingest/quality";
 import { EntityResolutionsSchema } from "@/lib/ingest/entity-resolutions";
 import { inferSourceType } from "@/lib/ingest/source-inference";
+import {
+  INGEST_ALREADY_RUNNING_MESSAGE,
+  INGEST_GENERIC_FAILURE_MESSAGE,
+} from "@/lib/ingest/user-message.mjs";
 import { z } from "zod";
 
 const IngestSchema = z.object({
@@ -103,7 +107,7 @@ export async function POST(req: NextRequest) {
   if (sourceError || !source) {
     console.error("Failed to create source", sourceError);
     return NextResponse.json(
-      { error: sourceError?.message ?? "Failed to create source" },
+      { error: INGEST_GENERIC_FAILURE_MESSAGE },
       { status: 500 }
     );
   }
@@ -124,8 +128,14 @@ export async function POST(req: NextRequest) {
       .eq("project_id", project_id)
       .eq("id", source.id);
     return NextResponse.json(
-      { error: jobError?.message ?? "Failed to create job" },
-      { status: 500 }
+      {
+        error:
+          jobError?.code === "23505"
+            ? INGEST_ALREADY_RUNNING_MESSAGE
+            : INGEST_GENERIC_FAILURE_MESSAGE,
+        ...(jobError?.code === "23505" ? { code: "INGEST_ALREADY_RUNNING" } : {}),
+      },
+      { status: jobError?.code === "23505" ? 409 : 500 }
     );
   }
 
@@ -142,7 +152,7 @@ export async function POST(req: NextRequest) {
     await service.from("ingest_jobs").delete().eq("org_id", org_id).eq("id", job.id);
     await service.from("sources").delete().eq("org_id", org_id).eq("id", source.id);
     return NextResponse.json(
-      { error: `Ingest queuing failed: ${message}. Check that INNGEST_EVENT_KEY is set and Inngest is reachable.` },
+      { error: "DiscOS could not start processing this source. Please try again." },
       { status: 503 }
     );
   }

@@ -9714,3 +9714,25 @@ This is a hard deployment precondition. Jimmy applies 0043 after Opus approval a
 3. Confirm the structured issue in `ingest_jobs.result` is sufficient without a new issues table.
 4. Confirm full-source Retry is an acceptable recovery for this slice; a narrower entity-only retry can remain with #158.
 5. Confirm #180 should rebase onto and ship after #179, preserving #179's single-flight guard and disabled in-flight actions.
+### Codex - 2026-07-26 - #184 ingest errors translated at the product boundary
+
+Branch: `codex/184-ingest-error-boundary`
+
+Implemented the P1 UX containment without changing persisted technical diagnostics:
+
+- Added one pure `ingestJobUserMessage()` boundary used by the ingest status API, source library, and source detail page.
+- The exact `ingest_jobs_one_active_per_source` / duplicate-key failure now renders: "This source is already being processed. Please wait for it to finish."
+- The exact `evidence_segment_id_fkey` failure now renders a source-safe retry message without table, constraint, or SQL detail.
+- Unknown persisted errors render a generic processing failure. Raw details remain in `ingest_jobs.error` and server logs for support, but are no longer returned by the status API or rendered by member-facing source pages.
+- Structured `ENTITY_EXTRACTION_FAILED` issues retain their specific safe warning.
+- Initial ingest creation and queue failures no longer return provider or database error text. The retry route reuses the same single-flight message.
+
+Regression coverage:
+
+- Added five executable cases for the two live Postgres strings, structured entity warnings, unknown database errors, and null errors.
+- `npm run test` passed.
+- `npm run type-check` passed.
+- `npm run build` exited 0. The temp worktree had no Supabase env, so it emitted the existing static-generation noise; no #184 build failure occurred.
+- A targeted grep found no remaining raw `job.error`, `latestJob.error`, or ingest creation database message in the member-facing source/status paths.
+
+No migration, live ingest, data mutation, or deployment was performed. Please review the translation boundary and copy before merge. The deeper FK cause remains isolated in #185.
