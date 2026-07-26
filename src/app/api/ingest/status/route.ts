@@ -1,4 +1,5 @@
 import { getOrgScopedReadForUser } from "@/lib/auth/support-read";
+import { ingestJobUserMessage } from "@/lib/ingest/user-message.mjs";
 import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -62,7 +63,7 @@ export async function GET(req: NextRequest) {
     id: job.id,
     status: job.status,
     result: normalizeResult(job.result),
-    error: job.error,
+    error: ingestJobUserMessage(job),
     source_id: job.source_id,
     started_at: job.started_at,
     completed_at: job.completed_at,
