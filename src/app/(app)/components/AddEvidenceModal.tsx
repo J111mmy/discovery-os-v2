@@ -171,6 +171,9 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
   const [speakerDrafts, setSpeakerDrafts] = useState<SpeakerDraft[]>([]);
   const [orgDrafts, setOrgDrafts] = useState<OrgDraft[]>([]);
   const [speakerSuggestionConfirmed, setSpeakerSuggestionConfirmed] = useState(false);
+  // Set when prescan itself failed (not "found nothing") — briefly shown so the
+  // user knows entity detection was skipped, rather than silently continuing.
+  const [prescanSkipNotice, setPrescanSkipNotice] = useState<string | null>(null);
 
   // Ingest job state
   const [jobId, setJobId] = useState<string | null>(null);
@@ -201,6 +204,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
     setSpeakerDrafts([]);
     setOrgDrafts([]);
     setSpeakerSuggestionConfirmed(false);
+    setPrescanSkipNotice(null);
     setJobId(null);
     setSourceId(null);
     setJobStatus("idle");
@@ -394,6 +398,14 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
     }
   }
 
+  // Show a brief, visible acknowledgment that prescan was skipped before
+  // continuing straight to ingest — a silent fallback here previously gave the
+  // user zero indication that speaker/org detection didn't run at all.
+  function skipPrescanAndIngest(reason: string) {
+    setPrescanSkipNotice(reason);
+    window.setTimeout(() => void startIngest([]), 1100);
+  }
+
   // Form submit: run prescan, then show review if entities are found.
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -404,6 +416,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
     setSpeakerDrafts([]);
     setOrgDrafts([]);
     setSpeakerSuggestionConfirmed(false);
+    setPrescanSkipNotice(null);
 
     try {
       const res = await fetch(`/api/projects/${projectId}/ingest/prescan`, {
@@ -413,8 +426,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
       });
 
       if (!res.ok) {
-        // Prescan failed: fall through to direct ingest
-        await startIngest([]);
+        skipPrescanAndIngest("Couldn't scan for speakers or organizations — ingesting as-is.");
         return;
       }
 
@@ -431,8 +443,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
       setPrescanResult(prescan);
       setPrescanPhase("review");
     } catch {
-      // Network error during prescan: fall through to direct ingest
-      await startIngest([]);
+      skipPrescanAndIngest("Couldn't reach the scan service — ingesting as-is.");
     }
   }
 
@@ -587,11 +598,13 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
               </div>
 
               {/* Paste / File toggle */}
-              <div style={{ display: "flex", gap: 6 }}>
+              <div role="tablist" aria-label="Input mode" style={{ display: "flex", gap: 6 }}>
                 {(["paste", "file"] as InputMode[]).map((m) => (
                   <button
                     key={m}
                     type="button"
+                    role="tab"
+                    aria-selected={inputMode === m}
                     onClick={() => { setInputMode(m); setRawText(""); setFileName(null); setFileError(null); }}
                     style={{
                       display: "flex", alignItems: "center", gap: 6,
@@ -722,13 +735,15 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
         {/* ── Prescan scanning stage ── */}
         {prescanPhase === "scanning" && (
           <>
-            <div style={{ padding: "36px 26px 40px", textAlign: "center" }}>
-              <div style={{ display: "inline-flex", width: 52, height: 52, borderRadius: "50%", background: "var(--accent-soft)", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
-                <span style={{ width: 24, height: 24, border: "2.5px solid var(--accent)", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block", animation: "spin .7s linear infinite" }} />
+            <div role="status" aria-live="polite" style={{ padding: "36px 26px 40px", textAlign: "center" }}>
+              <div style={{ display: "inline-flex", width: 52, height: 52, borderRadius: "50%", background: prescanSkipNotice ? "var(--warn-bg)" : "var(--accent-soft)", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+                <span style={{ width: 24, height: 24, border: `2.5px solid ${prescanSkipNotice ? "var(--warn)" : "var(--accent)"}`, borderTopColor: "transparent", borderRadius: "50%", display: "inline-block", animation: "spin .7s linear infinite" }} />
               </div>
-              <div style={{ fontSize: 17, fontWeight: 640, color: "var(--ink)", marginBottom: 6 }}>Scanning</div>
+              <div style={{ fontSize: 17, fontWeight: 640, color: "var(--ink)", marginBottom: 6 }}>
+                {prescanSkipNotice ? "Skipping entity scan" : "Scanning"}
+              </div>
               <div style={{ fontSize: 13.5, color: "var(--ink-3)", maxWidth: 340, margin: "0 auto", lineHeight: 1.5 }}>
-                Looking for speakers and organizations in your source.
+                {prescanSkipNotice ?? "Looking for speakers and organizations in your source."}
               </div>
             </div>
           </>
@@ -805,11 +820,13 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
                               value={draft.name}
                               onChange={(e) => updateSpeaker(draft.id, { name: e.target.value })}
                               placeholder="Confirmed name"
+                              aria-label={`Confirmed name for ${draft.raw_label}`}
                               style={{ ...smInputStyle, flex: "1 1 140px", minWidth: 120 }}
                             />
                             <select
                               value={draft.role ?? ""}
                               onChange={(e) => updateSpeaker(draft.id, { role: (e.target.value as ProjectEntityRole) || null })}
+                              aria-label={`Role for ${draft.raw_label}`}
                               style={{ ...smInputStyle, width: "auto", cursor: "pointer", flexShrink: 0 }}
                             >
                               <option value="">No role</option>
@@ -833,6 +850,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
                               value={draft.org_name}
                               onChange={(e) => updateSpeaker(draft.id, { org_name: e.target.value, company_id: null, company_label: null })}
                               placeholder="Organization name"
+                              aria-label={`Company for ${draft.raw_label}`}
                               style={{ ...smInputStyle, flex: 1 }}
                             />
                           </div>

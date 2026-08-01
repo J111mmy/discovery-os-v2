@@ -120,33 +120,40 @@ export function ComposeEditor({ projectId }: ComposeEditorProps) {
     setIsPollingDraft(false);
     setStage("queued");
 
-    const response = await fetch("/api/compose/draft", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ project_id: projectId, prompt }),
-    });
+    try {
+      const response = await fetch("/api/compose/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: projectId, prompt }),
+      });
 
-    const payload = await response.json();
+      const payload = await response.json();
 
-    if (!response.ok) {
-      setError(payload.error ?? "Could not start draft.");
+      if (!response.ok) {
+        setError(payload.error ?? "Could not start draft.");
+        setBlocker(null);
+        setStage("idle");
+        setIsDrafting(false);
+        return;
+      }
+
+      if (!payload.artifact_id) {
+        setError("Could not start draft: no document was created.");
+        setBlocker(null);
+        setStage("idle");
+        setIsDrafting(false);
+        return;
+      }
+
+      setArtifactId(payload.artifact_id);
+      setStage("generating");
+      setIsPollingDraft(true);
+    } catch {
+      setError("Could not reach the server. Check your connection and try again.");
       setBlocker(null);
       setStage("idle");
       setIsDrafting(false);
-      return;
     }
-
-    if (!payload.artifact_id) {
-      setError("Could not start draft: no document was created.");
-      setBlocker(null);
-      setStage("idle");
-      setIsDrafting(false);
-      return;
-    }
-
-    setArtifactId(payload.artifact_id);
-    setStage("generating");
-    setIsPollingDraft(true);
   }
 
   const activeMessage = statusMessage(stage);
@@ -183,7 +190,15 @@ export function ComposeEditor({ projectId }: ComposeEditorProps) {
             </button>
           </div>
           {activeMessage && (
-            <div className="mt-3 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink-2)]">
+            <div
+              role="status"
+              aria-live="polite"
+              className="mt-3 flex items-center gap-2.5 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink-2)]"
+            >
+              <span
+                aria-hidden="true"
+                className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-[var(--ink-faint)] border-t-transparent"
+              />
               {activeMessage}
             </div>
           )}
@@ -191,7 +206,7 @@ export function ComposeEditor({ projectId }: ComposeEditorProps) {
       </form>
 
       {error && (
-        <div className="rounded-lg border border-neg/20 bg-neg-bg px-3 py-2 text-sm text-neg">
+        <div role="alert" className="rounded-lg border border-neg/20 bg-neg-bg px-3 py-2 text-sm text-neg">
           {error}
         </div>
       )}
