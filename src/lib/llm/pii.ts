@@ -1,8 +1,9 @@
-// Deterministic PII redaction — runs before any LLM call
-// Stores raw_content and redacted_content separately in the DB.
-// Never send raw_content to an LLM.
+// Deterministic pattern-based PII redaction for transcript segments.
+// Most downstream LLM work uses redacted or derived evidence, but the bounded
+// pre-ingest speaker scan processes raw transcript text. This helper is not a
+// universal provider-boundary guarantee. See docs/security/DATA_HANDLING.md.
 
-// Patterns are additive — extend as needed
+// Patterns are additive; extend as needed.
 const PII_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
   // Email addresses
   { pattern: /[\w.+\-]+@[\w\-]+\.[a-z]{2,}/gi, replacement: "[EMAIL]" },
