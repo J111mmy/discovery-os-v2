@@ -43,14 +43,22 @@ export async function loadProjectTags({
   orgId: string;
   projectId: string;
 }): Promise<TagOption[]> {
-  const { data } = await supabase
-    .from("tags")
-    .select("id, label, color")
-    .eq("org_id", orgId)
-    .eq("project_id", projectId)
-    .order("label", { ascending: true });
+  // Same reasoning as hydrateEvidenceRecordsWithTags below: this is often awaited
+  // inside a Promise.all alongside the page's primary reads, so a throw here must
+  // not fail the whole page. Degrade to an empty tag list instead.
+  try {
+    const { data } = await supabase
+      .from("tags")
+      .select("id, label, color")
+      .eq("org_id", orgId)
+      .eq("project_id", projectId)
+      .order("label", { ascending: true });
 
-  return (data ?? []) as TagRow[];
+    return (data ?? []) as TagRow[];
+  } catch (error) {
+    console.error("loadProjectTags failed, continuing with no tags", error);
+    return [];
+  }
 }
 
 export async function loadTagsByEvidenceId({
@@ -108,15 +116,25 @@ export async function hydrateEvidenceRecordsWithTags({
   projectId: string;
   records: EvidenceRecord[];
 }) {
-  const tagsByEvidenceId = await loadTagsByEvidenceId({
-    supabase,
-    orgId,
-    projectId,
-    evidenceIds: records.map((record) => record.id),
-  });
+  // Tags are a cosmetic hydration layer on top of the evidence read that already
+  // succeeded — a failure here (allowlist gap, transient read error, etc.) must
+  // never take down the Evidence page. Degrade to "no tags shown" and move on.
+  try {
+    const tagsByEvidenceId = await loadTagsByEvidenceId({
+      supabase,
+      orgId,
+      projectId,
+      evidenceIds: records.map((record) => record.id),
+    });
 
-  for (const record of records) {
-    record.tags = tagsByEvidenceId.get(record.id) ?? [];
+    for (const record of records) {
+      record.tags = tagsByEvidenceId.get(record.id) ?? [];
+    }
+  } catch (error) {
+    console.error("hydrateEvidenceRecordsWithTags failed, continuing without tags", error);
+    for (const record of records) {
+      record.tags = record.tags ?? [];
+    }
   }
 
   return records;
