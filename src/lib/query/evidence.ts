@@ -16,7 +16,6 @@ import {
   type InternalEvidenceGuardContext,
 } from "@/lib/evidence/internal";
 import { hydrateEvidenceRecordsWithTypedTopics } from "@/lib/research-ontology/evidence-topics";
-import { hydrateEvidenceRecordsWithTags } from "@/lib/research-ontology/evidence-tags";
 
 type EvidenceQueryClient =
   | Awaited<ReturnType<typeof createClient>>
@@ -194,12 +193,6 @@ async function hydrateEvidenceRecords(input: {
   }
 
   await hydrateEvidenceRecordsWithTypedTopics({
-    supabase,
-    orgId: org_id,
-    projectId: project_id,
-    records,
-  });
-  await hydrateEvidenceRecordsWithTags({
     supabase,
     orgId: org_id,
     projectId: project_id,

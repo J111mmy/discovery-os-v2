@@ -447,7 +447,6 @@ export interface EvidenceRecord extends Evidence {
   source_type?: SourceType;
   segment_speaker?: string | null;
   segment_index?: number | null;
-  tags?: Array<{ id: string; label: string; color: string | null }>;
 }
 
 export interface ComposeDraftRequest {
