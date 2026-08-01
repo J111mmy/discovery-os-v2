@@ -718,6 +718,7 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
               onChange={(e) => setQuery(e.target.value)}
               className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
               placeholder="What problems did users mention most?"
+              aria-label="Ask a question about your evidence"
               disabled={busy}
             />
             <button
