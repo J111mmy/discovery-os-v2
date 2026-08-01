@@ -11,6 +11,8 @@ type TrustScopeFilter = "include_pending" | "trusted";
 interface AskInterfaceProps {
   projectId: string;
   projectName: string;
+  /** Total evidence records in the project, or null if the count could not be loaded. */
+  totalEvidence: number | null;
 }
 
 // NDJSON event shapes emitted by the streaming /api/ask route.
@@ -455,7 +457,7 @@ function SourceCard({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
+export function AskInterface({ projectId, projectName, totalEvidence }: AskInterfaceProps) {
   const searchParams = useSearchParams();
   const [query, setQuery] = useState("");
   const [lastQuery, setLastQuery] = useState("");
@@ -708,6 +710,12 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
         </p>
       </div>
 
+      {totalEvidence === 0 && (
+        <div className="mb-6 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--ink-2)]">
+          No evidence yet — add a source first, then come back to ask questions about it.
+        </div>
+      )}
+
       {/* Query form */}
       <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
         <div className="border-b border-[var(--line)] p-4 sm:p-5">
@@ -718,6 +726,7 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
               onChange={(e) => setQuery(e.target.value)}
               className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-[var(--ink)] outline-none transition-colors placeholder:text-[var(--ink-faint)] focus:border-[var(--accent)]"
               placeholder="What problems did users mention most?"
+              aria-label="Ask a question about your evidence"
               disabled={busy}
             />
             <button

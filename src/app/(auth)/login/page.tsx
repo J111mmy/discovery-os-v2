@@ -20,6 +20,15 @@ function LoginForm() {
   const isInviteFlow = next === "/accept-invite";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const AUTH_ERROR_COPY: Record<string, string> = {
+    "Invalid login credentials": "That email and password don't match. Check both and try again.",
+    "Email not confirmed": "This email hasn't been confirmed yet. Check your inbox for a confirmation link.",
+    "For security purposes, you can only request this after 60 seconds.":
+      "You've requested a link recently. Wait a minute and try again.",
+  };
+  function friendlyAuthError(message: string): string {
+    return AUTH_ERROR_COPY[message] ?? "Something went wrong signing in. Please try again.";
+  }
   // Passwordless-first: magic link is the default for everyone. Password is a
   // fallback behind "Use password instead". (Invite flow was already magic.)
   const [mode, setMode] = useState<"magic" | "password" | "reset">(initialMode);
@@ -37,7 +46,7 @@ function LoginForm() {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/auth/confirm`,
       });
-      if (error) setError(error.message);
+      if (error) setError(friendlyAuthError(error.message));
       else setSent(true);
     } else if (mode === "magic") {
       const { error } = await supabase.auth.signInWithOtp({
@@ -47,11 +56,11 @@ function LoginForm() {
           shouldCreateUser: false,
         },
       });
-      if (error) setError(error.message);
+      if (error) setError(friendlyAuthError(error.message));
       else setSent(true);
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) setError(error.message);
+      if (error) setError(friendlyAuthError(error.message));
       else router.push(next);
     }
 
@@ -100,6 +109,8 @@ function LoginForm() {
               <input
                 type="email"
                 required
+                aria-label="Email address"
+                autoComplete="email"
                 placeholder="you@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -110,6 +121,8 @@ function LoginForm() {
                 <input
                   type="password"
                   required
+                  aria-label="Password"
+                  autoComplete="current-password"
                   placeholder="Password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -141,12 +154,14 @@ function LoginForm() {
               </button>
             </form>
 
-            <button
-              onClick={() => { setMode(mode === "password" ? "magic" : "password"); setError(""); }}
-              className="mt-4 text-xs text-[var(--ink-2)] hover:text-[var(--ink)] w-full text-center"
-            >
-              {mode === "password" ? "Use magic link instead" : "Use password instead"}
-            </button>
+            {mode !== "reset" && (
+              <button
+                onClick={() => { setMode(mode === "password" ? "magic" : "password"); setError(""); }}
+                className="mt-4 text-xs text-[var(--ink-2)] hover:text-[var(--ink)] w-full text-center"
+              >
+                {mode === "password" ? "Use magic link instead" : "Use password instead"}
+              </button>
+            )}
             {mode !== "reset" ? (
               <button
                 type="button"
@@ -158,8 +173,8 @@ function LoginForm() {
             ) : (
               <button
                 type="button"
-                onClick={() => { setMode("password"); setError(""); setSent(false); }}
-                className="mt-3 text-xs text-[var(--ink-2)] hover:text-[var(--ink)] w-full text-center"
+                onClick={() => { setMode("magic"); setError(""); setSent(false); }}
+                className="mt-4 text-xs text-[var(--ink-2)] hover:text-[var(--ink)] w-full text-center"
               >
                 Back to sign in
               </button>

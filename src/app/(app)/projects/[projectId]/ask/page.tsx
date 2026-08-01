@@ -1,5 +1,6 @@
 import { getProjectForUser } from "@/lib/auth/org";
 import { createClient } from "@/lib/supabase/server";
+import { loadAskCorpusFacts } from "@/lib/ask/corpus-facts";
 import { notFound, redirect } from "next/navigation";
 import { AskInterface } from "./ask-interface";
 
@@ -22,6 +23,15 @@ export default async function AskPage({ params }: Props) {
   );
 
   if (!project) notFound();
+
+  // Best-effort: an empty-state hint is a nicety, never worth failing the page over.
+  const totalEvidence = await loadAskCorpusFacts({
+    supabase,
+    org_id: project.org_id,
+    project_id: project.id,
+  })
+    .then((facts) => facts.total_evidence)
+    .catch(() => null);
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -71,7 +81,11 @@ export default async function AskPage({ params }: Props) {
         </p>
       </div>
 
-      <AskInterface projectId={project.id} projectName={project.name} />
+      <AskInterface
+        projectId={project.id}
+        projectName={project.name}
+        totalEvidence={totalEvidence}
+      />
     </div>
   );
 }
