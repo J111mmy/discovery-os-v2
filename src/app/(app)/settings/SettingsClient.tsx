@@ -58,6 +58,18 @@ const ROLE_LABELS: Record<string, string> = {
   viewer: "Viewer",
 };
 
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function inviteErrorMessage(status: number): string {
+  if (status === 400) return "Check the email address and role, then try again.";
+  if (status === 401) return "Your session has expired. Sign in and try again.";
+  if (status === 403) return "You do not have permission to send this invite.";
+  if (status === 404) return "This workspace could not be found. Refresh and try again.";
+  return "The invite could not be sent right now. Please try again.";
+}
+
 // ── Mini components ────────────────────────────────────────────────────
 function Avatar({ name, size = 32 }: { name: string; size?: number }) {
   return (
@@ -113,6 +125,7 @@ export function SettingsClient({
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
 
   const canInvite = currentUserRole === "owner" || currentUserRole === "admin";
+  const inviteEmailIsValid = isValidEmail(inviteEmail);
 
   // Sync theme from document on mount
   useEffect(() => {
@@ -129,23 +142,10 @@ export function SettingsClient({
     document.documentElement.setAttribute("data-theme", next);
   }
 
-  function errorMessageFromPayload(payload: unknown, fallback: string): string {
-    if (
-      payload &&
-      typeof payload === "object" &&
-      "error" in payload &&
-      typeof payload.error === "string"
-    ) {
-      return payload.error;
-    }
-
-    return fallback;
-  }
-
   async function submitInvite(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const email = inviteEmail.trim();
-    if (!email || !canInvite || !orgId) return;
+    if (!inviteEmailIsValid || !canInvite || !orgId) return;
 
     setIsSubmittingInvite(true);
     setInviteError(null);
@@ -158,10 +158,8 @@ export function SettingsClient({
         body: JSON.stringify({ org_id: orgId, email, role: inviteRole }),
       });
 
-      const payload = await response.json().catch(() => null);
-
       if (!response.ok) {
-        throw new Error(errorMessageFromPayload(payload, `Could not send invite (${response.status}).`));
+        throw new Error(inviteErrorMessage(response.status));
       }
 
       setInviteEmail("");
@@ -334,7 +332,11 @@ export function SettingsClient({
                     <input
                       type="email"
                       value={inviteEmail}
-                      onChange={(event) => setInviteEmail(event.target.value)}
+                      onChange={(event) => {
+                        setInviteEmail(event.target.value);
+                        setInviteError(null);
+                        setInviteSuccess(null);
+                      }}
                       placeholder="colleague@example.com"
                       required
                       style={inputStyle}
@@ -344,7 +346,11 @@ export function SettingsClient({
                     <label style={labelStyle}>Role</label>
                     <select
                       value={inviteRole}
-                      onChange={(event) => setInviteRole(event.target.value as InviteRole)}
+                      onChange={(event) => {
+                        setInviteRole(event.target.value as InviteRole);
+                        setInviteError(null);
+                        setInviteSuccess(null);
+                      }}
                       style={inputStyle}
                     >
                       <option value="member">Member</option>
@@ -355,26 +361,26 @@ export function SettingsClient({
                 <div>
                   <button
                     type="submit"
-                    disabled={isSubmittingInvite || !inviteEmail.trim() || !orgId}
+                    disabled={isSubmittingInvite || !inviteEmailIsValid || !orgId}
                     style={{
                       padding: "9px 20px", borderRadius: "var(--r-sm)",
                       background: "var(--brand)", color: "#fff",
                       fontWeight: 580, fontSize: 13.5,
-                      cursor: isSubmittingInvite || !inviteEmail.trim() || !orgId ? "not-allowed" : "pointer",
+                      cursor: isSubmittingInvite || !inviteEmailIsValid || !orgId ? "not-allowed" : "pointer",
                       border: "1px solid transparent", fontFamily: "inherit",
-                      opacity: isSubmittingInvite || !inviteEmail.trim() || !orgId ? 0.6 : 1,
+                      opacity: isSubmittingInvite || !inviteEmailIsValid || !orgId ? 0.6 : 1,
                     }}
                   >
                     {isSubmittingInvite ? "Sending..." : "Send invite"}
                   </button>
                 </div>
                 {inviteError && (
-                  <div style={{ fontSize: 12.5, color: "var(--neg)" }}>
+                  <div role="alert" style={{ fontSize: 12.5, color: "var(--neg)" }}>
                     {inviteError}
                   </div>
                 )}
                 {inviteSuccess && (
-                  <div style={{ fontSize: 12.5, color: "var(--pos)" }}>
+                  <div aria-live="polite" style={{ fontSize: 12.5, color: "var(--pos)" }}>
                     {inviteSuccess}
                   </div>
                 )}
