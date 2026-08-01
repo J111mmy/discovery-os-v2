@@ -153,6 +153,7 @@ export default function RequestAccessPage() {
               <input
                 type="text"
                 required
+                aria-label="Name"
                 placeholder="Name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -162,6 +163,7 @@ export default function RequestAccessPage() {
               <input
                 type="email"
                 required
+                aria-label="Email address"
                 placeholder="you@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -170,6 +172,7 @@ export default function RequestAccessPage() {
               />
               <input
                 type="tel"
+                aria-label="Phone (optional)"
                 placeholder="Phone (optional)"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
@@ -179,6 +182,7 @@ export default function RequestAccessPage() {
               <input
                 type="text"
                 required
+                aria-label="Company"
                 placeholder="Company"
                 value={company}
                 onChange={(e) => setCompany(e.target.value)}
@@ -188,6 +192,7 @@ export default function RequestAccessPage() {
               <textarea
                 required
                 rows={3}
+                aria-label="What are you hoping to use DiscOS for?"
                 placeholder="What are you hoping to use DiscOS for?"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}

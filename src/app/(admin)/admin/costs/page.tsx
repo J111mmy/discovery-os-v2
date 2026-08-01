@@ -251,6 +251,10 @@ export default async function AdminCostsPage({ searchParams }: Props) {
             Super admin only
           </span>
         </div>
+        <p className="mt-3 max-w-3xl rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--ink-2)]">
+          Scope: all organisations, all projects. Every figure below is a platform-wide total for
+          the selected window, not scoped to a single org or project (#159).
+        </p>
       </div>
 
       <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">

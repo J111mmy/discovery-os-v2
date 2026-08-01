@@ -188,10 +188,10 @@ export function SettingsForms({
       const generatedFrame = await generateFrameAction(formData);
       setFrame(generatedFrame);
       setSettingsMessage("Project frame generated and saved.");
-    } catch (error) {
-      setSettingsError(
-        error instanceof Error ? error.message : "Could not generate project frame."
-      );
+    } catch {
+      // Never surface the raw thrown message here — it can carry a DB/provider
+      // error string through from the server action (CLAUDE.md §6, #184).
+      setSettingsError("Could not generate project frame. Please try again.");
     } finally {
       setIsGeneratingFrame(false);
     }
@@ -222,10 +222,10 @@ export function SettingsForms({
       const suggestion = await suggestProjectSettingsAction(formData);
       applySuggestedSettings(suggestion);
       setSettingsMessage("AI suggested project settings from evidence. Review and save when ready.");
-    } catch (error) {
-      setSettingsError(
-        error instanceof Error ? error.message : "Could not suggest project settings."
-      );
+    } catch {
+      // Never surface the raw thrown message here — it can carry a DB/provider
+      // error string through from the server action (CLAUDE.md §6, #184).
+      setSettingsError("Could not suggest project settings. Please try again.");
     } finally {
       setIsSuggestingSettings(false);
     }
