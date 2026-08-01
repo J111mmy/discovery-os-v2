@@ -69,45 +69,49 @@ export function IngestForm({ projectId }: IngestFormProps) {
     }
 
     const interval = window.setInterval(async () => {
-      const response = await fetch(`/api/ingest/status?job_id=${jobId}`, {
-        cache: "no-store",
-      });
-      const payload = await response.json();
+      try {
+        const response = await fetch(`/api/ingest/status?job_id=${jobId}`, {
+          cache: "no-store",
+        });
+        const payload = await response.json();
 
-      if (!response.ok) {
-        setError(payload.error ?? "Could not read ingest status.");
-        setStatus("failed");
-        return;
-      }
-
-      setPollCount((c) => c + 1);
-      setStatus(payload.status);
-      if (payload.status === "done" || payload.status === "done_with_issues") {
-        const ingestResult = payload.result ?? { segments_created: 0, evidence_created: 0 };
-        if ((ingestResult.evidence_created ?? 0) === 0) {
-          setResult(ingestResult);
-          setError(
-            "No evidence was created. DiscOS could not find citable evidence from an external participant. Re-add the source and confirm speaker roles if someone should be marked as Customer."
-          );
+        if (!response.ok) {
+          setError(payload.error ?? "Could not read ingest status.");
           setStatus("failed");
           return;
         }
 
-        const completedSourceId = typeof payload.source_id === "string" ? payload.source_id : sourceId;
-        setResult(ingestResult);
-        setWarning(
-          payload.status === "done_with_issues"
-            ? payload.error ??
-                "Evidence was created, but speaker and organisation identification needs attention."
-            : null
-        );
-        router.refresh();
-        if (completedSourceId) {
-          router.push(`/projects/${projectId}/sources/${completedSourceId}`);
+        setPollCount((c) => c + 1);
+        setStatus(payload.status);
+        if (payload.status === "done" || payload.status === "done_with_issues") {
+          const ingestResult = payload.result ?? { segments_created: 0, evidence_created: 0 };
+          if ((ingestResult.evidence_created ?? 0) === 0) {
+            setResult(ingestResult);
+            setError(
+              "No evidence was created. DiscOS could not find citable evidence from an external participant. Re-add the source and confirm speaker roles if someone should be marked as Customer."
+            );
+            setStatus("failed");
+            return;
+          }
+
+          const completedSourceId = typeof payload.source_id === "string" ? payload.source_id : sourceId;
+          setResult(ingestResult);
+          setWarning(
+            payload.status === "done_with_issues"
+              ? payload.error ??
+                  "Evidence was created, but speaker and organisation identification needs attention."
+              : null
+          );
+          router.refresh();
+          if (completedSourceId) {
+            router.push(`/projects/${projectId}/sources/${completedSourceId}`);
+          }
         }
-      }
-      if (payload.status === "failed") {
-        setError(payload.error ?? "Ingest failed.");
+        if (payload.status === "failed") {
+          setError(payload.error ?? "Ingest failed.");
+        }
+      } catch {
+        // Network hiccup — keep polling until the timeout above gives up.
       }
     }, 1800);
 
@@ -122,27 +126,32 @@ export function IngestForm({ projectId }: IngestFormProps) {
     setSourceId(null);
     setStatus("queued");
 
-    const response = await fetch("/api/ingest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        project_id: projectId,
-        title,
-        type: sourceInference.type,
-        raw_text: rawText,
-      }),
-    });
+    try {
+      const response = await fetch("/api/ingest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: projectId,
+          title,
+          type: sourceInference.type,
+          raw_text: rawText,
+        }),
+      });
 
-    const payload = await response.json();
-    if (!response.ok) {
-      setError(typeof payload.error === "string" ? payload.error : "Could not start ingest.");
+      const payload = await response.json();
+      if (!response.ok) {
+        setError(typeof payload.error === "string" ? payload.error : "Could not start ingest.");
+        setStatus("idle");
+        return;
+      }
+
+      setJobId(payload.job_id);
+      setSourceId(payload.source_id ?? null);
+      setStatus("pending");
+    } catch {
+      setError("Could not reach the server. Check your connection and try again.");
       setStatus("idle");
-      return;
     }
-
-    setJobId(payload.job_id);
-    setSourceId(payload.source_id ?? null);
-    setStatus("pending");
   }
 
   async function readTextFile(file: File) {
@@ -278,7 +287,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
             </div>
           )}
           {fileError && (
-            <div className="mt-2 rounded-lg border border-neg/20 bg-neg-bg px-3 py-2 text-sm text-neg">
+            <div role="alert" className="mt-2 rounded-lg border border-neg/20 bg-neg-bg px-3 py-2 text-sm text-neg">
               {fileError}
             </div>
           )}
@@ -317,7 +326,15 @@ export function IngestForm({ projectId }: IngestFormProps) {
         </p>
 
         {isWorking && (
-          <div className="mt-4 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink-2)]">
+          <div
+            role="status"
+            aria-live="polite"
+            className="mt-4 flex items-center gap-2.5 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--ink-2)]"
+          >
+            <span
+              aria-hidden="true"
+              className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-[var(--ink-faint)] border-t-transparent"
+            />
             {isQueued
               ? "Queued — this will start automatically when the current source finishes. You can leave this page."
               : "Analyzing — extracting citable evidence from the source."}
@@ -325,7 +342,7 @@ export function IngestForm({ projectId }: IngestFormProps) {
         )}
 
         {(status === "done" || status === "done_with_issues") && (
-          <div className="mt-4 rounded-lg border border-pos/20 bg-pos-bg px-3 py-2 text-sm text-pos">
+          <div role="status" className="mt-4 rounded-lg border border-pos/20 bg-pos-bg px-3 py-2 text-sm text-pos">
             <div>✓ Processed — {result?.evidence_created ?? 0} evidence records created</div>
             <a href={`/projects/${projectId}/evidence`} className="mt-2 inline-flex text-[var(--ink)] hover:text-[var(--accent)]">
               View evidence
@@ -334,13 +351,13 @@ export function IngestForm({ projectId }: IngestFormProps) {
         )}
 
         {warning && (
-          <div className="mt-4 rounded-lg border border-warn/20 bg-warn-bg px-3 py-2 text-sm text-warn">
+          <div role="alert" className="mt-4 rounded-lg border border-warn/20 bg-warn-bg px-3 py-2 text-sm text-warn">
             {warning} Open the source to review the failed step and try it again.
           </div>
         )}
 
         {error && (
-          <div className="mt-4 rounded-lg border border-neg/20 bg-neg-bg px-3 py-2 text-sm text-neg">
+          <div role="alert" className="mt-4 rounded-lg border border-neg/20 bg-neg-bg px-3 py-2 text-sm text-neg">
             {error}
           </div>
         )}

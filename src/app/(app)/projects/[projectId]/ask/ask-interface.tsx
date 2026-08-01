@@ -259,6 +259,7 @@ function renderInline(
             onClick={() => onCitationClick(displayNumber)}
             className="mx-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded bg-[var(--accent)]/15 px-1 text-[10px] font-semibold text-[var(--accent)] transition-colors hover:bg-[var(--accent)]/30 align-super"
             title={`Jump to source ${displayNumber}`}
+            aria-label={`Jump to source ${displayNumber}`}
           >
             {displayNumber}
           </button>
@@ -405,6 +406,7 @@ function SourceCard({
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
         className="flex w-full items-start gap-3 p-4 text-left"
       >
         <span className="mt-0.5 flex h-5 min-w-5 items-center justify-center rounded bg-[var(--accent)]/15 text-[10px] font-bold text-[var(--accent)] shrink-0">
@@ -420,7 +422,7 @@ function SourceCard({
             </p>
           )}
         </div>
-        <span className="ml-auto shrink-0 text-xs text-[var(--ink-faint)]">
+        <span aria-hidden="true" className="ml-auto shrink-0 text-xs text-[var(--ink-faint)]">
           {expanded ? "▲" : "▼"}
         </span>
       </button>
@@ -729,9 +731,11 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
 
           {/* Trust scope toggle */}
           <div className="mt-4 flex flex-wrap items-center gap-3">
-            <div className="inline-flex rounded-lg border border-[var(--line)] bg-[var(--bg)] p-1">
+            <div role="tablist" aria-label="Evidence trust scope" className="inline-flex rounded-lg border border-[var(--line)] bg-[var(--bg)] p-1">
               <button
                 type="button"
+                role="tab"
+                aria-selected={trustScope === "trusted"}
                 onClick={() => handleTrustScopeChange("trusted")}
                 className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                   trustScope === "trusted"
@@ -743,6 +747,8 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
               </button>
               <button
                 type="button"
+                role="tab"
+                aria-selected={trustScope === "include_pending"}
                 onClick={() => handleTrustScopeChange("include_pending")}
                 className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                   trustScope === "include_pending"
@@ -758,15 +764,15 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
 
         {/* Loading state — waiting for first byte */}
         {loading && (
-          <div className="flex items-center gap-3 px-5 py-8 text-sm text-[var(--ink-2)]">
-            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--line)] border-t-[var(--accent)]" />
+          <div role="status" aria-live="polite" className="flex items-center gap-3 px-5 py-8 text-sm text-[var(--ink-2)]">
+            <span aria-hidden="true" className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--line)] border-t-[var(--accent)]" />
             Reading through the evidence…
           </div>
         )}
 
         {/* Error state */}
         {error && !busy && (
-          <div className="m-5 rounded-lg border border-neg/20 bg-neg-bg px-3 py-2 text-sm text-neg">
+          <div role="alert" className="m-5 rounded-lg border border-neg/20 bg-neg-bg px-3 py-2 text-sm text-neg">
             {error}
           </div>
         )}
@@ -827,7 +833,11 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
                     Open saved document
                   </a>
                 )}
-                {saveError && <span className="text-xs text-neg">{saveError}</span>}
+                {saveError && (
+                  <span role="alert" className="text-xs font-medium text-neg">
+                    {saveError}
+                  </span>
+                )}
               </div>
             )}
 
