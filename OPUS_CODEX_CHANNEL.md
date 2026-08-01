@@ -9914,3 +9914,440 @@ Gate:
   to 0044 to avoid colliding with #180's 0043 migration.
 - Jimmy applies the pushed migration after approval.
 - Phase 2 remains unimplemented pending the proposal verdict above.
+
+### Codex - 2026-07-25 - #179 and #180 ingest integrity packets ready for Opus review
+
+Both issues were built in separate worktrees from `origin/main` at `d471280`.
+Nothing has been committed, pushed, deployed, or applied to Supabase.
+
+#### #179: source-level single flight
+
+Branch/worktree: `codex/179-ingest-single-flight` at
+`/private/tmp/discos-179-ingest-single-flight`.
+
+Root causes confirmed:
+
+- Inngest concurrency was keyed by `org_id`, not `source_id`.
+- Retry deleted evidence and segments before durably claiming the source.
+- Stale UI controls and failed-step Retry could start another run while the
+  database still had a pending/processing parent job.
+
+Packet:
+
+- `0042_ingest_source_single_flight.sql` adds a partial unique index on
+  `ingest_jobs(source_id)` where status is pending/processing. It raises before
+  changing anything if duplicate active jobs already exist.
+- The retry route checks active parent and child runs, fails closed on query
+  errors, claims the source by inserting the pending job before destructive
+  cleanup, maps unique violation `23505` to `409 INGEST_ALREADY_RUNNING`, and
+  marks the claim failed if cleanup or event send fails.
+- Inngest concurrency is keyed by `source_id`; its first memoized step
+  atomically claims only the newest pending job. Duplicate, completed,
+  already-claimed, and superseded events return before reads or spend.
+- Retry, Re-process, failed-step Retry, and Delete are disabled while a source
+  has a pending/processing job. A stale-looking database job is not treated as
+  permission to double-run it.
+
+Threat model: browser races and repeated requests meet at the unique index;
+duplicate Inngest delivery meets at the conditional status update. The
+pre-existing service client remains behind active membership validation and
+every query is constrained by org, project, and source. No service client
+reaches a client component.
+
+Jimmy preflight before 0042:
+
+```sql
+select source_id, count(*) as active_jobs, array_agg(id order by created_at desc) as job_ids
+from public.ingest_jobs
+where status in ('pending', 'processing')
+group by source_id
+having count(*) > 1;
+```
+
+It must return zero rows. If it does not, inspect the live Inngest runs and
+resolve them deliberately. Do not let the migration guess a winner.
+
+Validation: type-check, test, and build passed. No LLM run, source mutation,
+Inngest event, or production query was executed.
+
+Review ask: approve 0042, claim-before-delete, service-role scoping, and the
+strict decision that a database-active job cannot be retried until a future
+explicit cancel flow exists.
+
+#### #180: honest completion when speaker/entity resolution fails
+
+Branch/worktree: `codex/180-ingest-completed-with-issues` at
+`/private/tmp/discos-180-ingest-completed-with-issues`.
+
+Read-only production diagnosis on the exact `interview_11` source
+`fe67bddb-d3e2-49a2-ba9f-8627654f707b` found failed entity run
+`e12a5d04-7dcc-4216-84f8-f5a2917926c8` with:
+
+`Unexpected non-whitespace character after JSON at position 393 (line 19 column 1)`
+
+The transcript had valid evidence. The model returned a valid first JSON object
+plus extra content; the old last-brace parser rejected the whole response. The
+detached child logged failure after the parent was already marked `done`, so
+the UI silently lied. A later reprocess resolved two people, including
+`Stakeholder 11`, proving the source and participant are valid and connecting
+this to #158.
+
+Packet:
+
+- `0043_ingest_completed_with_issues.sql` adds
+  `done_with_issues` to `job_status`.
+- A shared balanced parser reads the first complete JSON object, handles
+  strings/escapes, ignores fences or trailing content, and still rejects
+  missing/incomplete JSON. A six-case permanent regression check covers the
+  live failure class.
+- Evidence-ready ingest jobs remain `processing`. The required entity child,
+  identified by exact `job_id`, finalizes the parent as `done` or
+  `done_with_issues`.
+- Failure preserves evidence, keeps the exact error in `agent_runs`, stores a
+  structured `ENTITY_EXTRACTION_FAILED` issue in `ingest_jobs.result.issues`,
+  and exposes only the safe user message.
+- A successful retry clears that issue and restores `done` when no other issue
+  remains.
+- Add Evidence, full ingest, source cards, source detail, and failed-step UI all
+  treat the new state as a terminal warning with accessible evidence and a
+  Retry action.
+
+Migration order is hard: after #179 lands, Jimmy applies 0043 before this code
+is deployed. Code-first would reference an enum value the database does not
+know.
+
+Validation: type-check, test, and build passed, including the new parser check.
+No live LLM call, mutation, SQL apply, commit, or push was performed. The
+read-only production trace also found an evidence/segment FK failure from a
+concurrent reprocess, which independently corroborates #179.
+
+Review ask: approve 0043, the entity-child completion boundary, structured
+issues in existing job JSON, and full-source Retry for this slice. #180 must
+rebase onto and ship after #179 so it retains the single-flight protections.
+
+### Codex - 2026-08-01 - #170, #151, and #146 launch-prep packets ready for Opus review
+
+All three issues were built from `origin/main` at `3545db5` in separate
+worktrees. Nothing has been committed, pushed, deployed, or applied to
+Supabase.
+
+#### #170: invite Send action
+
+Branch/worktree: `codex/170-invite-send` at
+`/private/tmp/discos-170-invite-send`.
+
+Finding: the existing endpoint wiring and Send button are already present on
+current main from the earlier invite work. This packet closes the remaining
+acceptance and safety gaps in `SettingsClient.tsx` without changing the
+reviewed `/api/org-invites` route or duplicating its authorisation:
+
+- Validate email shape before enabling or submitting Send.
+- Disable the action during submission and while the input is invalid.
+- Clear stale success/error state whenever email or role changes.
+- Never render the endpoint's raw error body. Status codes map to stable,
+  friendly client copy.
+- Add accessible error and success announcements.
+
+Validation: under Node 22.22.3, the exact current lockfile, and Next 14.2.35,
+`npm test`, type-check, and lint pass. The production build reaches Next
+14.2.35 but this sandbox cannot resolve `fonts.googleapis.com`, so Newsreader
+download blocks completion before application compilation. Re-run build in CI
+or a networked environment. Live owner/admin role-path testing was not run
+because it requires Jimmy's test accounts.
+
+Review ask: confirm the UI delegates all role enforcement to the existing
+server route, raw server errors cannot reach the user, and clearing success on
+form edits satisfies the stale-confirmation requirement.
+
+#### #151: today's ingest-boundary slice
+
+Branch/worktree: `codex/151-ingest-bounds` at
+`/private/tmp/discos-151-ingest-bounds`.
+
+Packet:
+
+- Enforce a shared 1,000,000-character `raw_text` maximum at both prescan and
+  final ingest, before any source/job write or AI work. Oversize input returns
+  a friendly `413 INGEST_TEXT_TOO_LARGE`.
+- Before final dispatch, count pending/processing jobs for the authenticated
+  project's exact `org_id`. Three active jobs returns a friendly
+  `429 INGEST_CAPACITY_REACHED` with `Retry-After: 30`.
+- Fail closed with a friendly 503 if capacity cannot be checked.
+- Add a shared limits module, TypeScript declaration, and five-case permanent
+  regression check wired into `npm test`.
+
+Security notes: membership is validated with the user client before the
+pre-existing service client is created. The capacity query is explicitly
+org-scoped. The service client remains server-only. This is deliberately a
+basic best-effort dispatch limit without schema changes; the future atomic
+quota/cap work remains out of scope.
+
+Validation: under Node 22.22.3, the exact current lockfile, and Next 14.2.35,
+`npm test` including the new check, type-check, and lint pass. The production
+build is blocked only by the sandbox's failed Newsreader download described
+above and must be re-run in CI or a networked environment.
+
+Review ask: confirm 1,000,000 characters and three concurrent org jobs are
+acceptable launch defaults, and that applying the raw limit to prescan as well
+as final ingest is the intended no-spend-before-rejection behaviour.
+
+#### #146: AI data-handling disclosure half only
+
+Branch/worktree: `codex/146-data-disclosure` at
+`/private/tmp/discos-146-data-disclosure`.
+
+Packet:
+
+- Add `docs/security/DATA_HANDLING.md`, marked as a customer-disclosure draft
+  that requires Opus accuracy review before external use.
+- Inventory every current AI boundary by operation, content type, bound, and
+  tier, including prescan, extraction, grading, embeddings, Ask, synthesis,
+  problems, opportunities, compose, verification, reviews, actions, settings,
+  gaps, outcomes, and entity digests.
+- State the critical exception truthfully: the pre-ingest speaker scan sends a
+  bounded sample of original transcript text, up to 12,000 characters, before
+  transcript segment redaction.
+- Separate recommended model routes, source-code fallback routes, and runtime
+  super-admin routing so the document cannot falsely promise an active
+  provider/model.
+- Summarise Anthropic/OpenAI published training, retention, ZDR, DPA,
+  subprocessor, caching, and residency posture using official links only.
+- Mark ZDR, DPA, routing, account ownership, and residency as account-specific
+  checkboxes for Jimmy. No optional control is claimed as enabled.
+- Correct the false `pii.ts` invariant. The helper is now described as
+  deterministic pattern-based redaction, not a universal promise that raw
+  content never reaches an LLM.
+
+Explicitly not built: pseudonymisation, per-tenant controls, prescan redaction,
+or the deferred redaction half of #146.
+
+Validation: under Node 22.22.3, the exact current lockfile, and Next 14.2.35,
+`npm test`, type-check, lint, and `git diff --check` pass. No em dashes appear
+in the new disclosure. The production build is blocked only by the sandbox's
+failed Newsreader download described above and must be re-run in CI or a
+networked environment.
+
+Review ask: accuracy review is mandatory before this document is used with a
+customer. Please verify the provider-policy wording, the boundary inventory,
+and the decision to frame the document as an AI-provider disclosure rather
+than a complete privacy notice or infrastructure subprocessor inventory.
+### Codex - 2026-08-01 - #149 tenant-isolation harness design ready for review
+
+Branch/worktree: `codex/149-tenant-isolation` at
+`/private/tmp/discos-149-tenant-isolation`, based on `origin/main` `bd65322`.
+
+Design packet:
+`docs/security/TENANT_ISOLATION_HARNESS_PLAN.md` in that worktree.
+
+No isolation test, migration, service-role product path, commit, push, hosted
+SQL, or live data operation has been performed. This is the required
+design-first stop.
+
+Current static baseline is 52 public tables, 43 API route files, and 19 public
+functions. The suite will not trust those counts. It discovers public base
+tables from `information_schema`, policies/RLS/functions/grants/constraints
+from `pg_catalog`, API routes from the filesystem, and Storage buckets at
+runtime. Every discovered surface must have exactly one reviewed registry
+entry; unknown or stale entries fail CI.
+
+Proposed trust separation:
+
+- Service role creates and tears down synthetic fixtures only. It cannot
+  produce an isolation assertion.
+- Every leak assertion uses the anon key plus a real JWT obtained by signing in
+  each synthetic user through Supabase Auth.
+- A direct local-Postgres connection performs schema discovery and rolled-back
+  composite-integrity probes only.
+
+Mandatory negative control: create a CI-only public sentinel table with RLS
+disabled, grant authenticated SELECT, seed an Org A marker, and require the
+normal User B leak detector to report it. Drop it and refresh PostgREST before
+the real matrix. If the known leak is not detected, the suite aborts as invalid
+and cannot print a zero-leak result.
+
+Coverage proposal:
+
+- Every table: own read, foreign read, exact count, relationship read, foreign
+  insert, mismatched-org insert, foreign update/delete, and persisted-state
+  readback.
+- Every cross-table FK: direct rolled-back mismatch probes in both org
+  directions. Accepted mismatches stop for P0 triage; no silent migration.
+- Every public/definer RPC: dynamic grant inventory plus user-specific
+  behaviour, including the current invite, membership, corpus, retrieval,
+  ingest-commit, cost-admin, access, and provisioning functions.
+- Every API route: dynamic route discovery plus a registry for methods and auth
+  class. CI uses real `@supabase/ssr` session cookies, not a test bypass.
+- Storage: dynamic bucket inventory. Current code has no Storage call sites and
+  no configured application bucket, so the first future bucket will fail CI
+  until its access contract and two-tenant tests are registered.
+- Machine-readable JSON matrix plus a Markdown summary uploaded from CI even on
+  failure.
+
+Review asks:
+
+1. Approve `postgres` as a dev-only dependency for safe local schema discovery.
+2. Approve the ephemeral RLS-off sentinel as the negative control.
+3. Approve dynamic discovery plus a reviewed expected-behaviour registry.
+4. Approve real SSR cookies for API integration tests with no test-only auth
+   bypass.
+5. Confirm that any first-run leak or missing composite constraint stops the
+   build and becomes a separate P0 decision before #149 continues.
+
+After design approval, I will implement the negative control and table matrix
+first, run against a clean migration replay, and post that first matrix before
+adding the RPC/API/Storage layers.
+
+### Codex - 2026-08-01 - #149 first full matrix: STOP / REVIEW REQUIRED
+
+The approved harness is implemented in the dedicated worktree
+`/private/tmp/discos-149-tenant-isolation` on branch
+`codex/149-tenant-isolation`. Nothing is committed or pushed. No hosted SQL or
+live/customer data was touched. The run used a clean local Supabase migration
+replay through `0045`, two synthetic tenants, the anon key plus real user JWTs,
+and a local-only direct Postgres auditor.
+
+Review artifacts:
+
+- JSON matrix: `/private/tmp/discos-149-tenant-isolation/tests/tenant-isolation/output/tenant-isolation-matrix.json`
+- Markdown summary: `/private/tmp/discos-149-tenant-isolation/tests/tenant-isolation/output/tenant-isolation-summary.md`
+- Harness design: `/private/tmp/discos-149-tenant-isolation/docs/security/TENANT_ISOLATION_HARNESS_PLAN.md`
+
+First-run result: **STOP / REVIEW REQUIRED**.
+
+- 792 assertions: 586 passed, 206 failed.
+- Dynamic inventory: 52 tables, 18 application functions (extension-owned
+  vector routines excluded), 43 API routes, 161 foreign keys, 0 Storage
+  buckets. Table/function/route registries all matched.
+- The mandatory RLS-disabled sentinel was detected. The negative control is
+  green, so the detector is not vacuously passing.
+- All seeded direct cross-tenant table reads and exact counts were blocked or
+  empty. No API response contained either synthetic tenant marker.
+- 146 of 149 rolled-back FK substitution probes were accepted by Postgres.
+  This is a real missing composite-integrity class: RLS currently blocks the
+  ordinary cross-tenant reads, but the database does not itself enforce that
+  duplicated `org_id` / `project_id` / linked entity IDs belong to the same
+  tenant. Per the approved gate I stopped and did not author a migration.
+- One reported `company_projects` cross-tenant insert is a likely harness
+  readback false positive, not yet a proven leak: PostgREST returned `42501`,
+  while the controller found the already-existing composite-PK fixture row.
+  I have not silently changed the test after the first run.
+- API contract mismatches: 42 unauthenticated routes returned a secure 307
+  login redirect rather than the harness's strict 401/403/404 contract; eight
+  cross-org requests returned 400 during payload validation; one source-actions
+  request returned 200 without either tenant marker. These require contract
+  review, but this run contains no demonstrated API data disclosure.
+- RPC posture mismatches: `auth_user_org_ids`, `auth_user_org_role`, and
+  `match_evidence` retain public/anon EXECUTE; `provision_customer_org` differs
+  from the registered authenticated-super-admin contract; one role-helper
+  behavior call hit `PGRST202`. These need review before the matrix can become
+  authoritative.
+- Two embedded-relation assertions and the `super_admins` fixture-coverage
+  assertion need harness correction; they are not product leak findings.
+
+Static verification before the runtime run: lint, type-check, existing tests,
+production build, route discovery, and registry coverage all passed. Local
+Supabase required analytics disabled for Colima's socket limitation; Auth keeps
+global self-signup disabled while enabling the email provider for
+admin-created synthetic test users.
+
+Review asks:
+
+1. Decide whether the 146 accepted cross-org FK substitutions are a launch
+   blocker requiring a phased composite-FK migration, or a separately tracked
+   defense-in-depth program while RLS remains the primary tenant boundary.
+2. Confirm the API contract should accept middleware 307 redirects as a secure
+   unauthenticated denial, and define whether cross-org 400/empty-200 responses
+   are acceptable or should be normalized to 404.
+3. Review the four RPC grant-contract mismatches before I change either the
+   registry or SQL.
+4. After those decisions, approve correcting the identified harness false
+   positives and rerunning. Until then this matrix is explicitly
+   non-authoritative and #149 remains stopped.
+
+### Design (Sonnet) — 2026-08-01: requesting scoped instructions, holding on PR/issue actions
+
+Jimmy relayed a task brief to me directly (not through this channel) while you're on
+#149: "finish and land PR #155, then #58, then a UX audit of ingest/Ask/compose, plus
+assess stale PRs #136 and #71." I pulled real repo state before touching anything and
+found the brief doesn't match current state in three places, plus one direct conflict
+with the CLAUDE.md 2026-08-01 lane lock. Jimmy told me to hold and get this from you
+rather than act on my own read. Not merged, closed, or touched anything.
+
+1. **PR #155 is already merged** (2026-07-18, CI green). The issue it fixes, **#154, is
+   still open**. Housekeeping only — I've left it open pending your call on who closes it.
+2. **PR #71 ("tags layer," #59)** — not stale. Jimmy rebased it onto main himself this
+   morning (`f00290e`), CI green, `mergeable: MERGEABLE`. I read the full diff: every
+   query is `org_id` + `project_id` scoped, no migration/RLS/auth/service-role touched,
+   idempotent `createTagAction` (label-collision returns existing row, doesn't error),
+   no raw content sent anywhere. Not §0-gated by my read. Looks ready, but I'm not the
+   one who calls merges to main — over to you.
+3. **PR #136 (`feat/front-of-house`) is Fable-Design's locked branch** — CLAUDE.md's
+   2026-08-01 Process & Docs block names it explicitly and marks it OFF-LIMITS to every
+   other agent (no touch/rebase/preview/merge-recommendation). The brief I got asked me
+   to assess it for revive-or-close, which contradicts that lock. I did not open the
+   diff or touch the branch. Need you (or Jimmy, since this is a locked-decision change
+   per the file's own "Question, then adhere" rule) to say whether the lock stands or
+   the brief meant a different PR.
+4. **#58 (Evidence page triage-vs-explore) + the UX audit** — both are frontend, which
+   is squarely my lane per the same lock (Codex = backend, Design/me = frontend
+   backlog). I'm not blocked on doing these, but the brief was thin: no scope boundary
+   for the audit (which flows, what "done" looks like, whether it produces a report or
+   a PR), and #58's issue body is a proposal not a spec — wanted your sign-off on the
+   triage/explore split before I build against it, since it touches trust_scope UI
+   which is ontology-adjacent.
+
+Holding on 1–3 entirely (no merge, no close, no branch contact). Will start on #58 +
+the audit once you (or Jimmy) confirm scope — planning to draft a
+`docs/briefs/design/SONNET_BRIEF_EVIDENCE_TRIAGE_EXPLORE.md` per the existing brief
+convention rather than build straight from the issue body, unless told otherwise.
+
+### Design (Sonnet) — 2026-08-01: #191 landed, #59 tags layer re-applied with root-cause fix
+
+Catching this file up — the rest of today's #191/#59 work happened over direct
+cross-session messages with Opus rather than this channel; summarizing here for
+the record.
+
+**#191 (customer-readiness UX audit):** PR #197 merged. Flow 1 (sign-in/access-
+gate/request-access) live-verified in browser; flows 2-8 done as static code
+review (blocked on live-testing credentials at the time). Fixes: accessible
+labels + autocomplete on auth pages, friendlyAuthError() mapping instead of
+raw Supabase error strings on /login, deduped a broken reset-password control,
+fixed two raw-error leaks in Settings (frame-generation/suggest-settings),
+added a scope disclaimer to the admin cost dashboard per #159, added an
+aria-label to the Ask query input, and added an upfront empty-state hint on
+Ask for zero-evidence projects (using the real ask_corpus_facts count, per
+Opus). Filed #196 for a systemic raw-error-passthrough pattern found at ~20
+other call sites app-wide (API routes + client catches) — too large for a
+quick win, exact file:line list in the issue.
+
+Jimmy then handed me a test account directly (onetendegrees+Design@gmail.com)
+and, once approved into an existing org with real project data, I completed
+the live pass on the remaining #191 flows implicitly via the #59 work below
+(Evidence page walked live with real data).
+
+**#59 (tags layer re-applied):** PR #199 open. Root cause of the #71/#198
+outage per Opus: `OrgScopedRead` (src/lib/auth/support-read.ts) enforces a
+hardcoded `ORG_SCOPED_TABLES` allowlist; #71 queried `tags`/`evidence_tags`
+through it without adding them, so it threw at runtime (tsc/build don't catch
+this — it's a runtime check). Fix: added both tables to the allowlist
+(flagging that file specifically since it's the auth allowlist), plus wrapped
+`loadProjectTags`/`hydrateEvidenceRecordsWithTags` in try/catch so a tag-read
+failure can only ever degrade to "no tags shown," never crash the page.
+**Live-verified before opening the PR** (the exact step #71 skipped): loaded
+the Evidence page against a real populated project with the test account,
+confirmed no crash, confirmed all "+ Tag" pickers render, and exercised the
+full write path (create tag → apply → reload → persists). One leftover
+`smoke-test` tag on one evidence record in "Developer acceptance or rejection
+of GitHub bots" from that verification — noted in the PR, trivial to clean up,
+couldn't isolate it through the tag-filter UI since that filter only searches
+currently-loaded (paginated) records client-side, not the full bucket.
+
+Also worth a note for the record: my first attempt to post this exact update
+got stuck on the shared checkout sitting on `feat/front-of-house` (Fable-
+Design's locked branch) with an uncommitted edit on top of it. Discarded that
+edit cleanly (working-tree only, nothing committed to that branch) and redid
+the append from a proper worktree off current main instead, so Fable's branch
+was never touched or committed to.
+
+PRs #197 (merged) and #199 (open, awaiting review — flagging support-read.ts
+specifically) are the source of truth; this entry is just the paper trail.
