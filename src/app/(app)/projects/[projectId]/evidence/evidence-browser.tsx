@@ -335,6 +335,20 @@ function EvidenceRow({
         )}
         <p className="whitespace-pre-wrap text-sm leading-6 text-[var(--ink)]">{record.content}</p>
 
+        {record.themes.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {record.themes.map((topic) => (
+              <span
+                key={topic}
+                className="rounded-full border border-dashed border-[var(--line-strong)] bg-[var(--surface-2)] px-2 py-0.5 text-[11px] font-medium text-[var(--ink-2)]"
+                title="Topic"
+              >
+                {topic}
+              </span>
+            ))}
+          </div>
+        )}
+
         {showReason && (
           <p className="mt-2 rounded-lg border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-xs leading-5 text-[var(--ink-2)]">
             {record.ai_trust_reason}
@@ -581,6 +595,9 @@ export function EvidenceBrowser({
   internalSpeakerNames,
 }: EvidenceBrowserProps) {
   const [activeLens, setActiveLens] = useState<EvidenceLensKey>("review");
+  // Remembers which grouping lens Explore mode should land on — so switching
+  // back from Triage doesn't reset the user's chosen group-by.
+  const [lastExploreLens, setLastExploreLens] = useState<Exclude<EvidenceLensKey, "review">>("topics");
   const [activeTab, setActiveTab] = useState<BucketKey>("pending");
   const [counts, setCounts] = useState<Record<BucketKey, number>>({
     pending: pendingCount,
@@ -830,51 +847,69 @@ export function EvidenceBrowser({
   return (
     <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
       <div className="flex flex-wrap items-center gap-3 border-b border-[var(--line)] p-3 sm:p-4">
-        <button
-          type="button"
-          onClick={() => {
-            setActiveLens("review");
-            setSelected(new Set());
-            setError(null);
-          }}
-          className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-            activeLens === "review"
-              ? "border-[var(--accent)]/50 bg-[var(--accent-soft)] text-[var(--accent)]"
-              : "border-[var(--line)] text-[var(--ink-2)] hover:border-white/15 hover:text-[var(--ink)]"
-          }`}
+        <div
+          role="tablist"
+          aria-label="Evidence mode"
+          className="inline-flex rounded-lg border border-[var(--line)] bg-[var(--bg)] p-1"
         >
-          Review
-        </button>
-
-        <div className="h-5 w-px bg-[var(--line)]" aria-hidden="true" />
-
-        <label className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
-          Group by
-          <select
-            value={activeLens === "review" ? "" : activeLens}
-            onChange={(event) => {
-              const value = event.target.value as EvidenceLensKey;
-              if (!value) return;
-              setActiveLens(value);
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeLens === "review"}
+            onClick={() => {
+              setActiveLens("review");
               setSelected(new Set());
               setError(null);
             }}
-            className={`rounded-lg border bg-[var(--bg)] px-2.5 py-1.5 text-sm font-medium normal-case tracking-normal outline-none transition-colors focus:border-[var(--accent)] ${
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
               activeLens === "review"
-                ? "border-[var(--line)] text-[var(--ink-2)]"
-                : "border-[var(--accent)]/50 text-[var(--accent)]"
+                ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                : "text-[var(--ink-2)] hover:text-[var(--ink)]"
             }`}
           >
-            <option value="" disabled>
-              Evidence
-            </option>
-            {LENSES.filter((lens) => lens.key !== "review").map((lens) => (
-              <option key={lens.key} value={lens.key}>
-                {lens.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            Triage
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeLens !== "review"}
+            onClick={() => {
+              setActiveLens(lastExploreLens);
+              setSelected(new Set());
+              setError(null);
+            }}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              activeLens !== "review"
+                ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                : "text-[var(--ink-2)] hover:text-[var(--ink)]"
+            }`}
+          >
+            Explore
+          </button>
+        </div>
+
+        {activeLens !== "review" && (
+          <label className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
+            Group by
+            <select
+              value={activeLens}
+              onChange={(event) => {
+                const value = event.target.value as Exclude<EvidenceLensKey, "review">;
+                setActiveLens(value);
+                setLastExploreLens(value);
+                setSelected(new Set());
+                setError(null);
+              }}
+              className="rounded-lg border border-[var(--accent)]/50 bg-[var(--bg)] px-2.5 py-1.5 text-sm font-medium normal-case tracking-normal text-[var(--accent)] outline-none transition-colors focus:border-[var(--accent)]"
+            >
+              {LENSES.filter((lens) => lens.key !== "review").map((lens) => (
+                <option key={lens.key} value={lens.key}>
+                  {lens.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       {activeLens === "review" ? (
