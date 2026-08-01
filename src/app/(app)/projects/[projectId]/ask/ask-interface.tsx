@@ -11,6 +11,8 @@ type TrustScopeFilter = "include_pending" | "trusted";
 interface AskInterfaceProps {
   projectId: string;
   projectName: string;
+  /** Total evidence records in the project, or null if the count could not be loaded. */
+  totalEvidence: number | null;
 }
 
 // NDJSON event shapes emitted by the streaming /api/ask route.
@@ -455,7 +457,7 @@ function SourceCard({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
+export function AskInterface({ projectId, projectName, totalEvidence }: AskInterfaceProps) {
   const searchParams = useSearchParams();
   const [query, setQuery] = useState("");
   const [lastQuery, setLastQuery] = useState("");
@@ -707,6 +709,12 @@ export function AskInterface({ projectId, projectName }: AskInterfaceProps) {
           Ask a question and get a sourced answer drawn from your transcripts and notes.
         </p>
       </div>
+
+      {totalEvidence === 0 && (
+        <div className="mb-6 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--ink-2)]">
+          No evidence yet — add a source first, then come back to ask questions about it.
+        </div>
+      )}
 
       {/* Query form */}
       <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)]">
