@@ -12,6 +12,12 @@ import {
   INGEST_ALREADY_RUNNING_MESSAGE,
   INGEST_GENERIC_FAILURE_MESSAGE,
 } from "@/lib/ingest/user-message.mjs";
+import {
+  INGEST_CAPACITY_MESSAGE,
+  MAX_RAW_TEXT_CHARS,
+  RAW_TEXT_TOO_LARGE_MESSAGE,
+  canDispatchIngest,
+} from "@/lib/ingest/limits.mjs";
 import { z } from "zod";
 
 const IngestSchema = z.object({
@@ -30,7 +36,10 @@ const IngestSchema = z.object({
   ]).optional(),
   title: z.string().min(1).max(255),
   description: z.string().optional(),
-  raw_text: z.string().min(20, "Text must be at least 20 characters"),
+  raw_text: z
+    .string()
+    .min(20, "Text must be at least 20 characters")
+    .max(MAX_RAW_TEXT_CHARS, RAW_TEXT_TOO_LARGE_MESSAGE),
   metadata: z.record(z.unknown()).optional(),
   entity_resolutions: EntityResolutionsSchema,
 });
@@ -55,6 +64,15 @@ export async function POST(req: NextRequest) {
   const parsed = IngestSchema.safeParse(body);
 
   if (!parsed.success) {
+    const rawTextTooLarge = parsed.error.issues.some(
+      (issue) => issue.path[0] === "raw_text" && issue.code === "too_big"
+    );
+    if (rawTextTooLarge) {
+      return NextResponse.json(
+        { error: RAW_TEXT_TOO_LARGE_MESSAGE, code: "INGEST_TEXT_TOO_LARGE" },
+        { status: 413 }
+      );
+    }
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
@@ -87,6 +105,27 @@ export async function POST(req: NextRequest) {
 
   const org_id = project.org_id;
   const service = createServiceClient();
+
+  const { count: activeIngestCount, error: activeIngestError } = await service
+    .from("ingest_jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("org_id", org_id)
+    .in("status", ["pending", "processing"]);
+
+  if (activeIngestError || activeIngestCount == null) {
+    console.error("Failed to check ingest capacity", activeIngestError);
+    return NextResponse.json(
+      { error: "DiscOS could not check processing capacity. Please try again." },
+      { status: 503 }
+    );
+  }
+
+  if (!canDispatchIngest(activeIngestCount)) {
+    return NextResponse.json(
+      { error: INGEST_CAPACITY_MESSAGE, code: "INGEST_CAPACITY_REACHED" },
+      { status: 429, headers: { "Retry-After": "30" } }
+    );
+  }
 
   // Create source record — raw_text stored in metadata for Phase 1
   const { data: source, error: sourceError } = await service

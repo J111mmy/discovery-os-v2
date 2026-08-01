@@ -4,6 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 import { requireActiveAccess } from "@/lib/auth/access";
 import { getProjectForUser } from "@/lib/auth/org";
 import { PROCESSED_MARKER_ERROR, looksLikeProcessedMarker } from "@/lib/ingest/quality";
+import {
+  MAX_RAW_TEXT_CHARS,
+  RAW_TEXT_TOO_LARGE_MESSAGE,
+} from "@/lib/ingest/limits.mjs";
 import { prescanSourceEntities } from "@/lib/ingest/prescan";
 
 const PrescanSchema = z.object({
@@ -19,7 +23,10 @@ const PrescanSchema = z.object({
     "usability_study",
     "internal_meeting",
   ]).optional(),
-  raw_text: z.string().min(20, "Text must be at least 20 characters"),
+  raw_text: z
+    .string()
+    .min(20, "Text must be at least 20 characters")
+    .max(MAX_RAW_TEXT_CHARS, RAW_TEXT_TOO_LARGE_MESSAGE),
 });
 
 export async function POST(
@@ -47,6 +54,15 @@ export async function POST(
   const body = await req.json();
   const parsed = PrescanSchema.safeParse(body);
   if (!parsed.success) {
+    const rawTextTooLarge = parsed.error.issues.some(
+      (issue) => issue.path[0] === "raw_text" && issue.code === "too_big"
+    );
+    if (rawTextTooLarge) {
+      return NextResponse.json(
+        { error: RAW_TEXT_TOO_LARGE_MESSAGE, code: "INGEST_TEXT_TOO_LARGE" },
+        { status: 413 }
+      );
+    }
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
