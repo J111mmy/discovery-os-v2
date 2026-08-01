@@ -5,7 +5,6 @@ import {
   loadVisibleProjectTopicGraph,
   VISIBLE_REVIEW_STATES,
 } from "@/lib/research-ontology/evidence-topics";
-import { hydrateEvidenceRecordsWithTags, loadProjectTags } from "@/lib/research-ontology/evidence-tags";
 import { createClient } from "@/lib/supabase/server";
 import type { EvidenceRecord } from "@/types/database";
 import { notFound, redirect } from "next/navigation";
@@ -470,7 +469,6 @@ async function getRecentEvidence(
     projectId,
     records: (evidence ?? []) as EvidenceRecord[],
   });
-  await hydrateEvidenceRecordsWithTags({ supabase, orgId, projectId, records });
   const sourceIds = Array.from(new Set(records.map((record) => record.source_id)));
   const segmentIds = Array.from(
     new Set(records.map((record) => record.segment_id).filter(Boolean))
@@ -583,7 +581,6 @@ export default async function EvidencePage({ params, searchParams }: Props) {
     evidenceResult,
     lensData,
     { data: internalPeople },
-    projectTags,
   ] = await Promise.all([
     read
       .from("evidence")
@@ -608,7 +605,6 @@ export default async function EvidencePage({ params, searchParams }: Props) {
       .from("people")
       .select("name")
       .eq("affiliation", "internal"),
-    loadProjectTags({ supabase: read, orgId: project.org_id, projectId: project.id }),
   ]);
 
   const evidenceCount = (pendingCount ?? 0) + (trustedCount ?? 0) + (excludedCount ?? 0);
@@ -645,7 +641,6 @@ export default async function EvidencePage({ params, searchParams }: Props) {
         lensData={lensData}
         researchContextEmpty={researchContextIsEmpty(project.research_context)}
         internalSpeakerNames={internalSpeakerNames}
-        initialProjectTags={projectTags}
       />
     </div>
   );
