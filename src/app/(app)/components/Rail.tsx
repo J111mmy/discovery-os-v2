@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { CmdK } from "./CmdK";
 import { NewProjectModal } from "./NewProjectModal";
 import { AddEvidenceModal } from "./AddEvidenceModal";
+import { switchOrgAction } from "./switch-org-action";
 
 // ── Types ──────────────────────────────────────────────────────────
 export interface RailProject {
+  id: string;
+  name: string;
+}
+
+export interface RailOrg {
   id: string;
   name: string;
 }
@@ -18,6 +24,8 @@ export interface RailProps {
   superAdmin?: boolean;
   projects: RailProject[];
   dirCounts: { people: number; companies: number; competitors: number };
+  orgs?: RailOrg[];
+  currentOrgId?: string | null;
 }
 
 type Theme = "dark" | "light";
@@ -227,7 +235,14 @@ function AvatarDot({ email, size = 30 }: { email: string; size?: number }) {
 // Rail — main component
 // ══════════════════════════════════════════════════════════════════
 
-export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) {
+export function Rail({
+  userEmail,
+  superAdmin,
+  projects,
+  dirCounts,
+  orgs = [],
+  currentOrgId = null,
+}: RailProps) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -240,6 +255,20 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
 
   const [collapsed, setCollapsed] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const [switchingOrgId, setSwitchingOrgId] = useState<string | null>(null);
+  const [isSwitchingOrg, startOrgSwitch] = useTransition();
+  const currentOrg = orgs.find((org) => org.id === currentOrgId) ?? null;
+
+  function handleSwitchOrg(orgId: string) {
+    if (orgId === currentOrgId) return;
+    setSwitchingOrgId(orgId);
+    startOrgSwitch(async () => {
+      await switchOrgAction(orgId);
+      setSwitchingOrgId(null);
+      setAvatarOpen(false);
+      router.refresh();
+    });
+  }
   const [newProjOpen, setNewProjOpen] = useState(false);
   const [addEvidenceOpen, setAddEvidenceOpen] = useState(false);
   const [addEvidenceProjectId, setAddEvidenceProjectId] = useState<string | null>(null);
@@ -788,8 +817,27 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
           </div>
         </div>
 
-        {/* ── Footer — avatar row only ── */}
+        {/* ── Footer — org indicator + avatar row ── */}
         <div style={{ borderTop: "1px solid var(--line)", padding: "10px 12px 14px", flexShrink: 0 }}>
+          {/* Current org — always visible (#203), never ambiguous which org is active */}
+          {currentOrg && (
+            <div
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "2px 6px 8px", fontSize: 11, color: "var(--ink-faint)",
+                textTransform: "uppercase", letterSpacing: "0.04em",
+              }}
+            >
+              <span style={{ opacity: 0.8 }}>Org:</span>
+              <span style={{
+                color: "var(--ink-2)", fontWeight: 600, textTransform: "none",
+                letterSpacing: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>
+                {currentOrg.name}
+              </span>
+            </div>
+          )}
+
           {/* Avatar row + sign-out popover */}
           <div style={{ position: "relative" }} ref={avatarRef}>
             <button
@@ -826,6 +874,46 @@ export function Rail({ userEmail, superAdmin, projects, dirCounts }: RailProps) 
                   padding: 6, zIndex: 60, animation: "popIn .16s ease",
                 }}
               >
+                {orgs.length > 1 && (
+                  <>
+                    <div style={{
+                      padding: "6px 10px 4px", fontSize: 10.5, fontWeight: 600,
+                      color: "var(--ink-faint)", textTransform: "uppercase", letterSpacing: "0.05em",
+                    }}>
+                      Switch organisation
+                    </div>
+                    {orgs.map((org) => {
+                      const isCurrent = org.id === currentOrgId;
+                      const isBusy = isSwitchingOrg && switchingOrgId === org.id;
+                      return (
+                        <button
+                          key={org.id}
+                          type="button"
+                          role="menuitem"
+                          disabled={isCurrent || isSwitchingOrg}
+                          onClick={() => handleSwitchOrg(org.id)}
+                          style={{
+                            display: "flex", alignItems: "center", justifyContent: "space-between",
+                            gap: 8, padding: "9px 10px", borderRadius: "var(--r-sm)",
+                            fontSize: 13.5, color: isCurrent ? "var(--ink-faint)" : "var(--ink)",
+                            background: "transparent", border: "none",
+                            cursor: isCurrent || isSwitchingOrg ? "default" : "pointer",
+                            width: "100%", textAlign: "left", fontFamily: "inherit", transition: ".13s",
+                          }}
+                          onMouseEnter={(e) => { if (!isCurrent) (e.currentTarget as HTMLElement).style.background = "var(--sel)"; }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                        >
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {org.name}
+                          </span>
+                          {isCurrent && <span style={{ fontSize: 11, color: "var(--accent)", flexShrink: 0 }}>Current</span>}
+                          {isBusy && <span style={{ fontSize: 11, color: "var(--ink-faint)", flexShrink: 0 }}>Switching…</span>}
+                        </button>
+                      );
+                    })}
+                    <div style={{ height: 1, background: "var(--line)", margin: "4px 2px" }} />
+                  </>
+                )}
                 <form method="POST" action="/api/auth/sign-out">
                   <button
                     type="submit"
