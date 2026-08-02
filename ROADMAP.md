@@ -18,6 +18,7 @@ Each item has a rough size: **S** (one session), **M** (2–3 sessions), **L** (
 3. **🔜 Entity/trust quality cluster** (the north star made real, now follows #28): **#41 pre-ingest speaker/org scan** (keystone, landed) → close out **#39** junk people, **#40** company quality, **#36** internal-speaker leak. Honor inline identity/correction notes; preserve named entities verbatim.
 4. **🔜 Supporting quality/admin:** #42 admin org table bug, #38 claim-verification `created_at`, #35 Ask rendering polish, #33 staging environment (would have caught this week's prod-only 400s).
 5. **⏸ Billing epic + onboarding** — parked; revisit only by conscious decision once quality holds.
+6. **🔜 Competitive response:** [CI-01 evidence-integrity release gate](docs/product/COMPETITIVE_RESPONSE_BACKLOG_2026-07-19.md#ci-01---make-evidence-integrity-a-release-gate) is now part of the quality work before billing. The remaining Lane/Enterpret/Canny/Productboard response is tracked in [Competitive Response Backlog](docs/product/COMPETITIVE_RESPONSE_BACKLOG_2026-07-19.md), with CI-02 decision ledger and CI-07 buyer validation next once CI-01 is designed.
 
 Shipped since the last roadmap refresh (2026-06-04): #25 opportunities, #26 traceable compose, #30 JSON hardening, #32 invite-only sign-in gate, #35 Ask attribution (WO-1), WO-5 ingest cost fix (~40x cheaper, validated on prod). Mark older sections ✅ accordingly.
 
