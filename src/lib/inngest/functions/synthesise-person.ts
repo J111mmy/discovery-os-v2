@@ -88,7 +88,7 @@ export const synthesisePerson = inngest.createFunction(
       });
 
       const { person, evidence, projects } = await step.run("fetch-person-and-evidence", async () => {
-        const [personResult, evidenceResult] = await Promise.all([
+        const [personResult, evidenceLinksResult] = await Promise.all([
           supabase
             .from("people")
             .select("name, role")
@@ -97,7 +97,7 @@ export const synthesisePerson = inngest.createFunction(
             .single(),
           supabase
             .from("evidence_entities")
-            .select("evidence(id, content, summary, classification, sentiment, metadata, project_id)")
+            .select("evidence_id")
             .eq("org_id", org_id)
             .eq("entity_type", "person")
             .eq("entity_id", person_id),
@@ -106,27 +106,34 @@ export const synthesisePerson = inngest.createFunction(
         if (personResult.error || !personResult.data) {
           throw new Error(`Person not found: ${personResult.error?.message}`);
         }
-        if (evidenceResult.error) {
-          throw new Error(`Failed to fetch evidence: ${evidenceResult.error.message}`);
+        if (evidenceLinksResult.error) {
+          throw new Error(`Failed to fetch evidence links: ${evidenceLinksResult.error.message}`);
         }
 
-        // Flatten the nested join result
-        type RawRow = { evidence: EvidenceRecord | EvidenceRecord[] | null };
-        const rawEvidence = ((evidenceResult.data ?? []) as RawRow[])
-          .flatMap((row) => {
-            const e = row.evidence;
-            if (!e) return [] as EvidenceRecord[];
-            return Array.isArray(e) ? e : [e];
-          })
-          .filter((e): e is EvidenceRecord => Boolean(e?.content));
+        const evidenceIds = Array.from(
+          new Set(
+            ((evidenceLinksResult.data ?? []) as Array<{ evidence_id: string }>).map(
+              (row) => row.evidence_id
+            )
+          )
+        );
+        let evidence: EvidenceRecord[] = [];
 
-        // Deduplicate by evidence id
-        const seen = new Set<string>();
-        const evidence = rawEvidence.filter((e) => {
-          if (seen.has(e.id)) return false;
-          seen.add(e.id);
-          return true;
-        });
+        if (evidenceIds.length > 0) {
+          const evidenceResult = await supabase
+            .from("evidence")
+            .select("id, content, summary, classification, sentiment, metadata, project_id")
+            .eq("org_id", org_id)
+            .in("id", evidenceIds);
+
+          if (evidenceResult.error) {
+            throw new Error(`Failed to fetch evidence: ${evidenceResult.error.message}`);
+          }
+
+          evidence = ((evidenceResult.data ?? []) as EvidenceRecord[]).filter(
+            (record): record is EvidenceRecord => Boolean(record?.content)
+          );
+        }
 
         // Fetch project names for all referenced projects
         const projectIds = Array.from(new Set(evidence.map((e) => e.project_id)));
