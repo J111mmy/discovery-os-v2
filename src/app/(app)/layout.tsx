@@ -24,6 +24,34 @@ export default async function AppLayout({ children }: AppLayoutProps) {
   const impersonation = superAdmin ? await getImpersonatedOrgName(user.id) : null;
   const read = await getOrgScopedReadForUser(user.id, supabase);
 
+  // ── Orgs this user belongs to, for the org switcher (#203) ─────
+  // Skipped during support-mode impersonation — that already has its own
+  // "viewing as X" banner and Exit control; a second switcher would conflict.
+  // Regular (RLS-scoped) client only — no service role for this read.
+  let userOrgs: { id: string; name: string }[] = [];
+  if (!impersonation) {
+    try {
+      const { data: memberRows } = await supabase
+        .from("org_members")
+        .select("org_id")
+        .eq("user_id", user.id)
+        .order("joined_at", { ascending: true });
+      const orgIds = (memberRows ?? []).map((row) => row.org_id as string);
+      if (orgIds.length > 0) {
+        const { data: orgRows } = await supabase
+          .from("orgs")
+          .select("id, name")
+          .in("id", orgIds);
+        const orgById = new Map((orgRows ?? []).map((org) => [org.id, org.name as string]));
+        userOrgs = orgIds
+          .filter((id) => orgById.has(id))
+          .map((id) => ({ id, name: orgById.get(id) ?? "Untitled organisation" }));
+      }
+    } catch {
+      // Graceful degradation — rail renders without the org switcher
+    }
+  }
+
   // ── Projects list for rail ─────────────────────────────────────
   let projects: RailProject[] = [];
   try {
@@ -90,6 +118,8 @@ export default async function AppLayout({ children }: AppLayoutProps) {
           superAdmin={superAdmin}
           projects={projects}
           dirCounts={dirCounts}
+          orgs={userOrgs}
+          currentOrgId={read?.orgId ?? null}
         />
 
         {/* Page content — scrolls independently of the rail */}
