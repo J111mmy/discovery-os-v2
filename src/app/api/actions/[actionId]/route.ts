@@ -34,14 +34,20 @@ export async function PATCH(req: NextRequest, { params }: Props) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { error } = await supabase
+  const { data: updatedAction, error } = await supabase
     .from("actions")
     .update({ status: parsed.data.status, updated_at: new Date().toISOString() })
     .eq("org_id", orgId)
-    .eq("id", params.actionId);
+    .eq("id", params.actionId)
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (!updatedAction) {
+    return NextResponse.json({ error: "Action not found" }, { status: 404 });
   }
 
   return NextResponse.json({ ok: true });
