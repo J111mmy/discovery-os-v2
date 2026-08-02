@@ -259,16 +259,29 @@ export function Rail({
   const [isSwitchingOrg, startOrgSwitch] = useTransition();
   const currentOrg = orgs.find((org) => org.id === currentOrgId) ?? null;
 
+  // isSwitchingOrg (from useTransition) stays true for the whole router.push
+  // navigation below, not just this callback — that's what drives the overlay.
+  // switchingOrgId only needs to track "which item is busy" for as long as
+  // isSwitchingOrg is true, so it's cleared by the effect further down rather
+  // than here.
   function handleSwitchOrg(orgId: string) {
     if (orgId === currentOrgId) return;
     setSwitchingOrgId(orgId);
+    setAvatarOpen(false);
     startOrgSwitch(async () => {
       await switchOrgAction(orgId);
-      setSwitchingOrgId(null);
-      setAvatarOpen(false);
-      router.refresh();
+      // Always land on a neutral, org-scoped page after switching. Refreshing
+      // in place isn't enough: getProjectForUser allows access to any project
+      // across all the user's org memberships, not just the active one, so a
+      // project route would keep rendering the OLD org's project even though
+      // the sidebar/indicator had already moved to the new org (#211).
+      router.push("/projects");
     });
   }
+
+  useEffect(() => {
+    if (!isSwitchingOrg) setSwitchingOrgId(null);
+  }, [isSwitchingOrg]);
   const [newProjOpen, setNewProjOpen] = useState(false);
   const [addEvidenceOpen, setAddEvidenceOpen] = useState(false);
   const [addEvidenceProjectId, setAddEvidenceProjectId] = useState<string | null>(null);
@@ -937,6 +950,34 @@ export function Rail({
           </div>
         </div>
       </div>
+
+      {/* Org-switch loading overlay (#211) — covers the content pane while the
+          new org's page is being fetched, so the rescope is visibly happening
+          instead of the old org's content just sitting there until it flips. */}
+      {isSwitchingOrg && (
+        <div
+          aria-live="polite"
+          aria-busy="true"
+          style={{
+            position: "fixed", top: 0, right: 0, bottom: 0, left: railWidth,
+            background: "color-mix(in srgb, var(--bg) 75%, transparent)",
+            backdropFilter: "blur(1px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 70, animation: "popIn .12s ease",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10, color: "var(--ink-2)", fontSize: 13.5 }}>
+            <span
+              style={{
+                width: 16, height: 16, borderRadius: "50%",
+                border: "2px solid var(--line-strong)", borderTopColor: "var(--accent)",
+                animation: "spin .7s linear infinite",
+              }}
+            />
+            Switching organisation…
+          </div>
+        </div>
+      )}
 
       {/* ── Mobile elements — only rendered when JS confirms mobile viewport.
            CSS-only hiding was unreliable because these are flex siblings
