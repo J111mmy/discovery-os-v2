@@ -123,6 +123,14 @@ const LENSES: { key: EvidenceLensKey; label: string; blurb: string }[] = [
   },
 ];
 
+// Server-seeded initial "pending" page (evidence/page.tsx's getRecentEvidence,
+// .limit(50)) is a different size than client-side loadTab/loadMore pages
+// (loadEvidenceRecordsAction, limit: 20). Checking initialRecords.length
+// against the wrong number left hasMore false from mount, so the infinite
+// scroll's IntersectionObserver never even attached (#205).
+const INITIAL_PAGE_SIZE = 50;
+const LOAD_MORE_PAGE_SIZE = 20;
+
 const BUCKETS: {
   key: BucketKey;
   label: string;
@@ -775,7 +783,7 @@ export function EvidenceBrowser({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showContextNudge, setShowContextNudge] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(initialRecords.length === 20);
+  const [hasMore, setHasMore] = useState(initialRecords.length === INITIAL_PAGE_SIZE);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isLoadingTab, setIsLoadingTab] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
@@ -871,11 +879,11 @@ export function EvidenceBrowser({
         const next = await loadEvidenceRecordsAction({
           projectId,
           offset: 0,
-          limit: 20,
+          limit: LOAD_MORE_PAGE_SIZE,
           trustScope: tab,
         });
         setRecords(next);
-        setHasMore(next.length === 20);
+        setHasMore(next.length === LOAD_MORE_PAGE_SIZE);
       } catch {
         setError("Could not load evidence.");
       } finally {
@@ -898,7 +906,7 @@ export function EvidenceBrowser({
     setQuery("");
     if (tab === "pending" && pendingSeeded) {
       setRecords(initialRecords);
-      setHasMore(initialRecords.length === 20);
+      setHasMore(initialRecords.length === INITIAL_PAGE_SIZE);
       setError(null);
       return;
     }
@@ -939,7 +947,7 @@ export function EvidenceBrowser({
     if (trimmedQuery) return;
     if (activeTab === "pending" && pendingSeeded) {
       setRecords(initialRecords);
-      setHasMore(initialRecords.length === 20);
+      setHasMore(initialRecords.length === INITIAL_PAGE_SIZE);
       return;
     }
     void loadTab(activeTab);
@@ -955,14 +963,14 @@ export function EvidenceBrowser({
       const next = await loadEvidenceRecordsAction({
         projectId,
         offset: records.length,
-        limit: 20,
+        limit: LOAD_MORE_PAGE_SIZE,
         trustScope: activeTab,
       });
       setRecords((current) => {
         const seen = new Set(current.map((r) => r.id));
         return [...current, ...next.filter((r) => !seen.has(r.id))];
       });
-      setHasMore(next.length === 20);
+      setHasMore(next.length === LOAD_MORE_PAGE_SIZE);
     } catch {
       setError("Could not load more evidence.");
     } finally {
