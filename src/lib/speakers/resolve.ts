@@ -84,6 +84,14 @@ function buildAliases(label: string) {
   const normalized = normalizeSpeakerName(label);
   if (!normalized) return [];
 
+  if (
+    /^(?:stakeholder|participant|speaker|interviewee|respondent)\s+\d+$/.test(
+      normalized
+    )
+  ) {
+    return [normalized];
+  }
+
   const tokens = normalized.split(" ").filter(Boolean);
   const aliases = [normalized];
 
@@ -169,12 +177,11 @@ export async function loadSpeakerCandidates(input: {
 }): Promise<SpeakerCandidate[]> {
   const byNormalized = new Map<string, SpeakerCandidate>();
 
-  const [peopleResult, sourcesResult] = await Promise.all([
+  const [personProjectsResult, sourcesResult] = await Promise.all([
     input.supabase
-      .from("people")
-      .select("id, name, affiliation")
-      .eq("org_id", input.org_id)
-      .order("name", { ascending: true }),
+      .from("person_projects")
+      .select("person_id")
+      .eq("project_id", input.project_id),
     input.supabase
       .from("sources")
       .select("id")
@@ -182,25 +189,48 @@ export async function loadSpeakerCandidates(input: {
       .eq("project_id", input.project_id),
   ]);
 
-  if (peopleResult.error) {
-    throw new Error(`Failed to load speaker people: ${peopleResult.error.message}`);
+  if (personProjectsResult.error) {
+    throw new Error(
+      `Failed to load project people for speaker resolution: ${personProjectsResult.error.message}`
+    );
   }
   if (sourcesResult.error) {
     throw new Error(`Failed to load project sources for speaker resolution: ${sourcesResult.error.message}`);
   }
 
-  for (const person of (peopleResult.data ?? []) as Array<{
-    id: string;
-    name: string;
-    affiliation: Affiliation | null;
-  }>) {
-    mergeCandidate(
-      byNormalized,
-      candidateFromLabel(person.name, "person", {
-        person_id: person.id,
-        affiliation: person.affiliation ?? null,
-      })
-    );
+  const projectPersonIds = Array.from(
+    new Set(
+      ((personProjectsResult.data ?? []) as Array<{ person_id: string }>).map(
+        (row) => row.person_id
+      )
+    )
+  );
+
+  if (projectPersonIds.length > 0) {
+    const { data: people, error } = await input.supabase
+      .from("people")
+      .select("id, name, affiliation")
+      .eq("org_id", input.org_id)
+      .in("id", projectPersonIds)
+      .order("name", { ascending: true });
+
+    if (error) {
+      throw new Error(`Failed to load speaker people: ${error.message}`);
+    }
+
+    for (const person of (people ?? []) as Array<{
+      id: string;
+      name: string;
+      affiliation: Affiliation | null;
+    }>) {
+      mergeCandidate(
+        byNormalized,
+        candidateFromLabel(person.name, "person", {
+          person_id: person.id,
+          affiliation: person.affiliation ?? null,
+        })
+      );
+    }
   }
 
   const sourceIds = ((sourcesResult.data ?? []) as Array<{ id: string }>).map(

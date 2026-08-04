@@ -116,7 +116,9 @@ export function parseTranscriptSpeakerLegend(text: string): TranscriptSpeakerLeg
     if (!line.trimmed) continue;
     if (sawDialogue) break;
 
-    const match = line.trimmed.match(/^([A-Za-z][A-Za-z0-9 _.-]{0,24}):\s*(.{2,80})$/);
+    const match = line.trimmed.match(
+      /^(?:\*\*|__)?([A-Za-z][A-Za-z0-9 _.-]{0,24})(?:\*\*|__)?:\s*(.{2,80})$/
+    );
     if (!match) continue;
 
     const label = match[1].trim();
@@ -239,7 +241,7 @@ export function parseTranscriptTurns(text: string): TranscriptTurn[] {
   const legend = parseTranscriptSpeakerLegend(text);
   const legendLabels = new Set(legend.map((entry) => normalizeLabel(entry.label)));
   const speakerColonLine =
-    /^(?:\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s+)?([A-Za-z][^:\n]{0,80}):\s*(.*)$/;
+    /^(?:\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s+)?(?:\*\*|__)?([A-Za-z][^:\n*]{0,80}?)(?:\*\*|__)?:\s*(.*)$/;
   const timestampSpeakerLine =
     /^\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?\s+([A-Za-z][A-Za-z0-9 .'-]{1,80})(?::)?\s*(.*)$/;
   const speakerTimestampLine =

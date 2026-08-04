@@ -42,6 +42,10 @@ const {
 } = require("./prescan.ts");
 const { inferSourceType } = require("./source-inference.ts");
 const { normalizeAllInternalTranscriptSpeakers } = require("./speaker-roles.ts");
+const {
+  loadSpeakerCandidates,
+  resolveSpeakerTargetsFromQuestion,
+} = require("../speakers/resolve.ts");
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -64,6 +68,70 @@ function fakeSupabase() {
         },
         order() {
           return Promise.resolve(result);
+        },
+      };
+      return chain;
+    },
+  };
+}
+
+function speakerResolverSupabase() {
+  return {
+    from(table) {
+      const filters = new Map();
+      const chain = {
+        select() {
+          return chain;
+        },
+        eq(column, value) {
+          filters.set(column, value);
+          return chain;
+        },
+        in(column, values) {
+          filters.set(column, values);
+          return chain;
+        },
+        not() {
+          return chain;
+        },
+        order() {
+          return chain;
+        },
+        then(resolve, reject) {
+          try {
+            if (table === "person_projects") {
+              assert(
+                filters.get("project_id") === "project-a",
+                "speaker candidates must scope person_projects to the current project"
+              );
+              return Promise.resolve({
+                data: [{ person_id: "person-a" }],
+                error: null,
+              }).then(resolve, reject);
+            }
+            if (table === "people") {
+              assert(
+                JSON.stringify(filters.get("id")) === JSON.stringify(["person-a"]),
+                "speaker candidates must load only people linked to the current project"
+              );
+              return Promise.resolve({
+                data: [
+                  {
+                    id: "person-a",
+                    name: "Stakeholder 10",
+                    affiliation: "external",
+                  },
+                ],
+                error: null,
+              }).then(resolve, reject);
+            }
+            if (table === "sources") {
+              return Promise.resolve({ data: [], error: null }).then(resolve, reject);
+            }
+            throw new Error(`Unexpected speaker resolver table: ${table}`);
+          } catch (error) {
+            return Promise.reject(error).then(resolve, reject);
+          }
         },
       };
       return chain;
@@ -151,6 +219,55 @@ We still do most of it manually.
   assert(
     JSON.stringify(botSpeakers) === JSON.stringify(["PARTICIPANT 10", "RESEARCHER"]),
     `bots fixture speakers were ${botSpeakers.join(", ")}`
+  );
+
+  const markdownSpeakers = `
+**Interviewer**: Hi, thank you for joining. What programming tools do you use?
+
+**Stakeholder**: I use GitHub every day as a student and teaching assistant.
+
+**Interviewer**: What is difficult about that workflow?
+
+**Stakeholder**: Reviewing many repositories manually takes a lot of time.
+`;
+  const markdownSpeakerTurns = parseTranscriptTurns(markdownSpeakers);
+  assert(
+    JSON.stringify(labels(markdownSpeakerTurns)) ===
+      JSON.stringify(["Interviewer", "Stakeholder"]),
+    `markdown speaker fixture speakers were ${labels(markdownSpeakerTurns).join(", ")}`
+  );
+  assert(
+    markdownSpeakerTurns.length === 4,
+    `markdown speaker fixture should parse four turns, got ${markdownSpeakerTurns.length}`
+  );
+
+  const speakerCandidates = await loadSpeakerCandidates({
+    supabase: speakerResolverSupabase(),
+    org_id: "org-test",
+    project_id: "project-a",
+  });
+  assert(
+    speakerCandidates.length === 1 && speakerCandidates[0].label === "Stakeholder 10",
+    "speaker resolver should only return project-linked people"
+  );
+  const numberedResolution = resolveSpeakerTargetsFromQuestion({
+    question: "What did Stakeholder 10 say about the review workflow?",
+    candidates: [
+      ...speakerCandidates,
+      {
+        label: "Stakeholder 11",
+        normalized: "stakeholder 11",
+        aliases: ["stakeholder 11"],
+        source: "source_segment",
+        person_id: null,
+        affiliation: null,
+      },
+    ],
+  });
+  assert(
+    numberedResolution.targets.length === 1 &&
+      numberedResolution.targets[0].label === "Stakeholder 10",
+    "numbered generic speakers must resolve by their full label"
   );
 
   const teamsExport = `
