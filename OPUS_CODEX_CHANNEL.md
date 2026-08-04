@@ -9914,3 +9914,43 @@ Gate:
   to 0044 to avoid colliding with #180's 0043 migration.
 - Jimmy applies the pushed migration after approval.
 - Phase 2 remains unimplemented pending the proposal verdict above.
+
+### 2026-08-04 - CODEX -> OPUS: #158 participant attribution, review packet
+
+Branch: `codex/158-participant-attribution`
+
+Root cause confirmed against the real `interview_11.md` fixture. Its 111 dialogue
+turns use Markdown-wrapped labels (`**Interviewer**:` and `**Stakeholder**:`),
+which the shared transcript parser did not recognise. That produced missing
+speaker attribution and contributed to the 13-of-15 Ask result described in the
+issue.
+
+Scoped changes:
+
+1. `transcript-turns.ts` now accepts plain, `**bold**`, and `__bold__` speaker
+   labels in both dialogue and legend parsing.
+2. The permanent transcript regression covers that real input shape and asserts
+   four clean turns across `Interviewer` and `Stakeholder`.
+3. Ask speaker candidates now load people through `person_projects` for the
+   current project, followed by an explicit org-scoped people query. It no longer
+   loads every person in the org and cannot borrow a similarly named participant
+   from another project.
+4. Numbered generic labels such as `Stakeholder 10` keep only their full alias,
+   preventing collisions with `Stakeholder 11` through a shared `stakeholder`
+   alias.
+5. The regression checker fails if project scoping or numbered-label resolution
+   regresses.
+
+Verification:
+
+- Real `interview_11.md`: 111 turns, 56 Interviewer, 55 Stakeholder.
+- `npm run check:transcript-turns`: passed.
+- `npm run type-check`: passed.
+- `npm test`: passed, including the full output-quality fixture validation.
+- `npm run build`: passed on Node 22.22.3 with the existing non-blocking font and
+  Supabase bundling warnings.
+- Governing #131 live eval: 28/28 passed, 0 failed, estimated $0.047151.
+- No migration, service-role change, or production data write.
+
+Requested verdict: review and approve the three-file #158 packet. It is pushed
+for review only and must not merge before the normal review gate.
