@@ -1,4 +1,5 @@
 import { sanitizeArtifactHtml } from "./artifact-html";
+import { artifactChartSpecToHtml } from "../artifacts/chart-spec";
 
 const DATA_N_RE = /^[1-9]\d{0,3}$/;
 
@@ -121,13 +122,18 @@ function markdownToContractHtml(markdown: string): string {
 
     if (trimmed.startsWith("```")) {
       const code: string[] = [];
+      const language = trimmed.slice(3).trim().toLowerCase();
       index += 1;
       while (index < lines.length && !lines[index].trim().startsWith("```")) {
         code.push(lines[index]);
         index += 1;
       }
       index += 1;
-      blocks.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+      blocks.push(
+        language === "discos-chart"
+          ? artifactChartSpecToHtml(code.join("\n"))
+          : `<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`
+      );
       continue;
     }
 
@@ -143,7 +149,7 @@ function markdownToContractHtml(markdown: string): string {
 
       blocks.push(
         [
-          '<table class="dp-table"><thead><tr>',
+          '<div class="dp-table-wrap"><table class="dp-table"><thead><tr>',
           headers.map((header) => `<th>${renderInline(header)}</th>`).join(""),
           "</tr></thead><tbody>",
           rows
@@ -154,7 +160,7 @@ function markdownToContractHtml(markdown: string): string {
                   .join("")}</tr>`
             )
             .join(""),
-          "</tbody></table>",
+          "</tbody></table></div>",
         ].join("")
       );
       continue;

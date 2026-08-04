@@ -9914,3 +9914,75 @@ Gate:
   to 0044 to avoid colliding with #180's 0043 migration.
 - Jimmy applies the pushed migration after approval.
 - Phase 2 remains unimplemented pending the proposal verdict above.
+
+### Codex - 2026-08-04 - #222 structured artifact charts review packet
+
+Branch/worktree: `codex/222-structured-charts` at
+`/private/tmp/discos-222-structured-charts`
+
+#### Scope and architecture
+
+This packet replaces model-authored ASCII/monospace visualisations with two
+explicit output paths:
+
+1. Comparisons use ordinary Markdown tables, converted to semantic HTML tables
+   inside a horizontally scrollable `dp-table-wrap`.
+2. Bar charts, 2x2 matrices, and heatmaps use a bounded, versioned
+   `discos-chart` JSON fence. Zod validates the type, dimensions, finite numeric
+   values, lengths, and per-datum citation references. A deterministic server
+   renderer turns the spec into semantic HTML before the existing sanitiser
+   choke point.
+
+Design reviewed an alternative metadata-sidecar plus React-portal contract.
+For this slice, Codex kept rendering server-side because it requires no schema
+change, no chart dependency, no client hydration, no second document format,
+and no additional `dangerouslySetInnerHTML` boundary. The generated chart JSON
+never reaches the reader. The rendered HTML is stored and sanitised on write,
+then sanitised again on read under the existing #14 contract.
+
+#### Traceability and failure behavior
+
+- Every chart datum requires at least one evidence citation.
+- Chart citation numbers are added to the same `citation_map`, structure trace,
+  and typed artifact link plan as prose citations.
+- JSON fences are preserved through legacy bracket cleanup, preventing arrays
+  from being corrupted before validation.
+- Bar charts use semantic `meter` elements. Heatmaps are semantic tables.
+  Matrices include both the visual quadrant and an equivalent data table.
+- ASCII borders, repeated glyph marks, and structural monospace chart blocks
+  are rejected before artifact storage. Invalid structured specs fail the
+  compose run rather than producing an untraceable decorative chart.
+- The prompt forbids invented chart scores/counts and directs unsupported
+  comparisons to prose or a normal table.
+
+#### Security boundary
+
+The sanitizer allowlist expands only for `figure`, `figcaption`, and `meter`,
+the fixed chart classes, and numeric `meter[min|max|value]` attributes. It does
+not allow inline styles, SVG, script, iframe, event handlers, URLs, arbitrary
+classes, or arbitrary data attributes. Labels and titles are escaped before
+sanitisation. This allowlist expansion is the requested Opus security-review
+gate; there is no migration or live LLM run in this packet.
+
+#### Verification
+
+- `npm run type-check`: passed.
+- `npm run check:artifact-html-sanitizer`: passed, including bar/matrix/heatmap,
+  malicious labels, uncited data, malformed heatmap dimensions, hostile meter
+  attributes, citation extraction, and ASCII-art rejection.
+- `npm test`: passed, including the #131 fixture validator.
+- `npm run build`: passed. Existing Newsreader override and Supabase Node 18
+  warnings remain; the isolated worktree intentionally has no Supabase env, so
+  static generation logged the existing `supabaseUrl is required` warnings but
+  completed successfully.
+
+#### Review asks
+
+1. Approve the versioned fenced-JSON to deterministic semantic-HTML contract.
+2. Approve the sanitiser tag/class/meter-attribute expansion.
+3. Approve chart citations entering the normal citation/provenance chain.
+4. Confirm invalid chart specs should fail compose rather than silently omit a
+   requested visualisation.
+5. No real compose run until Opus reviews this packet. After approval, run one
+   measured dry run that requests a table and one chart, then inspect the
+   generated HTML and citation trace before any live artifact generation.

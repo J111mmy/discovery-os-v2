@@ -9,6 +9,11 @@ import {
   loadInternalEvidenceGuardContext,
 } from "@/lib/evidence/internal";
 import type { ComposeDraftSection, TaskTier } from "@/types/database";
+import {
+  assertNoAsciiChartArt,
+  chartCitationNumbersFromMarkdown,
+  STRUCTURED_VISUAL_OUTPUT_RULES,
+} from "@/lib/artifacts/chart-spec";
 
 const VISIBLE_REVIEW_STATES = ["suggested", "accepted", "edited"] as const;
 const VISIBLE_OPPORTUNITY_STATUSES = ["suggested", "accepted", "active"] as const;
@@ -315,6 +320,7 @@ function parseCitationNumbers(text: string) {
     if (Number.isFinite(n)) numbers.push(n);
   }
 
+  numbers.push(...chartCitationNumbersFromMarkdown(text));
   return numbers;
 }
 
@@ -328,7 +334,14 @@ function parseCitationMap(text: string, evidence: SelectedEvidence[]): Record<st
 }
 
 function stripNonNumericBracketRefs(text: string) {
-  return text.replace(/\[(?!\d+\])([^\]\n]{1,120})\]/g, "").replace(/[ \t]{2,}/g, " ");
+  return text
+    .split(/(```[\s\S]*?```)/g)
+    .map((part) =>
+      part.startsWith("```")
+        ? part
+        : part.replace(/\[(?!\d+\])([^\]\n]{1,120})\]/g, "").replace(/[ \t]{2,}/g, " ")
+    )
+    .join("");
 }
 
 function parseMarkdownSections(markdown: string): {
@@ -988,6 +1001,7 @@ function buildSystemPrompt(
 - Start immediately with # Title on line 1. No preamble.
 - Use ## Section Heading for each section.
 - Write focused, substantive prose. Short bullets are allowed only when they improve scanability.
+- ${STRUCTURED_VISUAL_OUTPUT_RULES}
 - Land clearly on what should happen next${hasOpportunities ? ", using the opportunities as the recommendation layer" : ""}.
 - End with a ## Open Questions section listing the top assumptions or evidence gaps.`);
 
@@ -1215,6 +1229,7 @@ export async function composeStructureDraft({
   });
 
   const content = stripNonNumericBracketRefs(result.content);
+  assertNoAsciiChartArt(content);
   const { title, sections } = parseMarkdownSections(content);
   const citationNumbers = parseCitationNumbers(content);
   const citation_map = parseCitationMap(content, context.selectedEvidence);
