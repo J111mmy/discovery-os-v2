@@ -13,10 +13,10 @@ import {
   INGEST_GENERIC_FAILURE_MESSAGE,
 } from "@/lib/ingest/user-message.mjs";
 import {
-  INGEST_CAPACITY_MESSAGE,
   MAX_RAW_TEXT_CHARS,
   RAW_TEXT_TOO_LARGE_MESSAGE,
   canDispatchIngest,
+  ingestCapacityMessage,
 } from "@/lib/ingest/limits.mjs";
 import { z } from "zod";
 
@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
 
   if (!canDispatchIngest(activeIngestCount)) {
     return NextResponse.json(
-      { error: INGEST_CAPACITY_MESSAGE, code: "INGEST_CAPACITY_REACHED" },
+      { error: ingestCapacityMessage(activeIngestCount), code: "INGEST_CAPACITY_REACHED" },
       { status: 429, headers: { "Retry-After": "30" } }
     );
   }

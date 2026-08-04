@@ -5,3 +5,4 @@ export const INGEST_CAPACITY_MESSAGE: string;
 
 export function rawTextIsWithinLimit(value: unknown): boolean;
 export function canDispatchIngest(activeIngestCount: number): boolean;
+export function ingestCapacityMessage(activeIngestCount: number): string;

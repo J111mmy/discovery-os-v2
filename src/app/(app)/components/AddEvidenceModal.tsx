@@ -358,7 +358,13 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
     if (!projectId) return;
     if (ingestInFlightRef.current) return;
     ingestInFlightRef.current = true;
-    setPrescanPhase("idle");
+    // Preserve the review step (and the user's confirmed speakers/orgs)
+    // across a failed submit — only "scanning" collapses back to the base
+    // form, since it has no persisted choices worth keeping. Previously this
+    // unconditionally forced "idle" before the request even resolved, so a
+    // rejection (e.g. #217's ingest-capacity 429) silently dropped the user
+    // back to the blank form with no visible error.
+    setPrescanPhase((phase) => (phase === "review" ? phase : "idle"));
     setSubmitError(null);
     setJobStatus("queued");
     try {
@@ -377,7 +383,10 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
       if (!res.ok) {
         setSubmitError(typeof data.error === "string" ? data.error : "Could not start ingest.");
         ingestInFlightRef.current = false;
-        setJobStatus("idle");
+        // "failed" (not "idle") so the error box actually renders — see
+        // isFailed below, and the review step's own error block — instead
+        // of silently looking like nothing happened.
+        setJobStatus("failed");
         return;
       }
       setJobId(data.job_id);
@@ -394,7 +403,7 @@ export function AddEvidenceModal({ open, onClose, projectId }: Props) {
     } catch {
       setSubmitError("Network error. Please try again.");
       ingestInFlightRef.current = false;
-      setJobStatus("idle");
+      setJobStatus("failed");
     }
   }
 
