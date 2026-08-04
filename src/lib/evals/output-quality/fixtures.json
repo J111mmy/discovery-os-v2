@@ -1,0 +1,132 @@
+{
+  "version": "output-quality-fixture-v1",
+  "description": "Anonymised, real-shaped fixtures covering discovery, concept validation, and an internal meeting.",
+  "expected_external_participants": 2,
+  "sources": [
+    {
+      "id": "discovery-interview",
+      "title": "Discovery interview: procurement workflow",
+      "source_type": "Customer interview",
+      "internal_speakers": "Researcher",
+      "units": [
+        {
+          "id": "discovery-1",
+          "content": "Researcher: Subcontractors can view procurement items, but they cannot add or delete them.\nCasey: But they can't delete or add items, okay, cool."
+        },
+        {
+          "id": "discovery-2",
+          "content": "Casey: We rebuild the procurement report by hand every Friday. It usually takes two hours, and if a delivery date changes we have to check the spreadsheet again."
+        },
+        {
+          "id": "discovery-3",
+          "content": "Casey: We're looking forward to you making this part of our jobs easier. It is a lot of time and effort, but it drives the job, so it is extremely important."
+        },
+        {
+          "id": "discovery-4",
+          "content": "Casey: What part of the process says the purchase order has been cut and starts the lead time? I think I missed that part."
+        }
+      ],
+      "expected": {
+        "evidence_count": { "min": 2, "max": 5 },
+        "speakers": ["Casey"],
+        "key_signals": [
+          { "name": "manual weekly reporting", "terms": ["report", "hand", "friday"] },
+          { "name": "lead-time question", "terms": ["purchase order", "lead time"] }
+        ],
+        "forbidden_summary_patterns": [
+          "confirms? .*requirement",
+          "confirms? that subcontractors should",
+          "meaningful value proposition",
+          "requires? clearer lead-time automation",
+          "high motivation to adopt",
+          "gap in procurement status visibility"
+        ],
+        "summary_fidelity_cases": [
+          {
+            "unit_id": "discovery-1",
+            "optional": true,
+            "required_any": ["acknowledges", "was told", "being told"],
+            "forbidden": ["confirms", "requires", "should be restricted"]
+          },
+          {
+            "unit_id": "discovery-3",
+            "required_any": ["says", "hopes", "looks forward"],
+            "forbidden": ["adopt", "value proposition", "signals demand"]
+          },
+          {
+            "unit_id": "discovery-4",
+            "required_any": ["asks", "unclear", "missed"],
+            "forbidden": ["requires", "needs", "visibility gap", "gap in"]
+          }
+        ],
+        "session_review": {
+          "required_heading_patterns": [
+            "^Summary$",
+            "What they want|Current workflow|Needs|Pain points",
+            "Notable quotes"
+          ],
+          "forbidden_headings": ["What they thought of the current product or concept"]
+        }
+      }
+    },
+    {
+      "id": "validation-session",
+      "title": "Prototype validation: delivery timeline",
+      "source_type": "Usability study",
+      "internal_speakers": "Researcher",
+      "units": [
+        {
+          "id": "validation-1",
+          "content": "Researcher: Here is the delivery timeline prototype. What do you make of it?\nMorgan: The timeline is much easier to scan than our spreadsheet because the delayed items stand out immediately."
+        },
+        {
+          "id": "validation-2",
+          "content": "Morgan: I still cannot tell who owns the next step. I would have to open each item before I knew who to call."
+        },
+        {
+          "id": "validation-3",
+          "content": "Morgan: I would use this in the Monday coordination meeting if the owner was visible on the timeline."
+        }
+      ],
+      "expected": {
+        "evidence_count": { "min": 3, "max": 4 },
+        "speakers": ["Morgan"],
+        "key_signals": [
+          { "name": "timeline scanability", "terms": ["timeline", "scan"] },
+          { "name": "missing ownership", "terms": ["owner", "next step"] }
+        ],
+        "forbidden_summary_patterns": [],
+        "summary_fidelity_cases": [],
+        "session_review": {
+          "required_heading_patterns": [
+            "^Summary$",
+            "product|concept|prototype|reaction|What worked",
+            "friction|concern|struggl|blocker",
+            "Notable quotes"
+          ],
+          "forbidden_headings": []
+        }
+      }
+    },
+    {
+      "id": "internal-meeting",
+      "title": "Internal planning meeting",
+      "source_type": "Internal meeting",
+      "internal_speakers": "Alex\nJordan",
+      "units": [
+        {
+          "id": "internal-1",
+          "content": "Alex: We should move the pilot review to Thursday.\nJordan: I will update the internal plan and tell the delivery team."
+        }
+      ],
+      "expected": {
+        "evidence_count": { "min": 0, "max": 0 },
+        "speakers": [],
+        "key_signals": [],
+        "forbidden_summary_patterns": [],
+        "summary_fidelity_cases": [],
+        "session_review": { "skip": true }
+      }
+    }
+  ]
+}
