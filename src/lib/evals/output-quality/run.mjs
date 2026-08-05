@@ -6,6 +6,11 @@ import Module from "node:module";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import {
+  OUTPUT_QUALITY_BASELINE_CHECKS,
+  evaluateOutputQualityGate,
+  printOutputQualityGate,
+} from "./gate.mjs";
 
 const require = createRequire(import.meta.url);
 const directory = path.dirname(fileURLToPath(import.meta.url));
@@ -61,6 +66,7 @@ function parseArgs(argv) {
     output: null,
     baseline: null,
     rescore: null,
+    ciGate: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
@@ -71,6 +77,7 @@ function parseArgs(argv) {
     else if (value === "--output") options.output = argv[++index];
     else if (value === "--baseline") options.baseline = argv[++index];
     else if (value === "--rescore") options.rescore = argv[++index];
+    else if (value === "--ci-gate") options.ciGate = true;
     else throw new Error(`Unknown argument: ${value}`);
   }
   return options;
@@ -92,6 +99,29 @@ function validateFixture(fixture) {
     assert(Array.isArray(source.units) && source.units.length > 0, `${source.id} has no units`);
     assert(source.expected?.evidence_count, `${source.id} has no evidence range`);
   }
+
+  const expectedCheckCount =
+    1 +
+    fixture.sources.reduce((total, source) => {
+      const expected = source.expected;
+      const sessionReviewChecks = expected.session_review?.skip
+        ? 1
+        : (expected.session_review?.required_heading_patterns?.length ?? 0) +
+          (expected.session_review?.forbidden_headings?.length ?? 0);
+      return (
+        total +
+        1 +
+        (expected.speakers?.length ?? 0) +
+        (expected.key_signals?.length ?? 0) +
+        (expected.forbidden_summary_patterns?.length ?? 0) +
+        (expected.summary_fidelity_cases?.length ?? 0) +
+        sessionReviewChecks
+      );
+    }, 0);
+  assert(
+    expectedCheckCount >= OUTPUT_QUALITY_BASELINE_CHECKS,
+    `Fixture defines ${expectedCheckCount} checks; protected baseline is ${OUTPUT_QUALITY_BASELINE_CHECKS}`
+  );
 }
 
 function extractJsonArray(content) {
@@ -455,6 +485,10 @@ async function runLive(fixture, options) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  assert(
+    !(options.ciGate && options.allowFailures),
+    "--ci-gate cannot be combined with --allow-failures"
+  );
   const fixture = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
   validateFixture(fixture);
   if (options.validateOnly) {
@@ -483,7 +517,13 @@ async function main() {
       `${report.summary.failed} failed; estimated $${report.usage.totals.estimated_cost_usd.toFixed(4)}.`
   );
   console.log(`Report: ${outputPath}`);
-  if (report.summary.failed > 0 && !options.allowFailures) process.exitCode = 1;
+  if (options.ciGate) {
+    const gate = evaluateOutputQualityGate(report);
+    printOutputQualityGate(gate);
+    if (!gate.passed) process.exitCode = 1;
+  } else if (report.summary.failed > 0 && !options.allowFailures) {
+    process.exitCode = 1;
+  }
 }
 
 main().catch((error) => {

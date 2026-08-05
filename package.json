@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "next dev -p 4321",
     "build": "npm run check:agent-standards && next build",
-    "test": "npm run lint && npm run check:agent-standards && npm run check:transcript-turns && npm run check:safe-internal-path && npm run check:ask-corpus && npm run check:llm-json-object && npm run check:ingest-user-message && npm run check:ingest-limits && npm run check:output-quality-fixture",
+    "test": "npm run lint && npm run check:agent-standards && npm run check:transcript-turns && npm run check:safe-internal-path && npm run check:ask-corpus && npm run check:llm-json-object && npm run check:ingest-user-message && npm run check:ingest-limits && npm run check:output-quality-fixture && npm run check:output-quality-gate",
     "check:agent-standards": "node src/lib/inngest/check-agent-standards.mjs",
     "check:safe-internal-path": "node src/lib/auth/check-safe-internal-path.mjs",
     "check:transcript-turns": "node src/lib/ingest/check-transcript-turns.mjs",
@@ -17,6 +17,7 @@
     "check:ingest-user-message": "node src/lib/ingest/check-user-message.mjs",
     "check:ingest-limits": "node src/lib/ingest/check-limits.mjs",
     "check:output-quality-fixture": "node src/lib/evals/output-quality/run.mjs --validate-only",
+    "check:output-quality-gate": "node src/lib/evals/output-quality/check-gate.mjs",
     "eval:output-quality": "node src/lib/evals/output-quality/run.mjs",
     "check:artifact-html-sanitizer": "node src/lib/sanitize/check-artifact-html-sanitizer.mjs",
     "backfill:artifact-html": "node src/lib/sanitize/backfill-artifact-html.mjs",
