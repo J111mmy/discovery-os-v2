@@ -1,0 +1,122 @@
+name: Output quality eval
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: output-quality-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  detect-prompt-changes:
+    name: Detect protected prompt changes
+    runs-on: ubuntu-latest
+    outputs:
+      run-live-eval: ${{ steps.paths.outputs.run-live-eval }}
+    steps:
+      - name: Inspect changed paths
+        id: paths
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              per_page: 100,
+            });
+            const protectedPaths = [
+              /^src\/lib\/llm\/prompts\//,
+              /^src\/lib\/inngest\/functions\/ingest-source\.ts$/,
+              /^src\/lib\/inngest\/functions\/session-review\.ts$/,
+              /^src\/lib\/evals\/output-quality\//,
+              /^\.github\/workflows\/output-quality-eval\.yml$/,
+            ];
+            const matched = files
+              .map((file) => file.filename)
+              .filter((filename) => protectedPaths.some((pattern) => pattern.test(filename)));
+            core.info(
+              matched.length > 0
+                ? `Live eval required by: ${matched.join(", ")}`
+                : "No protected prompt or eval paths changed; live eval skipped."
+            );
+            core.setOutput("run-live-eval", matched.length > 0 ? "true" : "false");
+
+  live-eval:
+    name: Live output quality gate
+    needs: detect-prompt-changes
+    if: needs.detect-prompt-changes.outputs.run-live-eval == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: output-quality-eval
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.OUTPUT_QUALITY_ANTHROPIC_API_KEY }}
+      LLM_PROVIDER: anthropic
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Require the dedicated eval credential
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error title=Missing eval credential::Add OUTPUT_QUALITY_ANTHROPIC_API_KEY to the output-quality-eval GitHub environment."
+            exit 1
+          fi
+
+      - name: Run protected live eval
+        run: >-
+          npm run eval:output-quality --
+          --live
+          --ci-gate
+          --label "pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}"
+          --output artifacts/output-quality-report.json
+
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: output-quality-pr-${{ github.event.pull_request.number }}
+          path: artifacts/output-quality-report.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  gate-status:
+    name: Output quality gate status
+    needs: [detect-prompt-changes, live-eval]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve gate status
+        env:
+          DETECT_RESULT: ${{ needs.detect-prompt-changes.result }}
+          SHOULD_RUN: ${{ needs.detect-prompt-changes.outputs.run-live-eval }}
+          LIVE_RESULT: ${{ needs.live-eval.result }}
+        run: |
+          if [ "$DETECT_RESULT" != "success" ]; then
+            echo "::error title=Output quality gate unavailable::Protected-path detection failed; the gate cannot safely be skipped."
+            exit 1
+          fi
+          if [ "$SHOULD_RUN" != "true" ]; then
+            echo "No protected paths changed; no paid eval was needed."
+            exit 0
+          fi
+          if [ "$LIVE_RESULT" = "success" ]; then
+            echo "Protected live eval passed."
+            exit 0
+          fi
+          echo "::error title=Output quality regression::The protected live eval did not pass (job result: $LIVE_RESULT)."
+          exit 1

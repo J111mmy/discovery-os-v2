@@ -32,3 +32,29 @@ sequentially, and reports tokens, cache usage, latency, model, and estimated cos
 
 The JSON report preserves outputs and check-level failure categories. Do not add
 real customer transcripts or personally identifiable information to this fixture.
+
+## Pull-request gate
+
+`.github/workflows/output-quality-eval.yml` inspects every pull request but only
+spends provider credits when extraction prompts, session-review logic, or this
+eval harness changes. Protected changes run the live model-backed eval with
+`--ci-gate`. The gate fails when:
+
+- fewer than the protected 28 checks remain;
+- fewer than 28 checks pass;
+- any current or newly-added check fails; or
+- any distinct-signal retention check fails.
+
+The workflow prints every failed check with its category and uploads the complete
+JSON report for 14 days. Normal pull requests receive a successful skipped status
+without making an LLM call.
+
+Configure a GitHub environment named `output-quality-eval` with a dedicated,
+low-spend secret named `OUTPUT_QUALITY_ANTHROPIC_API_KEY`. Do not reuse the
+production provider key. The workflow deliberately uses `pull_request`, not
+`pull_request_target`, so secrets are not exposed to forked pull requests. A fork
+that changes protected paths cannot run the paid gate until a trusted maintainer
+brings the change onto a repository branch.
+
+Keep `Output quality gate status` as the required branch-protection check. This
+job is always present, including on pull requests where the paid eval is skipped.
