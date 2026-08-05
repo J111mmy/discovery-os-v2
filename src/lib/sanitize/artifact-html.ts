@@ -30,6 +30,9 @@ export const ARTIFACT_HTML_ALLOWED_TAGS = [
   "td",
   "code",
   "pre",
+  "figure",
+  "figcaption",
+  "meter",
 ] as const;
 
 export const ARTIFACT_HTML_ALLOWED_CLASSES = [
@@ -71,6 +74,38 @@ export const ARTIFACT_HTML_ALLOWED_CLASSES = [
   "fs-t",
   "fs-d",
   "dp-split",
+  "dp-chart",
+  "chart-bar",
+  "chart-title",
+  "chart-unit",
+  "chart-bars",
+  "chart-bar-row",
+  "chart-label",
+  "chart-meter",
+  "chart-value",
+  "chart-matrix",
+  "matrix-y-high",
+  "matrix-grid",
+  "matrix-cell",
+  "matrix-tl",
+  "matrix-tr",
+  "matrix-bl",
+  "matrix-br",
+  "chart-point-list",
+  "chart-empty",
+  "matrix-x-axis",
+  "matrix-y-low",
+  "chart-heatmap",
+  "dp-table-wrap",
+  "chart-data-table",
+  "heatmap-table",
+  "heat",
+  "heat-0",
+  "heat-1",
+  "heat-2",
+  "heat-3",
+  "heat-4",
+  "heat-5",
 ] as const;
 
 type AllowedTag = (typeof ARTIFACT_HTML_ALLOWED_TAGS)[number];
@@ -86,6 +121,7 @@ const ALLOWED_CLASSES = new Set<string>(ARTIFACT_HTML_ALLOWED_CLASSES);
 const ALLOWED_HREF_SCHEMES = new Set(["http", "https", "mailto"]);
 const SECTION_ID_RE = /^[a-z0-9-]+$/;
 const DATA_N_RE = /^[1-9]\d{0,3}$/;
+const METER_NUMBER_RE = /^(?:0|[1-9]\d{0,8})(?:\.\d{1,4})?$/;
 
 export class ArtifactHtmlValidationError extends Error {
   constructor(message: string) {
@@ -152,6 +188,13 @@ function filterAttributes(tagName: string, attribs: sanitizeHtml.Attributes): sa
     next["data-n"] = attribs["data-n"];
   }
 
+  if (tagName === "meter") {
+    for (const attrName of ["min", "max", "value"] as const) {
+      const value = attribs[attrName];
+      if (value && METER_NUMBER_RE.test(value)) next[attrName] = value;
+    }
+  }
+
   if (tagName === "span" && next.class && hasClass(next, "ev") && attribs["data-n"] && DATA_N_RE.test(attribs["data-n"])) {
     next["data-n"] = attribs["data-n"];
   }
@@ -178,6 +221,7 @@ export const ARTIFACT_HTML_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     h2: ["data-section", "class"],
     cite: ["data-n", "class"],
     span: ["data-n", "class"],
+    meter: ["min", "max", "value", "class"],
   },
   allowedClasses: {
     "*": [...ARTIFACT_HTML_ALLOWED_CLASSES],
@@ -202,6 +246,11 @@ function expectedAttributesForTag(tagName: string, attribs: Record<string, strin
   if (tagName === "section") attrs.add("id");
   if (tagName === "h2") attrs.add("data-section");
   if (tagName === "cite") attrs.add("data-n");
+  if (tagName === "meter") {
+    attrs.add("min");
+    attrs.add("max");
+    attrs.add("value");
+  }
   if (tagName === "span" && hasClass(attribs, "ev")) attrs.add("data-n");
 
   return attrs;
@@ -240,6 +289,10 @@ function validateElement(tagName: string, attribs: Record<string, string>): void
 
     if (attrName === "data-n" && !DATA_N_RE.test(value)) {
       throw new ArtifactHtmlValidationError("Unexpected artifact HTML data-n");
+    }
+
+    if (["min", "max", "value"].includes(attrName) && !METER_NUMBER_RE.test(value)) {
+      throw new ArtifactHtmlValidationError("Unexpected artifact HTML meter value");
     }
   }
 }

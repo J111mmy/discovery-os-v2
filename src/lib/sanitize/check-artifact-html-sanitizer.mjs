@@ -8,15 +8,15 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const outDir = mkdtempSync(path.join(repoRoot, ".tmp-artifact-html-sanitizer-"));
 
-function findCompiledFile(dir) {
+function findCompiledFile(dir, fileName) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      const found = findCompiledFile(fullPath);
+      const found = findCompiledFile(fullPath, fileName);
       if (found) return found;
     }
 
-    if (entry.isFile() && entry.name === "artifact-html.js") {
+    if (entry.isFile() && entry.name === fileName) {
       return fullPath;
     }
   }
@@ -50,7 +50,7 @@ try {
     { cwd: repoRoot, stdio: "inherit" }
   );
 
-  const compiledFile = findCompiledFile(outDir);
+  const compiledFile = findCompiledFile(outDir, "artifact-html.js");
   if (!compiledFile) {
     throw new Error("Could not find compiled artifact-html.js");
   }
@@ -58,6 +58,15 @@ try {
   const require = createRequire(import.meta.url);
   const { sanitizeArtifactHtml, validateSanitizedArtifactHtml } = require(compiledFile);
   const { markdownToSanitizedArtifactHtml } = require(path.join(path.dirname(compiledFile), "artifact-markdown.js"));
+  const chartSpecFile = findCompiledFile(outDir, "chart-spec.js");
+  if (!chartSpecFile) {
+    throw new Error("Could not find compiled chart-spec.js");
+  }
+  const {
+    artifactChartSpecToHtml,
+    assertNoAsciiChartArt,
+    chartCitationNumbersFromMarkdown,
+  } = require(chartSpecFile);
 
   const richDoc = sanitizeArtifactHtml(`
     <section class="sec unknown" id="sec-one">
@@ -133,6 +142,81 @@ try {
   expect(markdownFallback.includes('<header class="dp-hero"><h1>Legacy brief</h1></header>'), "markdown h1 should become contract hero");
   expect(markdownFallback.includes('<cite data-n="2">2</cite>'), "markdown citation should become cite[data-n]");
   expect(!markdownFallback.includes("<script>"), "markdown fallback should escape script tags before sanitizing");
+
+  const chartDoc = markdownToSanitizedArtifactHtml(`
+    # Chart report
+
+    \`\`\`discos-chart
+    {"version":1,"type":"bar","title":"Evidence strength","unit":"records","items":[{"label":"High","value":5,"citations":[1,2]},{"label":"Medium","value":3,"citations":[3]}]}
+    \`\`\`
+  `);
+  expect(chartDoc.includes('<figure class="dp-chart chart-bar">'), "structured bar chart should render as a figure");
+  expect(chartDoc.includes('<meter class="chart-meter" min="0" max="5" value="5">'), "bar chart should use a semantic meter");
+  expect(chartDoc.includes('<cite data-n="1">1</cite>'), "chart citations should use the citation contract");
+  expect(!chartDoc.includes("discos-chart"), "raw chart JSON should not reach rendered HTML");
+
+  const matrixDoc = markdownToSanitizedArtifactHtml(`
+    \`\`\`discos-chart
+    {"version":1,"type":"matrix","title":"Priority","x_axis":{"label":"Reach","low":"Low","high":"High"},"y_axis":{"label":"Confidence","low":"Low","high":"High"},"points":[{"label":"Guided setup","x":80,"y":75,"citations":[2]}]}
+    \`\`\`
+  `);
+  expect(matrixDoc.includes('class="dp-chart chart-matrix"'), "matrix should render as a structured figure");
+  expect(matrixDoc.includes('class="dp-table chart-data-table"'), "matrix should include a semantic data table");
+  expect(matrixDoc.includes('<cite data-n="2">2</cite>'), "matrix data should retain citations");
+
+  const heatmapDoc = markdownToSanitizedArtifactHtml(`
+    \`\`\`discos-chart
+    {"version":1,"type":"heatmap","title":"Signals","columns":["Now","Later"],"rows":[{"label":"Setup","cells":[{"value":5,"citations":[1]},{"value":2,"citations":[3]}]}]}
+    \`\`\`
+  `);
+  expect(heatmapDoc.includes('class="dp-table heatmap-table"'), "heatmap should render as a semantic table");
+  expect(heatmapDoc.includes('class="heat heat-5"'), "heatmap should render bounded intensity classes");
+
+  const chartMarkdown = `
+    Claim [4].
+    \`\`\`discos-chart
+    {"version":1,"type":"bar","title":"Signals","items":[{"label":"A","value":2,"citations":[1,2]},{"label":"B","value":1,"citations":[3]}]}
+    \`\`\`
+  `;
+  expect(
+    JSON.stringify(chartCitationNumbersFromMarkdown(chartMarkdown)) === JSON.stringify([1, 2, 3]),
+    "chart citation numbers should be available to the artifact citation map"
+  );
+
+  let invalidHeatmapRejected = false;
+  try {
+    artifactChartSpecToHtml('{"version":1,"type":"heatmap","title":"Bad","columns":["A","B"],"rows":[{"label":"R","cells":[{"value":1,"citations":[1]}]}]}');
+  } catch {
+    invalidHeatmapRejected = true;
+  }
+  expect(invalidHeatmapRejected, "heatmap rows without one cell per column should be rejected");
+
+  let uncitedChartRejected = false;
+  try {
+    artifactChartSpecToHtml('{"version":1,"type":"bar","title":"Bad","items":[{"label":"A","value":2,"citations":[]},{"label":"B","value":1,"citations":[1]}]}');
+  } catch {
+    uncitedChartRejected = true;
+  }
+  expect(uncitedChartRejected, "each chart datum should require evidence citations");
+
+  let asciiChartRejected = false;
+  try {
+    assertNoAsciiChartArt("```text\n+------+\n|  XX  |\n+------+\n```");
+  } catch {
+    asciiChartRejected = true;
+  }
+  expect(asciiChartRejected, "ASCII chart output should be rejected before storage");
+
+  const escapedChart = artifactChartSpecToHtml('{"version":1,"type":"bar","title":"<img src=x onerror=alert(1)>","items":[{"label":"<script>x</script>","value":2,"citations":[1]},{"label":"Safe","value":1,"citations":[2]}]}');
+  expect(!escapedChart.includes("<img"), "chart titles should be escaped");
+  expect(!escapedChart.includes("<script>"), "chart labels should be escaped");
+
+  const hostileMeter = sanitizeArtifactHtml(`
+    <meter class="chart-meter" min="0" max="5" value="5" onclick="alert(1)" style="width:100%">5</meter>
+  `);
+  expect(hostileMeter.includes('min="0" max="5" value="5"'), "valid meter values should remain");
+  expect(!hostileMeter.includes("onclick"), "meter event handlers should be stripped");
+  expect(!hostileMeter.includes("style="), "meter inline styles should be stripped");
 
   console.log("artifact-html sanitizer checks passed");
 } finally {
