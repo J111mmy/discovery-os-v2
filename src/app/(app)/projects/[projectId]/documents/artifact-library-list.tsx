@@ -33,66 +33,46 @@ function dateLabel(value: string) {
   }).format(new Date(value));
 }
 
-function TrustSignal({ artifact }: { artifact: ArtifactCardData }) {
-  if (artifact.verification_status === "verified" || artifact.verification_status === "partial") {
-    const verified = artifact.verification_status === "verified";
-    return (
-      <span
-        className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
-          verified ? "border-pos/20 bg-pos-bg text-pos" : "border-warn/20 bg-warn-bg text-warn"
-        }`}
-      >
-        {verified ? "Verified" : "Partially verified"}
-      </span>
-    );
+// One trust sentence per card, plain English, positive-only. The science
+// (citation counts, verification detail, provenance) lives one click away in
+// the reader; the card's job is calm confidence, not a lab report.
+export function trustLine(artifact: ArtifactCardData): string {
+  if (artifact.verification_status === "verified") return "Verified against the evidence";
+  if (artifact.verification_status === "partial") return "Partially verified";
+  if (artifact.sourceCount > 0) {
+    return `Backed by ${artifact.sourceCount} customer conversation${artifact.sourceCount !== 1 ? "s" : ""}`;
   }
-
-  if (artifact.citationCount > 0) {
-    return (
-      <span className="rounded-full border border-[var(--line)] bg-[var(--surface-2)] px-2 py-0.5 text-xs font-medium text-[var(--ink-2)]">
-        Grounded · {artifact.citationCount} citation{artifact.citationCount !== 1 ? "s" : ""} ·{" "}
-        {artifact.sourceCount} source{artifact.sourceCount !== 1 ? "s" : ""}
-      </span>
-    );
-  }
-
-  return null;
+  return "Working draft";
 }
 
-function FreshnessSignal({ artifact }: { artifact: ArtifactCardData }) {
-  if (artifact.staleSourceCount <= 0) return null;
-
-  return (
-    <span className="rounded-full border border-warn/20 bg-warn-bg px-2 py-0.5 text-xs font-medium text-warn">
-      Out of date · {artifact.staleSourceCount} new source
-      {artifact.staleSourceCount !== 1 ? "s" : ""}
-    </span>
-  );
-}
-
-function ArtifactCard({ artifact, projectId }: { artifact: ArtifactCardData; projectId: string }) {
+export function ArtifactCard({ artifact, projectId }: { artifact: ArtifactCardData; projectId: string }) {
+  const grounded = artifact.sourceCount > 0 || artifact.verification_status === "verified";
   return (
     <Link href={`/projects/${projectId}/documents/${artifact.id}`} className="group block">
-      <article className="flex h-full flex-col rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 transition-all duration-150 group-hover:border-[var(--line-strong)] group-hover:bg-[var(--surface-hover)] group-hover:shadow-md">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <span className="text-xs font-medium uppercase tracking-wide text-[var(--ink-faint)]">
-            {artifactTypeLabel(artifact.type)}
-          </span>
-          <span className="text-xs text-[var(--ink-faint)]">{dateLabel(artifact.updated_at)}</span>
+      <article className="flex h-full flex-col rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 transition-all duration-150 group-hover:border-[var(--line-strong)] group-hover:bg-[var(--surface-hover)] group-hover:shadow-md">
+        <div className="mb-2 flex items-center justify-between gap-2 text-xs text-[var(--ink-faint)]">
+          <span>{artifactTypeLabel(artifact.type)}</span>
+          <span>{dateLabel(artifact.updated_at)}</span>
         </div>
 
-        <h3 className="mb-1.5 line-clamp-2 text-sm font-semibold leading-5 text-[var(--ink)] transition-colors group-hover:text-[var(--accent)]">
+        <h3 className="mb-3 line-clamp-2 text-[15px] font-semibold leading-6 text-[var(--ink)] transition-colors group-hover:text-[var(--accent)]">
           {artifact.title}
         </h3>
 
-        {artifact.prompt.trim().length > 0 && (
-          <p className="mb-3 line-clamp-2 flex-1 text-xs leading-5 text-[var(--ink-2)]">{artifact.prompt}</p>
-        )}
+        <p className="mt-auto flex items-center gap-1.5 text-xs text-[var(--ink-2)]">
+          <span
+            aria-hidden
+            className={`inline-block h-1.5 w-1.5 rounded-full ${grounded ? "bg-pos" : "bg-[var(--ink-faint)]"}`}
+          />
+          {trustLine(artifact)}
+        </p>
 
-        <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
-          <TrustSignal artifact={artifact} />
-          <FreshnessSignal artifact={artifact} />
-        </div>
+        {artifact.staleSourceCount > 0 && (
+          <p className="mt-1.5 text-xs text-warn">
+            {artifact.staleSourceCount} new conversation{artifact.staleSourceCount !== 1 ? "s" : ""} since this
+            was written
+          </p>
+        )}
       </article>
     </Link>
   );

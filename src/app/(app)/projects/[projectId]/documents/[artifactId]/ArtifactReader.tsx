@@ -253,6 +253,13 @@ function HtmlReader({
   const [activeSec, setActiveSec] = useState<string | null>(null);
   const articleRef = useRef<HTMLDivElement>(null);
 
+  // ── Front of house: Present mode ──────────────────────────────
+  const [presenting, setPresenting] = useState(false);
+  const [presentIndex, setPresentIndex] = useState(0);
+  const [showSorter, setShowSorter] = useState(false);
+  const presentIndexRef = useRef(0);
+  const docviewRef = useRef<HTMLDivElement>(null);
+
   // ── #78: citation trust layer ─────────────────────────────────
   const [citations, setCitations] = useState<CitationRecord[]>([]);
   const [citationsState, setCitationsState] = useState<CitationsState>("loading");
@@ -527,6 +534,143 @@ function HtmlReader({
     scrollEl.scrollTo({ top: offset, behavior: "smooth" });
   }
 
+  // ── Present mode: slide engine ─────────────────────────────────
+  // Slide 0 is a synthetic title slide; slides 1..N map to the document's
+  // h2 sections. In present mode every top-level block is assigned to its
+  // section's slide and only the active slide's blocks render: a real 16:9
+  // deck, not a scrolled page. Pure DOM/CSS, zero tokens to present.
+  const slideCount = tocItems.length + 1;
+
+  function presentNav(delta: number) {
+    const clamped = Math.max(0, Math.min(slideCount - 1, presentIndexRef.current + delta));
+    presentIndexRef.current = clamped;
+    setPresentIndex(clamped);
+  }
+
+  function enterPresent() {
+    presentIndexRef.current = 0;
+    setPresentIndex(0);
+    setPresenting(true);
+    // Fullscreen is best-effort (requires a user gesture; rejects otherwise).
+    docviewRef.current?.requestFullscreen?.().catch(() => {});
+  }
+
+  function exitPresent() {
+    setPresenting(false);
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+  }
+
+  // Auto-enter when linked as /documents/[id]?present=1 (from Front of house).
+  // No fullscreen call here: the API needs a user gesture.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("present") === "1") {
+      setPresenting(true);
+    }
+  }, []);
+
+  // Assign each top-level block to its section's slide; show only the active
+  // one. Blocks before the first h2 section belong to slide 1 alongside it.
+  function applySlideVisibility(active: number) {
+    const el = articleRef.current;
+    if (!el) return;
+    const blocks = Array.from(el.children) as HTMLElement[];
+    let slide = 0;
+    blocks.forEach((node) => {
+      if (node.matches("h2[data-section]") || node.querySelector("h2[data-section]")) {
+        slide = Math.min(slide + 1, tocItems.length);
+      }
+      node.style.display = active === Math.max(1, slide) ? "" : "none";
+    });
+  }
+
+  useEffect(() => {
+    const el = articleRef.current;
+    if (!el) return;
+    if (!presenting) {
+      (Array.from(el.children) as HTMLElement[]).forEach((node) => node.style.removeProperty("display"));
+      return;
+    }
+    applySlideVisibility(presentIndex);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presenting, presentIndex, tocItems]);
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    else docviewRef.current?.requestFullscreen?.().catch(() => {});
+  }
+
+  // The ?present=1 entry path has no user gesture, so requestFullscreen is
+  // blocked there. The first pointer interaction inside present mode qualifies
+  // as a gesture: use it to take over the monitor.
+  useEffect(() => {
+    if (!presenting) return;
+    function onFirstGesture() {
+      if (!document.fullscreenElement) {
+        docviewRef.current?.requestFullscreen?.().catch(() => {});
+      }
+    }
+    window.addEventListener("pointerdown", onFirstGesture, { once: true });
+    return () => window.removeEventListener("pointerdown", onFirstGesture);
+  }, [presenting]);
+
+  // Print the whole document as a paginated deck (one section per page):
+  // un-hide all slides, print, then restore the active slide.
+  function printDeck() {
+    const el = articleRef.current;
+    if (el) {
+      (Array.from(el.children) as HTMLElement[]).forEach((node) => node.style.removeProperty("display"));
+    }
+    window.addEventListener("afterprint", () => applySlideVisibility(presentIndexRef.current), {
+      once: true,
+    });
+    requestAnimationFrame(() => window.print());
+  }
+
+  // Present-mode keyboard navigation + fullscreen-exit sync.
+  useEffect(() => {
+    if (!presenting) return;
+
+    function jump(delta: number) {
+      const count = tocItems.length + 1;
+      const clamped = Math.max(0, Math.min(count - 1, presentIndexRef.current + delta));
+      presentIndexRef.current = clamped;
+      setPresentIndex(clamped);
+    }
+
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") {
+        event.preventDefault();
+        jump(1);
+      } else if (event.key === "ArrowLeft" || event.key === "PageUp") {
+        event.preventDefault();
+        jump(-1);
+      } else if (event.key === "g" || event.key === "G") {
+        event.preventDefault();
+        setShowSorter((prev) => !prev);
+      } else if (event.key === "Escape") {
+        setShowSorter((wasOpen) => {
+          if (!wasOpen) {
+            setPresenting(false);
+            if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+          }
+          return false;
+        });
+      }
+    }
+
+    function onFsChange() {
+      if (!document.fullscreenElement) setPresenting(false);
+    }
+
+    window.addEventListener("keydown", onKey);
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("fullscreenchange", onFsChange);
+    };
+  }, [presenting, tocItems]);
+
   async function startVerification() {
     setVerificationActionState("starting");
     setVerificationActionMessage(null);
@@ -549,7 +693,89 @@ function HtmlReader({
   }
 
   return (
-    <div className="docview">
+    <div ref={docviewRef} className={presenting ? "docview presenting" : "docview"}>
+
+      {presenting && (
+        <div className="present-hud" role="toolbar" aria-label="Presentation controls">
+          <button type="button" onClick={() => presentNav(-1)} aria-label="Previous slide">
+            ←
+          </button>
+          <span className="present-hud-label">
+            {`${presentIndex + 1} / ${slideCount} · ${
+              presentIndex === 0 ? title : tocItems[presentIndex - 1]?.label ?? title
+            }`}
+          </span>
+          <button type="button" onClick={() => presentNav(1)} aria-label="Next slide">
+            →
+          </button>
+          <button type="button" onClick={() => setShowSorter((prev) => !prev)} aria-label="Slide overview (G)">
+            Grid
+          </button>
+          <button type="button" onClick={toggleFullscreen} aria-label="Toggle fullscreen">
+            Fullscreen
+          </button>
+          <button type="button" onClick={printDeck} aria-label="Export deck as PDF">
+            PDF
+          </button>
+          <button type="button" onClick={exitPresent} aria-label="Exit presentation">
+            Exit
+          </button>
+        </div>
+      )}
+
+      {presenting && presentIndex > 0 && citationsState === "available" && (() => {
+        const sec = sectionConfidence.find((s) => s.id === tocItems[presentIndex - 1]?.id);
+        if (!sec) return null;
+        return (
+          <div className="present-grounding" aria-live="polite">
+            {sec.citationCount > 0
+              ? `This slide: ${sec.citationCount} citation${sec.citationCount !== 1 ? "s" : ""} from ${
+                  sec.sourceCount
+                } source${sec.sourceCount !== 1 ? "s" : ""}`
+              : "No citations on this slide"}
+          </div>
+        );
+      })()}
+
+      {presenting && showSorter && (
+        <div className="present-sorter" role="dialog" aria-label="Slide overview">
+          <div className="present-sorter-grid">
+            {["Title", ...tocItems.map((t) => t.label)].map((label, index) => (
+              <button
+                key={index}
+                type="button"
+                className={index === presentIndex ? "on" : ""}
+                onClick={() => {
+                  presentIndexRef.current = index;
+                  setPresentIndex(index);
+                  setShowSorter(false);
+                }}
+              >
+                <span className="n">{index + 1}</span>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {presenting && presentIndex === 0 && (
+        <div className="present-title" aria-label="Title slide">
+          <div className="present-title-kicker">{type}</div>
+          <h1 className="present-title-main">{title}</h1>
+          <p className="present-title-meta">
+            {citations.length > 0
+              ? `Backed by ${
+                  new Set(citations.map((c) => c.source_id ?? c.source_title ?? c.evidence_id)).size
+                } customer conversation${
+                  new Set(citations.map((c) => c.source_id ?? c.source_title ?? c.evidence_id)).size !== 1 ? "s" : ""
+                }`
+              : "Working draft"}
+            {" · "}
+            {dateLabel(createdAt)}
+          </p>
+        </div>
+      )}
 
       {/* Sticky toolbar */}
       <div className="doc-toolbar">
@@ -562,6 +788,14 @@ function HtmlReader({
           <span className="doc-type-badge">{type}</span>
           <span>{dateLabel(createdAt)}</span>
           {wordCount !== null && <span>{wordCount} words</span>}
+          <button
+            type="button"
+            onClick={enterPresent}
+            className="doc-toolbar-back"
+            aria-label="Present this document"
+          >
+            Present
+          </button>
           <button
             type="button"
             onClick={() => window.print()}

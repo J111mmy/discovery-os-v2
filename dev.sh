@@ -1,10 +1,10 @@
 #!/bin/bash
 # Discovery OS v2 — One-command dev startup
 # Usage: ./dev.sh
-# Starts Next.js on port 3000 + Inngest dev server, both in the same terminal
+# Starts Next.js on port 4321 + Inngest dev server, both in the same terminal
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_PORT=3000
+APP_PORT=4321
 INNGEST_PORT=8288
 
 echo "🧹 Cleaning up any stale processes..."
@@ -25,7 +25,10 @@ sleep 1
 echo ""
 echo "🚀 Starting Next.js on port $APP_PORT..."
 cd "$PROJECT_DIR"
-PORT=$APP_PORT npm run dev &
+# INNGEST_DEV=1 forces the Inngest SDK into local dev mode so events go to the
+# local dev server (8288) instead of Inngest Cloud. Without it, a set
+# INNGEST_EVENT_KEY in .env.local routes events to Cloud and local runs never fire.
+PORT=$APP_PORT INNGEST_DEV=1 npm run dev &
 NEXT_PID=$!
 
 echo "⏳ Waiting for Next.js to be ready..."
